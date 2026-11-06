@@ -11,5 +11,5 @@
  {:app {:target :browser
         :output-dir "resources/public/js"
         :asset-path "/js"
-        :modules {:main {:entries [learner.ui.core]}}
-        :devtools {:after-load learner.ui.core/render!}}}}
+        :modules {:main {:entries [robertluo.fly-learner.ui.core]}}
+        :devtools {:after-load robertluo.fly-learner.ui.core/render!}}}}

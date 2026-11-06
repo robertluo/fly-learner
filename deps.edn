@@ -33,14 +33,14 @@
                    "--enable-native-access=ALL-UNNAMED"
                    "-Djdk.attach.allowAttachSelf"]}
 
-  ;; bb test: Kaocha runs clojure.test + Rich Comment Tests (test/clj/learner/rct_test.clj)
+  ;; bb test: Kaocha runs clojure.test + Rich Comment Tests (test/clj/robertluo/fly_learner/rct_test.clj)
   :kaocha {:main-opts ["-m" "kaocha.runner"]}
 
   ;; bb serve
   :run {:jvm-opts ["--add-opens=java.base/java.nio=ALL-UNNAMED"
                    "--add-opens=java.base/sun.nio.ch=ALL-UNNAMED"
                    "--enable-native-access=ALL-UNNAMED"]
-        :main-opts ["-m" "learner.server.system"]}
+        :main-opts ["-m" "robertluo.fly-learner.server.system"]}
 
   ;; frontend build (shadow-cljs.edn :deps)
   :cljs {:extra-paths ["src/cljs"]

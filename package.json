@@ -1,5 +1,5 @@
 {
-  "name": "learner",
+  "name": "fly-learner",
   "private": true,
   "scripts": {
     "watch": "shadow-cljs watch app",

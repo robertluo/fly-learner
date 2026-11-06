@@ -5,7 +5,7 @@
     (cljs!)   backend (if not running) + shadow-cljs watch; app on
               http://localhost:3000, which proxies pages and /api to :8080
     (stop!)"
-  (:require [learner.server.system :as sys]))
+  (:require [robertluo.fly-learner.server.system :as sys]))
 
 (defn start!
   "Start the backend unless it is running."
@@ -34,7 +34,7 @@
   (api '{:sources ?sources})
 
   ;; ingest + fold a PDF into the running system's db
-  (require '[learner.ingest :as ingest] '[learner.llm :as llm])
+  (require '[robertluo.fly-learner.ingest :as ingest] '[robertluo.fly-learner.llm :as llm])
   (def cfg (sys/load-config))
   (def client (llm/client (:anthropic cfg)))
   (ingest/ingest-pdf! (sys/conn) client "data/sources/marmaduke-2024-c2.pdf"

@@ -1,4 +1,6 @@
-# Learn anything
+# fly-learner
+
+Learn anything.
 
 This project is a personal learner for knowledge assisted by AI.
 

@@ -1,4 +1,4 @@
-# Learner
+# fly-learner
 
 See README.md for goals. Roadmap: backend (knowledge base from one source) first; frontend comes after. Clojure (JVM backend) + ClojureScript (shadow-cljs, Replicant) frontend, Datalevin storage.
 
@@ -6,7 +6,7 @@ See README.md for goals. Roadmap: backend (knowledge base from one source) first
 
 Web stack follows flybot.sg (github.com/flybot-sg/lasagna-pattern, `examples/flybot-site`); Datalevin instead of Datahike.
 
-- `src/clj/learner/` — backend
+- `src/clj/robertluo/fly_learner/` — backend
   - `ingest` — `ingest-pdf!`: PDF -> section tree -> fold with Claude -> `data/folds/*.edn` + Datalevin
   - `ingest/pdf` — PDFBox paragraphs -> blocks (`:heading` / `:text`), headings recognised from text
   - `ingest/outline` — blocks -> section tree (drops cover pages, contents, bibliography, ...)
@@ -22,11 +22,11 @@ Web stack follows flybot.sg (github.com/flybot-sg/lasagna-pattern, `examples/fly
     `ask!` (answer with the `:common` model from numbered entries, store as `:ask/*`), `view` (cited subgraph)
   - `quiz`, `progress` (SM-2 reviews), `db` (Datalevin schema + queries; `copy!` rebuilds a db under the
     current schema, e.g. after marking an attribute `:db/fulltext` — Datalevin's `re-index` loses full-text entries)
-- `src/cljc/learner/ui/core/` — frontend logic, JVM-testable: `db` (pure state fns), `pull` (named pull specs),
+- `src/cljc/robertluo/fly_learner/ui/core/` — frontend logic, JVM-testable: `db` (pure state fns), `pull` (named pull specs),
   `history` (URL <-> state), `views` (Replicant hiccup), `highlight` (find a node's text among pdf.js text items)
-- `src/cljs/learner/ui/` — `core` (dispatch-of effects `:db`/`:pull`/`:history`, transit fetch, render), `pdf` (pdf.js: render a page, highlight boxes)
+- `src/cljs/robertluo/fly_learner/ui/` — `core` (dispatch-of effects `:db`/`:pull`/`:history`, transit fetch, render), `pdf` (pdf.js: render a page, highlight boxes)
 - `resources/public/` — `index.html` (loads vendored pdf.js as a module), `css/style.css`
-- `src/cljc/learner/knowledge.cljc` — shared malli schemas for nodes/questions
+- `src/cljc/robertluo/fly_learner/knowledge.cljc` — shared malli schemas for nodes/questions
 - `dev/user.clj` — `(start!)` / `(stop!)` / `(cljs!)`, ingest snippet
 - Tests: Kaocha runs `test/clj` plus Rich Comment Tests (`^:rct/test` comment blocks in `src/`)
 
