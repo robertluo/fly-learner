@@ -48,7 +48,9 @@
    :search-hits     {}     ; question -> [node-ref with :node/path] (full-text, no model)
    :pdf             {:page      nil   ; manual page (nil: follow the node)
                      :pages     {}    ; source-id -> page count
-                     :highlight nil}  ; {:key [url page node-id] :aspect w/h :rects [{:x :y :w :h}]}
+                     :highlight nil   ; {:key [url page node-id] :aspect w/h :rects [{:x :y :w :h}]}
+                     :text-ready nil  ; "url#page" whose text layer is laid out
+                     :placed    {}}   ; quotes key (pdf-quotes-key) -> {idea-id [{:x :y :w :h}]}
    :source-only?    false  ; split views: the left pane hidden, the source (PDF, graph) full width
    :loading?        false
    :error           nil})  ; {:code :reason} or nil
@@ -271,12 +273,19 @@
   [db keys]
   (filterv #(some keys (target-keys %)) (get-in db [:ideas :all])))
 
+(defn- on-pdf-page?
+  "Is `idea` on text selected on the PDF page `page-key` ([:page source-id page]),
+  whatever paragraph that text was found in?"
+  [page-key idea]
+  (some #(and (= :pdf (:field %)) (= page-key [:page (:source/id %) (:page %)])) (:idea/anchors idea)))
+
 (defn ideas-in-node
   "Ideas on node `id`, on anything inside it, or on the PDF page `page-key`
-  ([:page source-id page]) shown beside it."
+  ([:page source-id page]) shown beside it (marked there)."
   [db id page-key]
   (filterv #(or (some #{[:node id] page-key} (target-keys %))
-                (some #{id} (:idea/within %)))
+                (some #{id} (:idea/within %))
+                (on-pdf-page? page-key %))
            (get-in db [:ideas :all])))
 
 (defn ideas-about-concept
@@ -571,6 +580,33 @@
 (defn highlight-found [db key result]
   (assoc-in db [:pdf :highlight] (assoc result :key key)))
 
+(defn pdf-quotes
+  "Ideas on text selected in the PDF of source `sid` on page `p`:
+  [{:idea .. :anchor quote-anchor}]."
+  [db sid p]
+  (vec (for [i (get-in db [:ideas :all])
+             a (:idea/anchors i)
+             :when (and (= :quote (:anchor/kind a)) (= :pdf (:field a))
+                        (= sid (:source/id a)) (= p (:page a)))]
+         {:idea i :anchor a})))
+
+(defn pdf-quotes-key
+  "Identifies where `quotes` are on page `p` of `sid`: boxes are fractions of
+  the page, the same at any width."
+  [sid p quotes]
+  [sid p (vec (sort (map (comp str :idea/id :idea) quotes)))])
+
+(defn text-layer-ready [db url p] (assoc-in db [:pdf :text-ready] (str url "#" p)))
+
+(defn text-layer-ready? [db url p] (= (str url "#" p) (get-in db [:pdf :text-ready])))
+
+(defn pdf-quotes-placed
+  "Boxes of the quotes keyed `k` were found: {idea-id [{:x :y :w :h}]}."
+  [db k placed]
+  (assoc-in db [:pdf :placed k] placed))
+
+(defn pdf-quotes-placed? [db k] (contains? (get-in db [:pdf :placed]) k))
+
 ^:rct/test
 (comment
   (def id #uuid "00000000-0000-0000-0000-000000000001")
@@ -583,6 +619,16 @@
 
   ;; the pane follows the node's page, a section falls back to its first child's
   (pdf-page (-> initial-state (open-node id) (node-fetched n))) ;=> 7
+  ;; a note on text selected on page 28 of the PDF is drawn on that page
+  (def pq {:anchor/kind :quote :field :pdf :source/id :s :page 28 :quote "Bool"})
+  (def with-pq (ideas-fetched initial-state [{:idea/id :q1 :idea/stance :note :idea/anchors [pq]}
+                                             {:idea/id :q2 :idea/stance :agree
+                                              :idea/anchors [(assoc pq :field :text)]}]))
+  (map (comp :idea/id :idea) (pdf-quotes with-pq :s 28)) ;=> [:q1]
+  (pdf-quotes with-pq :s 29) ;=> []
+  (pdf-quotes-key :s 28 (pdf-quotes with-pq :s 28)) ;=> [:s 28 [":q1"]]
+  (text-layer-ready? (text-layer-ready initial-state "/f" 28) "/f" 28) ;=> true
+  (pdf-quotes-placed? (pdf-quotes-placed initial-state [:k] {}) [:k]) ;=> true
   (:source-only? (source-only-toggle initial-state)) ;=> true
   (:source-only? (-> initial-state source-only-toggle source-only-toggle)) ;=> false
   (:source-only? (source-only initial-state "yes")) ;=> true
@@ -695,6 +741,10 @@
   (def on-page {:idea/id :i6 :idea/targets [{:key [:page :s 28]}]})
   (map :idea/id (ideas-in-node (ideas-fetched g1 [inside on-page ag]) :chap [:page :s 28])) ;=> [:i5 :i6]
   (map :idea/id (ideas-in-node (ideas-fetched g1 [inside on-page ag]) :other [:page :s 3])) ;=> []
+  ;; text selected on the PDF page shown, found in another paragraph: listed (and marked) there
+  (def from-pdf {:idea/id :i7 :idea/targets [{:key [:node :elsewhere]}]
+                 :idea/anchors [{:anchor/kind :quote :field :pdf :source/id :s :page 3 :quote "x"}]})
+  (map :idea/id (ideas-in-node (ideas-fetched g1 [from-pdf]) :other [:page :s 3])) ;=> [:i7]
   (= ag (reaction withi (concept-anchor :t))) ;=> true
   (reaction withi (concept-anchor :p)) ;=> nil
   (map :mark (quote-marks withi :n :text)) ;=> [nt]

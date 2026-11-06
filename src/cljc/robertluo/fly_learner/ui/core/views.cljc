@@ -5,7 +5,8 @@
             [robertluo.fly-learner.ideas :as ideas]
             [robertluo.fly-learner.ui.core.db :as db]
             [robertluo.fly-learner.ui.core.history :as history]
-            #?(:cljs [robertluo.fly-learner.ui.pdf :as pdf])))
+            #?(:cljs [robertluo.fly-learner.ui.pdf :as pdf])
+            #?(:cljs [robertluo.fly-learner.ui.select :as select])))
 
 ;;=============================================================================
 ;; Helpers
@@ -358,6 +359,8 @@
         [:h2 "Related"]
         [:ul.cards.compact (for [l links] (card dispatch! l))]])]))
 
+(defn- pct [x] (str (* 100 x) "%"))
+
 #?(:cljs
    (defn- on-render
      "A :replicant/on-render hook calling (f node) when the element is mounted or
@@ -390,13 +393,46 @@
 
 (defn- text-layer-attrs
   "The PDF page's text, selectable to react to (pdf.js TextLayer, filled
-  after render); inert on the JVM."
-  #?(:cljs [url p source-id] :clj [_url p source-id])
+  after render); says when it is laid out. Inert on the JVM."
+  #?(:cljs [url p source-id dispatch!] :clj [_url p source-id _dispatch!])
   (merge {:data-anchor "" :data-field "pdf" :data-source (str source-id) :data-page (str p)}
-         #?(:cljs (on-render #(pdf/render-text-layer! % url p))
+         #?(:cljs (on-render #(pdf/render-text-layer! % url p
+                                                      (fn [] (dispatch! {:db (fn [d] (db/text-layer-ready d url p))}))))
             :clj  {})))
 
-(defn- pct [x] (str (* 100 x) "%"))
+(defn- quote-marks-attrs
+  "Marks layer attrs that find the PDF quotes keyed `k` in the page's text
+  layer (its sibling) once that is laid out. Inert on the JVM."
+  #?(:cljs [k quotes ready? placed? dispatch!] :clj [k _quotes ready? _placed? _dispatch!])
+  (merge {:data-quotes (pr-str [k ready?])}
+         #?(:cljs (on-render
+                   (fn [^js node]
+                     (when (and ready? (not placed?))
+                       (when-let [layer (some-> (.-parentElement node) (.querySelector ".textLayer"))]
+                         (let [placed (into {} (for [{:keys [idea anchor]} quotes
+                                                     :let [rects (select/quote-rects layer anchor)]
+                                                     :when rects]
+                                                 [(:idea/id idea) rects]))]
+                           ;; not inside this render
+                           (js/setTimeout #(dispatch! {:db (fn [d] (db/pdf-quotes-placed d k placed))}) 0))))))
+            :clj  {})))
+
+(defn- pdf-quote-marks
+  "Ideas on text selected on this PDF page, marked where that text is."
+  [db sid url p dispatch!]
+  (let [quotes (db/pdf-quotes db sid p)
+        k      (db/pdf-quotes-key sid p quotes)
+        placed (get-in db [:pdf :placed k])
+        by-id  (into {} (map (juxt (comp :idea/id :idea) :idea)) quotes)]
+    [:div.pdf-idea-marks (quote-marks-attrs k quotes (db/text-layer-ready? db url p)
+                                            (db/pdf-quotes-placed? db k) dispatch!)
+     (for [[id rects] placed
+           :let [{:idea/keys [stance]} (by-id id)]
+           :when stance
+           [i {:keys [x y w h]}] (map-indexed vector rects)]
+       [:div.idea-mark {:replicant/key (str id "-" i) :class (name stance)
+                        :style {:left (pct x) :top (pct y) :width (pct w) :height (pct h)}}])]))
+
 
 (defn- width-toggle
   "Give the source (right pane) the whole width, or share it again."
@@ -445,7 +481,8 @@
                                                  (when (not= pages n)
                                                    (dispatch! {:db #(db/pdf-loaded % sid pages)}))))
                        layout)]
-       [:div.textLayer (merge (text-layer-attrs url p sid) layout {:replicant/key (str url "#" p)})]
+       [:div.textLayer (merge (text-layer-attrs url p sid dispatch!) layout {:replicant/key (str url "#" p)})]
+       (pdf-quote-marks db sid url p dispatch!)
        [:div.pdf-marks
         (for [[i {:keys [x y w h]}] (map-indexed vector (:rects found))]
           [:div.mark {:replicant/key i

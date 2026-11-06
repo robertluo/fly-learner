@@ -71,3 +71,35 @@
                :vh  js/window.innerHeight})))))))
 
 (defn clear! [] (some-> (js/window.getSelection) .removeAllRanges))
+
+(defn- boundary!
+  "Set `range`'s start (or end) at index `i` of the flat text of pieces `ps`."
+  [^js range ps i end?]
+  (loop [[[^js node text] & more] ps, at 0]
+    (when node
+      (let [len (count text), stop (+ at len)]
+        (if (if end? (and (< at i) (<= i stop)) (and (<= at i) (< i stop)))
+          (if (= 3 (.-nodeType node))
+            (if end? (.setEnd range node (- i at)) (.setStart range node (- i at)))
+            ;; a <br>: just before or after it
+            (if end? (.setEndAfter range node) (.setStartBefore range node)))
+          (recur more stop))))))
+
+(defn quote-rects
+  "Where the quote `selector` is in element `el` (as `selection-anchor` reads
+  its text): boxes [{:x :y :w :h}] as fractions of `el`'s box, or nil."
+  [^js el selector]
+  (let [ps (pieces el)]
+    (when-let [[start end] (ideas/find-quote (flat-text ps) selector)]
+      (let [range (js/document.createRange)
+            box   (.getBoundingClientRect el)]
+        (boundary! range ps start false)
+        (boundary! range ps end true)
+        (when (and (pos? (.-width box)) (pos? (.-height box)))
+          (->> (array-seq (.getClientRects range))
+               (filter #(and (> (.-width %) 0.5) (> (.-height %) 0.5)))
+               (mapv (fn [^js r] {:x (/ (- (.-left r) (.-left box)) (.-width box))
+                                  :y (/ (- (.-top r) (.-top box)) (.-height box))
+                                  :w (/ (.-width r) (.-width box))
+                                  :h (/ (.-height r) (.-height box))}))
+               not-empty))))))

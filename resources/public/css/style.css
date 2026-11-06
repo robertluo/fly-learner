@@ -492,7 +492,7 @@ input.filter:focus { outline: 2px solid var(--accent-soft); border-color: var(--
 .idea .stance { font-weight: 700; color: var(--note); }
 .idea.agree .stance { color: var(--agree); }
 .idea.disagree .stance { color: var(--disagree); }
-.idea-body p { margin: 0; }
+.idea-body p { margin: 0; white-space: pre-line; }
 .idea-body blockquote {
   margin: 0 0 .3rem;
   padding-left: .6rem;
@@ -678,6 +678,12 @@ form.ask input:focus { outline: 2px solid var(--accent-soft); border-color: var(
 /* multiply the whole layer (it has a z-index, so it is its own stacking context: a blend on
    each mark would only see the layer): the glyphs stay black, overlapping boxes do not darken */
 .pdf-marks .mark { position: absolute; background: #ffe066; border-radius: 2px; }
+/* your ideas on text selected in the PDF: tinted and underlined in the stance's colour
+   (fixed colours: the page is white in either theme) */
+.pdf-idea-marks { position: absolute; inset: 0; pointer-events: none; mix-blend-mode: multiply; z-index: 2; }
+.idea-mark { position: absolute; background: rgb(160 122 42 / .22); border-bottom: 2px solid #a07a2a; }
+.idea-mark.agree { background: rgb(47 143 91 / .2); border-bottom-color: #2f8f5b; }
+.idea-mark.disagree { background: rgb(181 82 59 / .2); border-bottom-color: #b5523b; }
 
 /* errors -------------------------------------------------------------- */
 
