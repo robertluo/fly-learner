@@ -358,25 +358,34 @@
         [:h2 "Related"]
         [:ul.cards.compact (for [l links] (card dispatch! l))]])]))
 
+#?(:cljs
+   (defn- on-render
+     "A :replicant/on-render hook calling (f node) when the element is mounted or
+     updated, never when it is removed: then it is detached, and a hook that
+     throws leaves Replicant's view of the page out of step with the page."
+     [f]
+     {:replicant/on-render (fn [{:replicant/keys [node life-cycle]}]
+                             (when-not (= :replicant.life-cycle/unmount life-cycle)
+                               (f node)))}))
 
 (defn- pdf-canvas-attrs
   "Canvas attrs that (re)draw page `p` of `url` via pdf.js after each render.
   On the JVM (tests, no DOM) the canvas is inert."
   #?(:cljs [url p on-pages] :clj [_url _p _on-pages])
-  #?(:cljs {:replicant/on-render (fn [{:replicant/keys [node]}] (pdf/render-page! node url p on-pages))}
+  #?(:cljs (on-render #(pdf/render-page! % url p on-pages))
      :clj  {}))
 
 (defn- highlight-attrs
   "Sheet attrs that find the highlight for `key` once (pdf.js text content),
   then scroll the pane to it."
   #?(:cljs [key texts found dispatch!] :clj [_key _texts _found _dispatch!])
-  #?(:cljs {:replicant/on-render
-            (fn [{:replicant/keys [node]}]
+  #?(:cljs (on-render
+            (fn [node]
               (if found
                 (pdf/scroll-to-highlight! node key (:rects found))
                 (pdf/ensure-highlight! key texts
                                        (fn [k result]
-                                         (dispatch! {:db #(db/highlight-found % k result)})))))}
+                                         (dispatch! {:db #(db/highlight-found % k result)}))))))
      :clj  {}))
 
 (defn- text-layer-attrs
@@ -384,7 +393,7 @@
   after render); inert on the JVM."
   #?(:cljs [url p source-id] :clj [_url p source-id])
   (merge {:data-anchor "" :data-field "pdf" :data-source (str source-id) :data-page (str p)}
-         #?(:cljs {:replicant/on-render (fn [{:replicant/keys [node]}] (pdf/render-text-layer! node url p))}
+         #?(:cljs (on-render #(pdf/render-text-layer! % url p))
             :clj  {})))
 
 (defn- pct [x] (str (* 100 x) "%"))
@@ -414,7 +423,10 @@
         n     (db/pdf-pages db sid)
         key   (db/highlight-key db url)
         found (db/highlight db key)
-        goto  (fn [page] #(dispatch! {:db (fn [d] (db/pdf-goto d sid page))}))
+        ;; leaving the node's page for the source is one step back in history;
+        ;; turning further pages replaces it
+        goto  (fn [page] #(dispatch! {:db (fn [d] (db/pdf-goto d sid page))
+                                      :history (if (db/following? db) :push :replace)}))
         ;; the page is drawn to fit the pane's width: an attribute that changes with it
         ;; re-runs the drawing hooks when the pane widens or narrows
         layout {:data-layout (if (:source-only? db) "wide" "split")}]
@@ -425,7 +437,7 @@
       [:span.page "Page " p (when n (str " / " n))]
       [:button {:disabled (boolean (and n (>= p n))) :on {:click (goto (inc p))}} "›"]
       (when-not (db/following? db)
-        [:button.follow {:on {:click #(dispatch! {:db db/pdf-follow})}} "Back to selection"])]
+        [:button.follow {:on {:click #(dispatch! {:db db/pdf-follow :history :push})}} "Back to selection"])]
      [:div.pdf-page
       [:div.pdf-sheet (cond-> (merge (highlight-attrs key (db/highlight-texts node) found dispatch!) layout)
                         found (assoc :style {:aspect-ratio (str (:aspect found))}))

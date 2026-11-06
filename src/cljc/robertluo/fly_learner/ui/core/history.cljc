@@ -1,7 +1,7 @@
 (ns robertluo.fly-learner.ui.core.history
   "URL <-> state (pushState). Routes:
     /            home (sources)
-    /n/<uuid>    a node
+    /n/<uuid>    a node (?page=N: its source on page N, not the node's own)
     /k/<keyword> nodes tagged with a keyword
     /a/<uuid>    an answer from the knowledge base
     /c           every concept
@@ -22,9 +22,9 @@
 
 (defn state->path
   "URL for db; nil while a question waits for its answer (no URL yet)."
-  [{:keys [view node-id keyword ask-id concept-id]}]
+  [{:keys [view node-id keyword ask-id concept-id pdf]}]
   (case view
-    :node     (str "/n/" node-id)
+    :node     (str "/n/" node-id (when-let [p (:page pdf)] (str "?page=" p)))
     :concept  (str "/c/" concept-id)
     :concepts "/c"
     :study    "/q"
@@ -33,8 +33,9 @@
     "/"))
 
 (defn path->state [path]
-  (or (when-let [[_ id] (re-matches #"/n/([0-9a-f-]{36})/?" path)]
-        {:view :node :id (parse-uuid id)})
+  (or (when-let [[_ id page] (re-matches #"/n/([0-9a-f-]{36})/?(?:\?page=(\d+))?" path)]
+        (cond-> {:view :node :id (parse-uuid id)}
+          page (assoc :page (parse-long page))))
       (when-let [[_ id] (re-matches #"/a/([0-9a-f-]{36})/?" path)]
         {:view :ask :id (parse-uuid id)})
       (when-let [[_ id] (re-matches #"/c/([0-9a-f-]{36})/?" path)]
@@ -46,7 +47,7 @@
       {:view :home}))
 
 #?(:cljs
-   (defn current-path [] (.-pathname js/location)))
+   (defn current-path [] (str (.-pathname js/location) (.-search js/location))))
 
 #?(:cljs
    (defn push-state!
@@ -77,6 +78,11 @@
   (path->state "/n/00000000-0000-0000-0000-000000000001")
   ;=> {:view :node :id #uuid "00000000-0000-0000-0000-000000000001"}
   (path->state "/k/system%20f%CF%89") ;=> {:view :keyword :keyword "system fω"}
+  ;; the source on another page than the node's
+  (state->path {:view :node :node-id #uuid "00000000-0000-0000-0000-000000000001" :pdf {:page 88}})
+  ;=> "/n/00000000-0000-0000-0000-000000000001?page=88"
+  (path->state "/n/00000000-0000-0000-0000-000000000001?page=88")
+  ;=> {:view :node :id #uuid "00000000-0000-0000-0000-000000000001" :page 88}
   (path->state "/a/00000000-0000-0000-0000-000000000001")
   ;=> {:view :ask :id #uuid "00000000-0000-0000-0000-000000000001"}
   (state->path {:view :ask :ask-id nil}) ;=> nil

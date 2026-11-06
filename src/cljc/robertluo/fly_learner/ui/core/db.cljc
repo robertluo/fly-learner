@@ -136,10 +136,10 @@
   (get-in db [:asks (:ask-id db)]))
 
 (defn apply-route
-  "Apply a parsed URL ({:view .. :id .. :keyword ..}, see history) to db."
-  [db {:keys [view id keyword]}]
+  "Apply a parsed URL ({:view .. :id .. :keyword .. :page ..}, see history) to db."
+  [db {:keys [view id keyword page]}]
   (case view
-    :node    (open-node db id)
+    :node    (cond-> (open-node db id) page (assoc-in [:pdf :page] (max 1 page)))
     :keyword (open-keyword db keyword)
     :ask      (open-ask db id)
     :concept  (open-concept db id)
@@ -727,4 +727,7 @@
   (:view (apply-route initial-state {:view :concepts})) ;=> :concepts
   (:view (apply-route initial-state {:view :ask :id id})) ;=> :ask
   (:view (apply-route initial-state {:view :keyword :keyword "confluence"})) ;=> :keyword
-  (:view (apply-route (open-node initial-state id) {:view :home}))) ;=> :home
+  (:view (apply-route (open-node initial-state id) {:view :home})) ;=> :home
+  ;; back to a page of the source, or to the node's own page
+  (get-in (apply-route initial-state {:view :node :id id :page 88}) [:pdf :page]) ;=> 88
+  (get-in (apply-route (pdf-goto (open-node initial-state id) :s 9) {:view :node :id id}) [:pdf :page])) ;=> nil

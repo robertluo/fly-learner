@@ -31,9 +31,10 @@
   Cheap to call on every render: skips when that page is already drawn at
   that width. Calls (on-doc num-pages) once the document is loaded."
   [^js canvas url p on-doc]
-  (let [width (.-clientWidth (.-parentElement canvas))
+  (let [width (some-> (.-parentElement canvas) .-clientWidth)
         key   (str url "#" p "@" width)]
-    (when (and (pos? width) (not= key (.. canvas -dataset -rendered)))
+    ;; no parent: the canvas was just removed from the page
+    (when (and width (pos? width) (not= key (.. canvas -dataset -rendered)))
       (set! (.. canvas -dataset -rendered) key)
       (some-> ^js (.-renderTask canvas) .cancel)
       (-> (document url)
@@ -68,9 +69,9 @@
   out by pdf.js to match the canvas, so it can be selected. Cheap to call on
   every render: skips when that page is already laid out at that width."
   [^js container url p]
-  (let [width (.-clientWidth (.-parentElement container))
+  (let [width (some-> (.-parentElement container) .-clientWidth)
         key   (str url "#" p "@" width)]
-    (when (and (pos? width) (not= key (.. container -dataset -rendered)))
+    (when (and width (pos? width) (not= key (.. container -dataset -rendered)))
       (set! (.. container -dataset -rendered) key)
       (-> (js/Promise.all #js [(lib) (document url)])
           (.then (fn [[^js l ^js doc]] (.then (.getPage doc p) (fn [page] [l page]))))
@@ -153,7 +154,7 @@
   box, or to the top when there is none. Once per `key`."
   [^js sheet key rects]
   (let [k (pr-str key)]
-    (when (not= k (.. sheet -dataset -scrolled))
+    (when (and (.-parentElement sheet) (not= k (.. sheet -dataset -scrolled)))
       (set! (.. sheet -dataset -scrolled) k)
       (let [pane ^js (.-parentElement sheet)
             top  (if-let [y (some :y rects)]
