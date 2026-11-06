@@ -1,0 +1,25 @@
+# Devenv
+.devenv*
+devenv.local.nix
+devenv.local.yaml
+
+# direnv
+.direnv
+
+# pre-commit
+.pre-commit-config.yaml
+
+# Clojure / ClojureScript
+.cpcache
+.nrepl-port
+.shadow-cljs
+.clj-kondo/.cache
+.lsp
+.calva
+target
+node_modules
+resources/public/js
+.clojure-mcp-light-hooks.log
+
+# local data: datalevin db, ingested sources
+data

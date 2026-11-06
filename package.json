@@ -1,0 +1,12 @@
+{
+  "name": "learner",
+  "private": true,
+  "scripts": {
+    "watch": "shadow-cljs watch app",
+    "release": "shadow-cljs release app",
+    "test": "shadow-cljs compile test"
+  },
+  "devDependencies": {
+    "shadow-cljs": "3.5.11"
+  }
+}

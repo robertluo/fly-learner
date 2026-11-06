@@ -1,0 +1,56 @@
+{:paths ["src/clj" "src/cljc" "resources"]
+
+ :deps {org.clojure/clojure {:mvn/version "1.12.6"}
+
+        ;; storage: knowledge DAG, questions, user progress
+        datalevin/datalevin {:mvn/version "1.2.10"}
+
+        ;; sources
+        org.apache.pdfbox/pdfbox {:mvn/version "3.0.7"}
+
+        ;; AI
+        com.anthropic/anthropic-java {:mvn/version "3.6.0"}
+
+        ;; http api
+        metosin/reitit {:mvn/version "0.11.0"}
+        ring/ring-jetty-adapter {:mvn/version "1.15.6"}
+        metosin/jsonista {:mvn/version "1.0.2"}
+
+        ;; data schemas shared with the frontend
+        metosin/malli {:mvn/version "0.20.3"}}
+
+ :aliases
+ {;; Datalevin needs these on the JVM
+  :jvm-base {:jvm-opts ["--add-opens=java.base/java.nio=ALL-UNNAMED"
+                        "--add-opens=java.base/sun.nio.ch=ALL-UNNAMED"
+                        "--enable-native-access=ALL-UNNAMED"]}
+
+  :dev {:extra-paths ["dev" "test/clj"]
+        :jvm-opts ["--add-opens=java.base/java.nio=ALL-UNNAMED"
+                   "--add-opens=java.base/sun.nio.ch=ALL-UNNAMED"
+                   "--enable-native-access=ALL-UNNAMED"
+                   "-Djdk.attach.allowAttachSelf"]}
+
+  ;; clojure -M:dev:nrepl  -> writes .nrepl-port (found by clj-nrepl-eval --discover-ports)
+  :nrepl {:extra-deps {nrepl/nrepl {:mvn/version "1.8.0"}
+                       cider/cider-nrepl {:mvn/version "0.64.0"}}
+          :main-opts ["-m" "nrepl.cmdline" "--middleware" "[cider.nrepl/cider-middleware]"]}
+
+  ;; clojure -M:run
+  :run {:jvm-opts ["--add-opens=java.base/java.nio=ALL-UNNAMED"
+                   "--add-opens=java.base/sun.nio.ch=ALL-UNNAMED"
+                   "--enable-native-access=ALL-UNNAMED"]
+        :main-opts ["-m" "learner.main"]}
+
+  ;; clojure -M:test
+  :test {:extra-paths ["test/clj"]
+         :extra-deps {io.github.cognitect-labs/test-runner {:git/tag "v0.5.1" :git/sha "dfb30dd"}}
+         :jvm-opts ["--add-opens=java.base/java.nio=ALL-UNNAMED"
+                    "--add-opens=java.base/sun.nio.ch=ALL-UNNAMED"
+                    "--enable-native-access=ALL-UNNAMED"]
+         :main-opts ["-m" "cognitect.test-runner" "-d" "test/clj"]}
+
+  ;; used by shadow-cljs (see shadow-cljs.edn :deps)
+  :cljs {:extra-paths ["src/cljs" "test/cljs"]
+         :extra-deps {thheller/shadow-cljs {:mvn/version "3.5.11"}
+                      no.cjohansen/replicant {:mvn/version "2026.07.1"}}}}}

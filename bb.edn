@@ -1,0 +1,31 @@
+{:tasks
+ {:requires ([babashka.fs :as fs])
+
+  nrepl
+  {:doc "Start backend nREPL (writes .nrepl-port)"
+   :task (shell "clojure -M:dev:nrepl")}
+
+  cljs
+  {:doc "Watch frontend with shadow-cljs (http://localhost:8280)"
+   :task (shell "npx shadow-cljs watch app")}
+
+  serve
+  {:doc "Run the backend server"
+   :task (shell "clojure -M:run")}
+
+  test
+  {:doc "Run JVM tests"
+   :task (shell "clojure -M:test")}
+
+  test-cljs
+  {:doc "Run ClojureScript tests on node"
+   :task (shell "npx shadow-cljs compile test")}
+
+  lint
+  {:doc "Lint with clj-kondo"
+   :task (shell "clj-kondo --lint src test dev")}
+
+  clean
+  {:doc "Remove build output and caches"
+   :task (doseq [d [".cpcache" ".shadow-cljs" "target" "resources/public/js"]]
+           (fs/delete-tree d))}}}

@@ -1,0 +1,4 @@
+{:db-dir "data/db"
+ :http   {:port 3000}
+ ;; API key lookup when ANTHROPIC_API_KEY is unset (macOS keychain)
+ :anthropic {:keychain {:service "learner" :account "anthropic"}}}
