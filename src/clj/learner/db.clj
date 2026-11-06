@@ -16,14 +16,27 @@
    :node/source     {:db/valueType :db.type/ref}
    :node/level      {:db/valueType :db.type/long}
    :node/kind       {:db/valueType :db.type/keyword} ; :source :section :group :paragraph
-   :node/title      {:db/valueType :db.type/string}
+   ;; :db/fulltext attrs are searched by learner.ask; after adding one, existing
+   ;; data needs a (copy! dir new-dir) once
+   :node/title      {:db/valueType :db.type/string :db/fulltext true}
    :node/summary    {:db/valueType :db.type/string :db/fulltext true}
    :node/text       {:db/valueType :db.type/string :db/fulltext true}
-   :node/keywords   {:db/valueType :db.type/string :db/cardinality :db.cardinality/many}
+   :node/keywords   {:db/valueType :db.type/string :db/cardinality :db.cardinality/many :db/fulltext true}
    :node/page       {:db/valueType :db.type/long}
    :node/order      {:db/valueType :db.type/long}
    :node/children   {:db/valueType :db.type/ref :db/cardinality :db.cardinality/many}
    :node/links      {:db/valueType :db.type/ref :db/cardinality :db.cardinality/many}
+
+   ;; asks: questions to the knowledge base and their answers (learner.ask)
+   :ask/id          {:db/valueType :db.type/uuid :db/unique :db.unique/identity}
+   :ask/question    {:db/valueType :db.type/string}
+   :ask/title       {:db/valueType :db.type/string}
+   :ask/answer      {:db/valueType :db.type/string} ; prose citing [n] = (nth :ask/cited (dec n))
+   :ask/cited       {}                               ; [node-id ...] (EDN value)
+   :ask/matches     {}                               ; [node-id ...] retrieved, not cited
+   :ask/followups   {}                               ; [question ...]
+   :ask/model       {:db/valueType :db.type/string}
+   :ask/at          {:db/valueType :db.type/instant}
 
    ;; questions ---------------------------------------------------------
    :question/id     {:db/valueType :db.type/uuid :db/unique :db.unique/identity}
@@ -51,6 +64,24 @@
 
 (defn close [conn]
   (d/close conn))
+
+(defn copy!
+  "Copy every datom of the database at `from` into a new database at `to`
+  under the current schema, so attributes newly marked :db/fulltext get
+  indexed. Ids (:node/id, :ask/id ..) are kept. Only while nothing else has
+  `from` open; then swap the directories.
+  (datalevin.core/re-index is not used: on 1.2.10 it dropped most of the
+  full-text index.)"
+  [from to]
+  (let [src  (d/get-conn from)
+        dst  (d/get-conn to schema)
+        ref? #(= :db.type/ref (get-in schema [% :db/valueType]))]
+    (try
+      ;; one transaction: refs are tempids, resolved within it
+      (d/transact! dst (vec (for [{:keys [e a v]} (d/datoms (d/db src) :eav)]
+                              [:db/add (str e) a (if (ref? a) (str v) v)])))
+      (count (d/datoms (d/db dst) :eav))
+      (finally (d/close src) (d/close dst)))))
 
 (def ^:private node-ref
   "Shape of a node when referenced from another node."

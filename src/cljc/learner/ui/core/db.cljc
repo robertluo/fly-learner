@@ -10,12 +10,17 @@
 ;;=============================================================================
 
 (def initial-state
-  {:view            :home  ; :home | :node | :keyword
+  {:view            :home  ; :home | :node | :keyword | :ask
    :sources         []     ; [{:source/id :source/title :source/root {:node/id :node/summary}}]
    :node-id         nil    ; node shown in :node view
    :nodes           {}     ; node-id -> node (cache of fetched nodes)
    :keyword         nil    ; keyword shown in :keyword view
    :keyword-results {}     ; keyword -> [node-ref]
+   :ask-id          nil    ; answer shown in :ask view
+   :asking          nil    ; question waiting for its answer (:ask view, no :ask-id yet)
+   :asks            {}     ; ask-id -> ask (see learner.ask/view)
+   :ask-history     []     ; [{:ask/id :ask/question :ask/title :ask/at}], newest first
+   :search-hits     {}     ; question -> [node-ref with :node/path] (full-text, no model)
    :pdf             {:page      nil   ; manual page (nil: follow the node)
                      :pages     {}    ; source-id -> page count
                      :highlight nil}  ; {:key [url page node-id] :aspect w/h :rects [{:x :y :w :h}]}
@@ -32,7 +37,7 @@
 (defn set-loading [db] (assoc db :loading? true :error nil))
 
 (defn set-error [db error]
-  (assoc db :loading? false
+  (assoc db :loading? false :asking nil
          :error (if (map? error) error {:code :unknown :reason (str error)})))
 
 (defn clear-error [db] (assoc db :error nil))
@@ -42,20 +47,34 @@
 ;;=============================================================================
 
 (defn go-home [db]
-  (assoc db :view :home :node-id nil :keyword nil))
+  (assoc db :view :home :node-id nil :keyword nil :asking nil))
 
 (defn open-node
   "Show node `id`; the source pane follows the node's page again."
   [db id]
   (-> db
-      (assoc :view :node :node-id id :keyword nil)
+      (assoc :view :node :node-id id :keyword nil :asking nil)
       (assoc-in [:pdf :page] nil)
       (assoc :loading? (not (contains? (:nodes db) id)))))
 
 (defn open-keyword [db kw]
   (-> db
-      (assoc :view :keyword :keyword kw)
+      (assoc :view :keyword :keyword kw :asking nil)
       (assoc :loading? (not (contains? (:keyword-results db) kw)))))
+
+(defn open-ask
+  "Show the stored answer `id`."
+  [db id]
+  (assoc db :view :ask :ask-id id :asking nil :node-id nil :keyword nil
+         :loading? (not (contains? (:asks db) id))))
+
+(defn ask-submitted
+  "Show `question` as asked; its answer comes with ask-created."
+  [db question]
+  (assoc db :view :ask :ask-id nil :asking question :node-id nil :keyword nil :error nil))
+
+(defn current-ask [db]
+  (get-in db [:asks (:ask-id db)]))
 
 (defn apply-route
   "Apply a parsed URL ({:view .. :id .. :keyword ..}, see history) to db."
@@ -63,6 +82,7 @@
   (case view
     :node    (open-node db id)
     :keyword (open-keyword db keyword)
+    :ask     (open-ask db id)
     (go-home db)))
 
 ;;=============================================================================
@@ -79,6 +99,35 @@
         (assoc-in [:nodes (:node/id node)] node)
         (assoc :loading? false))
     (set-error db {:code :not-found :reason "Node not found"})))
+
+(defn- history-entry [ask]
+  (select-keys ask [:ask/id :ask/question :ask/title :ask/at]))
+
+(defn ask-created
+  "An answer to `question` arrived: cache it, list it, and show it if the
+  user is still waiting for it."
+  [db question ask]
+  (let [db (-> db
+               (assoc-in [:asks (:ask/id ask)] ask)
+               (update :ask-history (fn [h] (into [(history-entry ask)]
+                                                  (remove #(= (:ask/id ask) (:ask/id %)))
+                                                  h))))]
+    (if (and (= :ask (:view db)) (= question (:asking db)))
+      (assoc db :ask-id (:ask/id ask) :asking nil)
+      db)))
+
+(defn ask-fetched [db ask]
+  (if ask
+    (-> db
+        (assoc-in [:asks (:ask/id ask)] ask)
+        (assoc :loading? false))
+    (set-error db {:code :not-found :reason "Answer not found"})))
+
+(defn history-fetched [db asks]
+  (assoc db :ask-history (vec asks)))
+
+(defn search-fetched [db q hits]
+  (assoc-in db [:search-hits q] (vec hits)))
 
 (defn keyword-fetched [db kw nodes]
   (-> db
@@ -179,6 +228,16 @@
   ;; missing node -> error
   (:code (:error (node-fetched initial-state nil))) ;=> :not-found
 
+  ;; asking: the answer is shown only if the user still waits for it
+  (def a {:ask/id id :ask/question "Why?" :ask/title "Because" :ask/answer "..."})
+  (def asked (ask-submitted initial-state "Why?"))
+  (:asking asked) ;=> "Why?"
+  (:ask-id (ask-created asked "Why?" a)) ;=> #uuid "00000000-0000-0000-0000-000000000001"
+  (:ask-id (ask-created (go-home asked) "Why?" a)) ;=> nil
+  (map :ask/title (:ask-history (ask-created (go-home asked) "Why?" a))) ;=> ["Because"]
+  (:asking (set-error asked "boom")) ;=> nil
+
   ;; routes
+  (:view (apply-route initial-state {:view :ask :id id})) ;=> :ask
   (:view (apply-route initial-state {:view :keyword :keyword "confluence"})) ;=> :keyword
   (:view (apply-route (open-node initial-state id) {:view :home}))) ;=> :home

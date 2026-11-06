@@ -148,6 +148,60 @@ h2 {
 
 .cards.compact .preview { -webkit-line-clamp: 2; }
 
+/* ask ------------------------------------------------------------------ */
+
+form.ask { flex: 1; max-width: 560px; margin-left: auto; }
+form.ask input {
+  width: 100%;
+  padding: .4rem .8rem;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--bg);
+  color: var(--text);
+  font: inherit;
+  font-size: .95rem;
+}
+form.ask input:focus { outline: 2px solid var(--accent-soft); border-color: var(--accent); }
+
+.ask h1 { margin-bottom: 1.25rem; }
+.answer p { font: 1.08rem/1.7 var(--serif); margin: 0 0 1rem; }
+
+.cite {
+  display: inline-block;
+  min-width: 1.3em;
+  padding: 0 .3em;
+  margin: 0 .05em 0 .15em;
+  border-radius: 4px;
+  background: var(--accent-soft);
+  font: 600 .72rem/1.5 var(--font);
+  text-align: center;
+  vertical-align: .35em;
+}
+.cite:hover { text-decoration: none; background: var(--accent); color: var(--panel); }
+.cite.gone { color: var(--muted); background: var(--quote); }
+
+.followups { display: flex; flex-wrap: wrap; gap: .5rem; margin: 1.25rem 0 0; }
+.followups .chip { border: 0; cursor: pointer; color: var(--accent); font: inherit; font-size: .9rem; text-align: left; }
+.followups .chip:hover { background: var(--accent); color: var(--panel); }
+
+.thinking::after { content: ""; animation: dots 1.2s steps(4) infinite; }
+@keyframes dots { 0% { content: ""; } 25% { content: "."; } 50% { content: ".."; } 75% { content: "..."; } }
+
+.tree, .tree .tree { list-style: none; margin: 0; padding: 0; }
+.tree .tree { margin-left: .6rem; padding-left: 1rem; border-left: 1px solid var(--border); }
+.tree li { margin: .35rem 0; }
+.tree-row { display: flex; align-items: baseline; gap: .5rem; flex-wrap: wrap; }
+.tree-title { color: var(--text); }
+.tree li.cited > .tree-row .tree-title { color: var(--accent); font-weight: 600; }
+.cite-num {
+  font: 600 .72rem/1.5 var(--font);
+  padding: 0 .35em;
+  border-radius: 4px;
+  background: var(--accent);
+  color: var(--panel);
+}
+.tree .source-text, .tree .preview { margin: .25rem 0 .5rem; }
+
 /* source pane --------------------------------------------------------- */
 
 .pdf-toolbar {

@@ -10,6 +10,7 @@
             [clojure.string :as str]
             [datalevin.core :as d]
             [learner.db :as db]
+            [learner.llm :as llm]
             [learner.server.api :as api]
             [malli.core :as m]
             [malli.error :as me]
@@ -46,7 +47,7 @@
 (defn- spa-route?
   "Client-side routes served by index.html (see learner.ui.core.history)."
   [uri]
-  (or (= "/" uri) (str/starts-with? uri "/n/") (str/starts-with? uri "/k/")))
+  (or (= "/" uri) (some #(str/starts-with? uri %) ["/n/" "/k/" "/a/"])))
 
 (defn- source-file
   "GET /files/sources/<uuid> -> the source's original file (only paths stored
@@ -86,8 +87,14 @@
            ;; closeable wraps in a map, so fun-map won't auto-deref the conn inside
            (closeable {:conn conn} #(db/close conn))))
 
+    ;; the client is built on the first ask, so the server runs without an API
+    ;; key until then; in a map, since fun-map would deref a bare delay
+    ::llm
+    (fnk [::cfg] {:client (delay (llm/client (:anthropic cfg)))})
+
     ::api-fn
-    (fnk [::db] (api/make-api (:conn db)))
+    (fnk [::cfg ::db ::llm]
+         (api/make-api (:conn db) (:client llm) {:models (get-in cfg [:anthropic :models])}))
 
     ::ring-app
     (fnk [::db ::api-fn] (make-ring-app (:conn db) api-fn))

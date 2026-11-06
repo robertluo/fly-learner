@@ -11,8 +11,29 @@
   [op db]
   (case op
     :init
-    {:pattern '{:sources ?sources}
-     :then    (fn [r] {:db #(db/sources-fetched % (get r 'sources))})}
+    {:pattern '{:sources ?sources :asks ?asks}
+     :then    (fn [r] {:db #(-> %
+                                (db/sources-fetched (get r 'sources))
+                                (db/history-fetched (get r 'asks)))})}
+
+    :ask
+    (let [id (:ask-id db)]
+      (when (and id (not (contains? (:asks db) id)))
+        {:pattern {:asks {{:ask/id id} '?ask}}
+         :then    (fn [r] {:db #(db/ask-fetched % (get r 'ask))})}))
+
+    ;; answer the question being asked (a create: runs the model, stores the answer)
+    :ask-create
+    (when-let [q (:asking db)]
+      {:pattern {:asks {nil {:ask/question q}}}
+       :then    (fn [r] {:db #(db/ask-created % q (get r 'asks)) :history :push})})
+
+    ;; instant full-text matches for the question being asked
+    :search
+    (when-let [q (:asking db)]
+      (when-not (contains? (:search-hits db) q)
+        {:pattern {:search {{:q q} '?hits}}
+         :then    (fn [r] {:db #(db/search-fetched % q (get r 'hits))})}))
 
     :node
     (let [id (:node-id db)]
@@ -31,13 +52,20 @@
 (defn for-route
   "Pull operation needed after navigating to a parsed route."
   [{:keys [view]}]
-  (case view :node :node :keyword :keyword nil))
+  (case view :node :node :keyword :keyword :ask :ask nil))
 
 ^:rct/test
 (comment
   (def id #uuid "00000000-0000-0000-0000-000000000001")
 
-  (= '{:sources ?sources} (:pattern (resolve-pull :init db/initial-state))) ;=> true
+  (= '{:sources ?sources :asks ?asks} (:pattern (resolve-pull :init db/initial-state))) ;=> true
+
+  ;; asking: create the answer and search right away; nothing when not asking
+  (:pattern (resolve-pull :ask-create (db/ask-submitted db/initial-state "Why?")))
+  ;=> {:asks {nil {:ask/question "Why?"}}}
+  (= '{:search {{:q "Why?"} ?hits}} (:pattern (resolve-pull :search (db/ask-submitted db/initial-state "Why?"))))
+  ;=> true
+  (resolve-pull :ask-create db/initial-state) ;=> nil
 
   ;; uncached node -> fetch it; cached -> nothing to do
   (= {:nodes {{:node/id id} '?node}}

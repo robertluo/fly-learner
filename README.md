@@ -54,7 +54,7 @@ To do:
 
  - Group paragraphs by length or by Lemma/Proof boundaries instead of fixed runs of 6.
  - Try quiz generation and progress tracking (SM-2 reviews) on real data; both are written but not yet run against it.
- - Multiple sources and links between them.
+ - Multiple sources and links between them (asking already searches across sources).
 
 ### 2. Frontend (in progress)
 
@@ -65,7 +65,8 @@ Done:
  - Browse a source from the birdview down: breadcrumb, summary, keywords, drill-down cards (paragraph text shown inline), related nodes.
  - The original PDF beside it (pdf.js), on the selected node's page, with paging. The node's source text is highlighted on the page (a paragraph, a passage's paragraphs, or a section's heading) and scrolled into view; text from ingest is matched against pdf.js's text in chunks, so formulas the two extract differently don't break it (on the first source, 98% of paragraphs have at least 90% of their text found).
  - Keywords are links: each opens every node tagged with it.
- - URLs per node (`/n/<id>`) and keyword (`/k/<keyword>`), back/forward work.
+ - URLs per node (`/n/<id>`), keyword (`/k/<keyword>`) and answer (`/a/<id>`), back/forward work.
+ - Ask the knowledge base from any page. Full-text matches show at once; then Haiku answers from the knowledge base only (graph RAG: full-text search over titles, keywords, summaries and paragraphs, scores spread to parent sections and keyword links, plus each source's overview), citing the nodes it used. The answer comes with its cited subgraph (document › chapter › section › node) to drill into, follow-up questions and other matches. Answers are stored and listed on the home page. Works across every ingested source; about 4–7 s and $0.001 per question.
 
 To do:
 

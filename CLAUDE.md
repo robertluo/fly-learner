@@ -16,8 +16,12 @@ Web stack follows flybot.sg (github.com/flybot-sg/lasagna-pattern, `examples/fly
     `:common` (Haiku: paragraph groups). The system prompt carries a cache breakpoint; keep it identical
     across calls (fold puts the document outline there) and put per-call content in the user prompt.
   - `server/system` — fun-map `life-cycle-map` (db, api-fn, ring app, http-kit); `/files/sources/<id>` serves the PDF
-  - `server/api` — lasagna-remote pull API on `/api`: `:sources` (collection), `:nodes`, `:keywords` (lookups)
-  - `quiz`, `progress` (SM-2 reviews), `db` (Datalevin schema + queries)
+  - `server/api` — lasagna-remote pull API on `/api`: `:sources`, `:asks` (collections; creating an ask runs the
+    model), `:nodes`, `:keywords`, `:search` (lookups)
+  - `ask` — graph RAG over the whole store: `retrieve` (Datalevin full-text + spread to parents/links),
+    `ask!` (answer with the `:common` model from numbered entries, store as `:ask/*`), `view` (cited subgraph)
+  - `quiz`, `progress` (SM-2 reviews), `db` (Datalevin schema + queries; `copy!` rebuilds a db under the
+    current schema, e.g. after marking an attribute `:db/fulltext` — Datalevin's `re-index` loses full-text entries)
 - `src/cljc/learner/ui/core/` — frontend logic, JVM-testable: `db` (pure state fns), `pull` (named pull specs),
   `history` (URL <-> state), `views` (Replicant hiccup), `highlight` (find a node's text among pdf.js text items)
 - `src/cljs/learner/ui/` — `core` (dispatch-of effects `:db`/`:pull`/`:history`, transit fetch, render), `pdf` (pdf.js: render a page, highlight boxes)

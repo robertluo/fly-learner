@@ -3,7 +3,8 @@
 
   dispatch! takes an effect map; effects run in `effect-order`:
     :db      pure state updater (swap! app-db f)
-    :pull    named pull op (learner.ui.core.pull) or {:pattern .. :then ..}
+    :pull    named pull op (learner.ui.core.pull), {:pattern .. :then ..},
+             or a vector of these (sent in parallel)
     :history :push or :replace the URL for the new state"
   (:require [cognitect.transit :as t]
             [learner.ui.core.db :as db]
@@ -54,11 +55,12 @@
                   :when (some? effect)]
             (case type
               :db      (swap! app-db effect)
-              :pull    (when-let [{:keys [pattern then]}
-                                  (if (map? effect) effect (pull/resolve-pull effect @app-db))]
-                         (pull! pattern
-                                #(@self (then %))
-                                #(@self {:db (fn [d] (db/set-error d %))})))
+              :pull    (doseq [op (if (vector? effect) effect [effect])]
+                         (when-let [{:keys [pattern then]}
+                                    (if (map? op) op (pull/resolve-pull op @app-db))]
+                           (pull! pattern
+                                  #(@self (then %))
+                                  #(@self {:db (fn [d] (db/set-error d %))}))))
               :history (if (= :replace effect)
                          (history/replace-state! @app-db)
                          (history/push-state! @app-db)))))]
@@ -81,7 +83,8 @@
   (add-watch app-db ::render
              (fn [_ _ old new]
                (render!)
-               (when (not= (:node-id old) (:node-id new))
+               (when (not= (select-keys old [:view :node-id :ask-id :keyword])
+                           (select-keys new [:view :node-id :ask-id :keyword]))
                  (js/window.scrollTo 0 0)))))
 
 ;;=============================================================================
