@@ -358,6 +358,7 @@
         [:h2 "Related"]
         [:ul.cards.compact (for [l links] (card dispatch! l))]])]))
 
+
 (defn- pdf-canvas-attrs
   "Canvas attrs that (re)draw page `p` of `url` via pdf.js after each render.
   On the JVM (tests, no DOM) the canvas is inert."
@@ -388,6 +389,21 @@
 
 (defn- pct [x] (str (* 100 x) "%"))
 
+(defn- width-toggle
+  "Give the source (right pane) the whole width, or share it again."
+  [{:keys [source-only?]} dispatch! what]
+  [:button.width-toggle {:title (if source-only? (str "Show the " what " again") (str "Hide the " what ": the source gets the whole width"))
+                         :on {:click #(dispatch! {:db db/source-only-toggle})}}
+   (if source-only? (str "⇥ Show " what) "⇤ Full width")])
+
+(defn- split
+  "Two panes side by side (stacked on a small screen); the left one hidden
+  when the source should have the whole width."
+  [db left right]
+  [:main.split {:class (when (:source-only? db) "source-only")}
+   [:section.content left]
+   right])
+
 (defn- source-pane
   "The original document (pdf.js), on the selected node's page, with the
   node's source text highlighted."
@@ -398,21 +414,26 @@
         n     (db/pdf-pages db sid)
         key   (db/highlight-key db url)
         found (db/highlight db key)
-        goto  (fn [page] #(dispatch! {:db (fn [d] (db/pdf-goto d sid page))}))]
+        goto  (fn [page] #(dispatch! {:db (fn [d] (db/pdf-goto d sid page))}))
+        ;; the page is drawn to fit the pane's width: an attribute that changes with it
+        ;; re-runs the drawing hooks when the pane widens or narrows
+        layout {:data-layout (if (:source-only? db) "wide" "split")}]
     [:aside.source
      [:div.pdf-toolbar
+      (width-toggle db dispatch! "text")
       [:button {:disabled (<= p 1) :on {:click (goto (dec p))}} "‹"]
       [:span.page "Page " p (when n (str " / " n))]
       [:button {:disabled (boolean (and n (>= p n))) :on {:click (goto (inc p))}} "›"]
       (when-not (db/following? db)
         [:button.follow {:on {:click #(dispatch! {:db db/pdf-follow})}} "Back to selection"])]
      [:div.pdf-page
-      [:div.pdf-sheet (cond-> (highlight-attrs key (db/highlight-texts node) found dispatch!)
+      [:div.pdf-sheet (cond-> (merge (highlight-attrs key (db/highlight-texts node) found dispatch!) layout)
                         found (assoc :style {:aspect-ratio (str (:aspect found))}))
-       [:canvas (pdf-canvas-attrs url p (fn [pages]
-                                          (when (not= pages n)
-                                            (dispatch! {:db #(db/pdf-loaded % sid pages)}))))]
-       [:div.textLayer (assoc (text-layer-attrs url p sid) :replicant/key (str url "#" p))]
+       [:canvas (merge (pdf-canvas-attrs url p (fn [pages]
+                                                 (when (not= pages n)
+                                                   (dispatch! {:db #(db/pdf-loaded % sid pages)}))))
+                       layout)]
+       [:div.textLayer (merge (text-layer-attrs url p sid) layout {:replicant/key (str url "#" p)})]
        [:div.pdf-marks
         (for [[i {:keys [x y w h]}] (map-indexed vector (:rects found))]
           [:div.mark {:replicant/key i
@@ -420,9 +441,7 @@
 
 (defn- node-view [db dispatch!]
   (if-let [node (db/current-node db)]
-    [:main.split
-     [:section.content (node-article db node dispatch!)]
-     (source-pane db node dispatch!)]
+    (split db (node-article db node dispatch!) (source-pane db node dispatch!))
     [:main.single [:p.muted (if (:loading? db) "Loading…" "Not found.")]]))
 
 (defn- keyword-view [{:keys [keyword keyword-results loading?]} dispatch!]
@@ -684,6 +703,7 @@
         id (:concept-id db)]
     [:aside.source.graph-pane
      [:div.graph-toolbar
+      (width-toggle db dispatch! "concept")
       [:span (count nodes) (if (= 1 (count nodes)) " concept" " concepts")]
       [:span.legend
        [:span.key.broader] "broader above" [:span.key.related] "related"
@@ -713,12 +733,11 @@
       "+ / − expand or collapse without opening. Filled: how well you know it."]]))
 
 (defn- concept-view [db dispatch!]
-  [:main.split
-   [:section.content
-    (if-let [c (db/current-concept db)]
-      (concept-article db c (db/item-score db (db/concept-item (:concept/id c))) dispatch!)
-      [:p.muted (if (:loading? db) "Loading…" "Not found.")])]
-   (concept-graph db dispatch!)])
+  (split db
+         (if-let [c (db/current-concept db)]
+           (concept-article db c (db/item-score db (db/concept-item (:concept/id c))) dispatch!)
+           [:p.muted (if (:loading? db) "Loading…" "Not found.")])
+         (concept-graph db dispatch!)))
 
 (defn- concepts-view [{:keys [concept-index concept-filter loading?] :as db} dispatch!]
   (let [shown (db/filtered-concepts db)]

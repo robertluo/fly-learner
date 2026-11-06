@@ -100,6 +100,8 @@
   (when-let [el (js/document.getElementById "app")]
     (r/render el (views/app-view @app-db dispatch!))))
 
+(def ^:private source-only-key "fly-learner/source-only")
+
 (defonce _render-on-change
   (add-watch app-db ::render
              (fn [_ _ old new]
@@ -107,6 +109,8 @@
                ;; a reaction was made (or dismissed): let go of the selected text
                (when (and (get-in old [:ideas :selection]) (not (get-in new [:ideas :selection])))
                  (select/clear!))
+               (when (not= (:source-only? old) (:source-only? new))
+                 (some-> js/window.localStorage (.setItem source-only-key (str (:source-only? new)))))
                (when (not= (select-keys old [:view :node-id :ask-id :keyword :concept-id])
                            (select-keys new [:view :node-id :ask-id :keyword :concept-id]))
                  (js/window.scrollTo 0 0)))))
@@ -119,6 +123,9 @@
   (dispatch! {:db #(db/apply-route % route) :pull (pull/for-route route)}))
 
 (defn ^:export init! []
+  ;; the left pane stays hidden across visits (a small screen reading the source)
+  (when (= "true" (some-> js/window.localStorage (.getItem source-only-key)))
+    (dispatch! {:db #(db/source-only % true)}))
   (go-to-route! (history/path->state (history/current-path)))
   (dispatch! {:pull :init}))
 

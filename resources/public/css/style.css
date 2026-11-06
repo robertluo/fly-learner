@@ -78,6 +78,14 @@ main.split {
   background: var(--quote);
 }
 
+main.split.source-only { grid-template-columns: minmax(0, 1fr); }
+main.split.source-only > .content { display: none; }
+main.split.source-only > .source { border-left: 0; }
+.width-toggle { white-space: nowrap; }
+.graph-toolbar .width-toggle { margin-left: 0; }
+/* full width: a page wider than this is harder to read, not easier */
+main.split.source-only .pdf-sheet { max-width: 1000px; margin: 0 auto; }
+
 @media (max-width: 900px) {
   main.split { grid-template-columns: 1fr; }
   .source { position: static; height: auto; border-left: 0; border-top: 1px solid var(--border); }

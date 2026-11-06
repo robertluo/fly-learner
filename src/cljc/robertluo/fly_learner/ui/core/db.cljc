@@ -49,6 +49,7 @@
    :pdf             {:page      nil   ; manual page (nil: follow the node)
                      :pages     {}    ; source-id -> page count
                      :highlight nil}  ; {:key [url page node-id] :aspect w/h :rects [{:x :y :w :h}]}
+   :source-only?    false  ; split views: the left pane hidden, the source (PDF, graph) full width
    :loading?        false
    :error           nil})  ; {:code :reason} or nil
 
@@ -539,6 +540,13 @@
 
 (defn following? [db] (nil? (get-in db [:pdf :page])))
 
+(defn source-only
+  "Hide the left pane of split views (the source gets the whole width), or show it."
+  [db on?]
+  (assoc db :source-only? (boolean on?)))
+
+(defn source-only-toggle [db] (source-only db (not (:source-only? db))))
+
 (defn highlight-texts
   "Source text of `node` to mark on its PDF page: a paragraph's text, a
   passage's paragraphs, a section's heading."
@@ -575,6 +583,9 @@
 
   ;; the pane follows the node's page, a section falls back to its first child's
   (pdf-page (-> initial-state (open-node id) (node-fetched n))) ;=> 7
+  (:source-only? (source-only-toggle initial-state)) ;=> true
+  (:source-only? (-> initial-state source-only-toggle source-only-toggle)) ;=> false
+  (:source-only? (source-only initial-state "yes")) ;=> true
   (node-page {:node/children [{:node/page 3}]}) ;=> 3
   (node-page {}) ;=> 1
 
