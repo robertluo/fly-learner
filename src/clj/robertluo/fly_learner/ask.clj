@@ -11,6 +11,10 @@
                included as overview
     answer     Claude (the :common tier) answers from the numbered entries
                only, citing them [n]
+    focus      a question may be about a passage the learner selected while
+               reading: the nodes it is in come first, the passage is quoted,
+               and notation or background the entries take for granted may
+               be explained, marked as such
     store      the question, answer and cited node ids; reading it back
                rebuilds the cited subgraph from the current graph, so it is
                drilled into like the whole one"
@@ -102,9 +106,18 @@ documents the user studies into a graph: each document has an overview, chapters
 and sections with summaries, passages, and the original paragraphs.
 
 The knowledge base is the source of truth. Answer only from the numbered entries
-in the request, never from outside knowledge, even when you know the topic. Each
-entry shows where it sits (document > chapter > section), its kind, page, and its
-summary or original text.
+in the request, never from outside knowledge, even when you know the topic (one
+exception below, for a selected passage). Each entry shows where it sits
+(document > chapter > section), its kind, page, and its summary or original text.
+
+The learner may have selected a passage while reading and ask about it: to
+explain it, unpack its notation, give an example, relate it to something else.
+Then the question is about that passage; the entries it was selected from come
+first. Explain it from the entries and cite them. Where the passage relies on
+something the entries never explain (standard notation, a well-known definition
+or theorem), you may explain that from general knowledge, briefly, and say plainly
+that it is background, not from their documents. The passage may be copied from a
+PDF, with formulas garbled; read it together with the entries it came from.
 
 - Cite the entries that support each claim with [n] right after the claim, one
   number per bracket: [2][5], not [2, 5].
@@ -146,10 +159,64 @@ summary or original text.
          (when (and (seq keywords) (not= :paragraph kind))
            (str "\nKeywords: " (str/join ", " (sort keywords)))))))
 
-(defn- prompt [question entries]
+(def ^:private max-quote 2000)
+
+(defn- prompt
+  "The user prompt: numbered entries, then the question. With a `quote`, the
+  passage the question is about and the entries (`from`: 1-based numbers) it
+  was selected from."
+  [question entries {:keys [quote from]}]
   (str "Knowledge base entries:\n\n"
        (str/join "\n\n" (map-indexed (fn [i {:keys [node path]}] (entry-text i node path)) entries))
-       "\n\nQuestion: " question))
+       (when quote
+         (str "\n\nThe learner is reading"
+              (if (seq from) (str " " (str/join "" (map #(str "[" % "]") from))) " these documents")
+              " and selected this passage:\n\"\"\"\n"
+              (cond-> quote (> (count quote) max-quote) (-> (subs 0 max-quote) (str " …")))
+              "\n\"\"\""))
+       "\n\n" (if quote "Question about the passage: " "Question: ") question))
+
+^:rct/test
+(comment
+  (def e [{:node {:node/kind :paragraph :node/title "P" :node/text "Bool := ..." :node/page 86
+                  :node/source {:source/title "Thesis"}}
+           :path [{:node/title "Thesis"}]}])
+  (prompt "Why?" e nil)
+  ;=> "Knowledge base entries:\n\n[1] Thesis (paragraph, p. 86)\nBool := ...\n\nQuestion: Why?"
+  (prompt "Explain it" e {:quote "Bool := ∀X" :from [1]})
+  ;=> "Knowledge base entries:\n\n[1] Thesis (paragraph, p. 86)\nBool := ...\n\nThe learner is reading [1] and selected this passage:\n\"\"\"\nBool := ∀X\n\"\"\"\n\nQuestion about the passage: Explain it"
+  )
+
+(defn- beside
+  "The other paragraphs on the page of `eid` (its source's), at most 6."
+  [db eid]
+  (let [{:node/keys [page source]} (d/pull db [:node/page {:node/source [:db/id]}] eid)]
+    (if-not (and page source)
+      []
+      (->> (d/q '[:find [?n ...]
+                  :in $ ?s ?p ?self
+                  :where [?n :node/source ?s] [?n :node/page ?p] [?n :node/kind :paragraph]
+                  [(not= ?n ?self)]]
+                db (:db/id source) page eid)
+           sort ; ingest order is reading order
+           (take 6)))))
+
+(defn- focus-entries
+  "Entries first: the overview, then the nodes `focus-ids` (where a selected
+  passage is), the paragraphs on the same page (a passage often refers to
+  the formula or definition next to it), then the ranked nodes not
+  already in. Returns [entries from], `from` the 1-based numbers of the
+  focus nodes."
+  [db overview focus-ids ranked]
+  (let [eids  (keep #(d/entid db [:node/id %]) focus-ids)
+        focus (map #(d/pull db node-pull %) eids)
+        near  (map #(d/pull db node-pull %) (mapcat #(beside db %) eids))
+        nodes (->> (concat overview focus near ranked)
+                   (reduce (fn [[seen out] n] (if (seen (:db/id n)) [seen out] [(conj seen (:db/id n)) (conj out n)]))
+                           [#{} []])
+                   second)]
+    [(mapv (fn [node] {:node node :path (path-of db (:db/id node))}) nodes)
+     (vec (range (inc (count overview)) (+ 1 (count overview) (count focus))))]))
 
 (defn renumber
   "Citations in `answer` refer to entry numbers 1..n-entries. Renumber them in
@@ -183,33 +250,36 @@ summary or original text.
 
 (defn ask!
   "Answer `question` from the knowledge base in `conn` and store it.
-  opts: :models tier overrides, :context retrieval limits (see retrieve).
+  opts: :models tier overrides, :context retrieval limits (see retrieve),
+  :focus {:quote passage :nodes [node-id ..]} when the question is about a
+  passage the learner selected (in those nodes, if known).
   Returns the new ask's id."
-  [conn client question {:keys [models context]}]
+  [conn client question {:keys [models context focus]}]
   (let [db      (d/db conn)
-        {:keys [overview ranked]} (retrieve db question context)
-        entries (mapv (fn [node] {:node node :path (path-of db (:db/id node))})
-                      (concat overview (map :node ranked)))
+        quote   (some-> (:quote focus) str/trim not-empty)
+        {:keys [overview ranked]} (retrieve db (str question (when quote (str " " quote))) context)
+        [entries from] (focus-entries db overview (when quote (:nodes focus)) (map :node ranked))
         model   (llm/model-for models :common)
         {:keys [title answer followups]}
         (llm/complete-json client {:system     system-prompt
-                                   :prompt     (prompt question entries)
+                                   :prompt     (prompt question entries (when quote {:quote quote :from from}))
                                    :model      model
                                    :max-tokens 4000
                                    :schema     answer-schema})
         [answer cited] (renumber answer (count entries))
         cited-ids (mapv #(get-in entries [% :node :node/id]) cited)
         id        (random-uuid)]
-    (d/transact! conn [{:ask/id        id
-                        :ask/question  question
-                        :ask/title     title
-                        :ask/answer    answer
-                        :ask/cited     cited-ids
-                        :ask/matches   (->> ranked (map (comp :node/id :node))
-                                            (remove (set cited-ids)) (take 12) vec)
-                        :ask/followups (vec (take 3 followups))
-                        :ask/model     model
-                        :ask/at        (java.util.Date.)}])
+    (d/transact! conn [(cond-> {:ask/id        id
+                                :ask/question  question
+                                :ask/title     title
+                                :ask/answer    answer
+                                :ask/cited     cited-ids
+                                :ask/matches   (->> ranked (map (comp :node/id :node))
+                                                    (remove (set cited-ids)) (take 12) vec)
+                                :ask/followups (vec (take 3 followups))
+                                :ask/model     model
+                                :ask/at        (java.util.Date.)}
+                         quote (assoc :ask/quote quote :ask/focus (vec (:nodes focus))))])
     id))
 
 ;;=============================================================================

@@ -56,6 +56,8 @@
    :ask/matches     {}                               ; [node-id ...] retrieved, not cited
    :ask/followups   {}                               ; [question ...]
    :ask/model       {:db/valueType :db.type/string}
+   :ask/quote       {:db/valueType :db.type/string} ; the passage asked about, if any
+   :ask/focus       {}                               ; [node-id ...] the passage is in
    :ask/at          {:db/valueType :db.type/instant}})
 
 (defn connect
@@ -140,6 +142,15 @@
 (defn source [db source-id]
   (d/pull db [:source/id :source/title :source/type :source/path {:source/root [:node/id :node/summary]}]
           [:source/id source-id]))
+
+(defn nodes-on-page
+  "Ids of the paragraphs of source `source-id` on PDF page `page`."
+  [db source-id page]
+  (d/q '[:find [?id ...]
+         :in $ ?sid ?p
+         :where [?s :source/id ?sid] [?n :node/source ?s] [?n :node/page ?p]
+         [?n :node/kind :paragraph] [?n :node/id ?id]]
+       db source-id page))
 
 (defn nodes-with-keyword
   "Summarised nodes carrying keyword `kw`, highest level first."

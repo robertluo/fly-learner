@@ -17,6 +17,7 @@
     '{:asks ?recent}                                ; recent questions
     '{:asks {{:ask/id #uuid \"..\"} ?ask}}         ; an answer with its cited subgraph
     {:asks {nil {:ask/question \"..\"}}}           ; ask: answer with Claude, store, return it
+    {:asks {nil {:ask/question \"..\" :ask/anchor quote}}} ; ask about a selected passage (a quote anchor)
 
   Personal app: no roles."
   (:require [clojure.string :as str]
@@ -52,12 +53,17 @@
   coll/DataSource
   (fetch [_ {:ask/keys [id]}] (when (uuid? id) (ask/view (d/db conn) id)))
   (list-all [_] (ask/history (d/db conn) 20))
-  (create! [_ {:ask/keys [question]}]
-    (let [q (some-> question str/trim)]
-      (if (or (str/blank? q) (> (count q) 2000))
+  (create! [_ {:ask/keys [question anchor]}]
+    (let [q     (some-> question str/trim)
+          focus (when anchor (ideas/focus (d/db conn) anchor))]
+      (cond
+        (or (str/blank? q) (> (count q) 2000))
         {:error {:type :invalid :message "Ask a question of up to 2000 characters"}}
+        (and anchor (not focus))
+        {:error {:type :invalid :message "Ask about a selected passage"}}
+        :else
         (try
-          (ask/view (d/db conn) (ask/ask! conn @client q opts))
+          (ask/view (d/db conn) (ask/ask! conn @client q (cond-> opts focus (assoc :focus focus))))
           (catch Exception e (ask-error e))))))
   (update! [_ _ _] {:error {:type :forbidden}})
   (delete! [_ {:ask/keys [id]}]

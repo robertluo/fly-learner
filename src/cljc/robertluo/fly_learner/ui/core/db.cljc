@@ -37,7 +37,8 @@
                      :response ""   ; the learner's answer being written
                      :result   nil} ; grading, model answer, scores before/after
    :ideas           {:all       nil   ; [idea with :idea/targets] once fetched (server.ideas/all)
-                     :selection nil   ; {:anchor quote-anchor :x :y}: selected text offered a reaction
+                     :selection nil   ; {:anchor quote-anchor :x :y :top :vh}: selected text offered a
+                                      ; reaction or a question; :ask {:question :status :answer} once asked
                      :draft     nil   ; {:anchors [..] :text "" :links #{}}: a note being written
                      :layer?    true} ; show my ideas on the concept graph
    :ask-id          nil    ; answer shown in :ask view
@@ -65,7 +66,9 @@
       (assoc :loading? false :asking nil
              :error (if (map? error) error {:code :unknown :reason (str error)}))
       ;; a failed model call: back to where the learner can try again
-      (update-in [:quiz :status] {:asking nil :grading :answering})))
+      (update-in [:quiz :status] {:asking nil :grading :answering})
+      (cond-> (= :asking (get-in db [:ideas :selection :ask :status]))
+        (update-in [:ideas :selection] dissoc :ask))))
 
 (defn clear-error [db] (assoc db :error nil))
 
@@ -299,17 +302,51 @@
         :when (and (= :quote (:anchor/kind a)) (= field (:field a)))]
     {:selector a :mark i}))
 
-(defn selection-made [db anchor x y]
-  (assoc-in db [:ideas :selection] {:anchor anchor :x x :y y}))
+(defn selection-made
+  "Text was selected: `sel` {:anchor quote-anchor :x :y :top :vh}, where to
+  offer a reaction (viewport pixels: x centre, y bottom, top of the
+  selection; vh the viewport's height)."
+  [db sel]
+  (assoc-in db [:ideas :selection] (select-keys sel [:anchor :x :y :top :vh])))
 
-(defn selection-cleared [db]
+(defn selection-cleared
+  "The selection went away; a note or a question about it keeps it."
+  [db]
   (cond-> db
-    (not (get-in db [:ideas :draft :from-selection?])) (assoc-in [:ideas :selection] nil)))
+    (not (or (get-in db [:ideas :draft :from-selection?])
+             (get-in db [:ideas :selection :ask])))
+    (assoc-in [:ideas :selection] nil)))
+
+(defn selection-ask
+  "Ask the assistant `question` about the selected text."
+  [db question]
+  (let [q (str/trim (str question))]
+    (cond-> db
+      (and (seq q) (get-in db [:ideas :selection]))
+      (assoc-in [:ideas :selection :ask] {:question q :status :asking}))))
+
+(defn selection-answered
+  "The answer to `question` about `anchor` arrived: listed with the other
+  asks, and shown if that selection is still asked about."
+  [db anchor question ask]
+  (let [db (ask-created db question ask)
+        {a :anchor {q :question} :ask} (get-in db [:ideas :selection])]
+    (cond-> db
+      (and (= anchor a) (= question q))
+      (update-in [:ideas :selection :ask] assoc :status :answered :answer ask))))
+
+(defn answer-as-note
+  "Text for a note kept from an answer: the question, then the answer
+  without its citations (they point into the answer's own sources)."
+  [question answer]
+  (let [s (str question "\n\n" (-> answer (str/replace #"\[\d+\]" "") (str/replace #"[ \t]+([.,;:])" "$1")))]
+    (if (> (count s) ideas/max-text) (str (subs s 0 (dec ideas/max-text)) "…") s)))
 
 (defn draft-start
-  "Write a note about `anchors`."
-  [db anchors from-selection?]
-  (assoc-in db [:ideas :draft] {:anchors (vec anchors) :text "" :links #{} :from-selection? from-selection?}))
+  "Write a note about `anchors` (starting from `text`)."
+  ([db anchors from-selection?] (draft-start db anchors from-selection? ""))
+  ([db anchors from-selection? text]
+   (assoc-in db [:ideas :draft] {:anchors (vec anchors) :text text :links #{} :from-selection? from-selection?})))
 
 (defn draft-typed [db s] (assoc-in db [:ideas :draft :text] s))
 
@@ -655,11 +692,23 @@
   (map (comp :idea/id :idea) (:ideas (:ideas (graph-scene withi)))) ;=> [:i1]
   (:ideas (graph-scene (ideas-layer-toggle withi))) ;=> nil
   ;; a note from a text selection keeps the selection until saved or cancelled
-  (def drafting (-> withi (selection-made {:anchor/kind :quote} 1 2) (draft-start [{:anchor/kind :quote}] true)))
+  (def q {:anchor/kind :quote :quote "Bool"})
+  (def drafting (-> withi (selection-made {:anchor q :x 1 :y 2}) (draft-start [q] true)))
   (get-in (selection-cleared drafting) [:ideas :selection :x]) ;=> 1
   (get-in (-> drafting (draft-link :i1) (draft-link :i2) (draft-link :i1)) [:ideas :draft :links]) ;=> #{:i2}
   (get-in (idea-added drafting {:idea/id :i3}) [:ideas :draft]) ;=> nil
   (map :idea/id (get-in (idea-removed withi :i1) [:ideas :all])) ;=> [:i2]
+  ;; asking about a selection keeps it; the answer shows there and joins the asks
+  (def asking (-> withi (selection-made {:anchor q :x 1 :y 2}) (selection-ask " Explain it ")))
+  (get-in asking [:ideas :selection :ask]) ;=> {:question "Explain it" :status :asking}
+  (get-in (selection-cleared asking) [:ideas :selection :x]) ;=> 1
+  (get-in (selection-ask (selection-made withi {:anchor q}) "  ") [:ideas :selection :ask]) ;=> nil
+  (def answered (selection-answered asking q "Explain it" {:ask/id :a1 :ask/answer "It is[1]."}))
+  (get-in answered [:ideas :selection :ask :status]) ;=> :answered
+  (map :ask/id (:ask-history answered)) ;=> [:a1]
+  (get-in (selection-answered asking q "Other" {:ask/id :a2}) [:ideas :selection :ask :status]) ;=> :asking
+  (get-in (set-error asking "boom") [:ideas :selection]) ;=> {:anchor q :x 1 :y 2}
+  (answer-as-note "Why?" "Because[1] of it [2].") ;=> "Why?\n\nBecause of it."
 
   ;; routes
   (:view (apply-route initial-state {:view :study})) ;=> :study

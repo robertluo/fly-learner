@@ -167,7 +167,7 @@
   (let [{:keys [anchors text links]} (get-in db [:ideas :draft])
         others (->> (get-in db [:ideas :all]) (filter :idea/text) (take-last 10) reverse)]
     [:div.composer
-     [:textarea {:value text :rows 3 :placeholder "Your idea, in your own words…"
+     [:textarea {:value text :rows (if (> (count text) 200) 9 3) :placeholder "Your idea, in your own words…"
                  :on {:input #(dispatch! {:db (fn [d] (db/draft-typed d (.. % -target -value)))})}}]
      (when (seq others)
        [:div.link-picker
@@ -232,22 +232,75 @@
                           (idea-item db dispatch! i (not= [anchor] (:idea/anchors i))))]
          [:p.hint.muted "Agree, disagree or add a note. Select any sentence to react to just that."]))]))
 
+(declare answer-view ask-link)
+
+(defn- submit-selection-ask
+  "Form submit: ask the form's `q` input about the selected text."
+  #?(:cljs [dispatch! e] :clj [_dispatch! _e])
+  #?(:cljs (do (.preventDefault e)
+               (let [q (str/trim (.. e -target -elements -q -value))]
+                 (when-not (str/blank? q)
+                   (dispatch! {:db #(db/selection-ask % q) :pull :selection-ask}))))
+     :clj  nil))
+
+(defn- closing
+  "`dispatch!` that also closes the selection popover (leaving it for a page)."
+  [dispatch!]
+  (fn [effects]
+    (dispatch! (update effects :db #(if % (comp % db/draft-cancel) db/draft-cancel)))))
+
+(defn- popover-style
+  "Centred under the selection, kept inside the viewport; a wide popover
+  (an answer) opens above a selection low in the viewport."
+  [{:keys [x y top vh]} wide?]
+  (let [w (if wide? 480 320)
+        above? (and wide? vh top (> y (* 0.55 vh)))]
+    (cond-> {:left (str "clamp(8px, " (- x (/ w 2)) "px, calc(100vw - " (+ w 8) "px))")}
+      above?       (assoc :bottom (str (+ (- vh top) 8) "px") :max-height (str (- top 16) "px"))
+      (not above?) (assoc :top (str (+ y 8) "px") :max-height (str "calc(100vh - " (+ y 16) "px)")))))
+
 (defn- selection-popover
-  "Selected text, offered a reaction."
+  "Selected text, offered a reaction, a note or a question to the assistant."
   [db dispatch!]
-  (when-let [{:keys [anchor x y]} (get-in db [:ideas :selection])]
-    (let [draft (get-in db [:ideas :draft])]
-      [:div.idea-popover {:style {:left (str (max 8 (- x 160)) "px") :top (str (+ y 8) "px")}}
+  (when-let [{:keys [anchor ask] :as sel} (get-in db [:ideas :selection])]
+    (let [draft (get-in db [:ideas :draft])
+          {:keys [question status answer]} ask
+          close [:button.popover-close {:title "Close" :on {:click #(dispatch! {:db db/draft-cancel})}} "×"]]
+      [:div.idea-popover {:class (when (and ask (not (:from-selection? draft))) "wide")
+                          :style (popover-style sel (and ask (not (:from-selection? draft))))}
+       close
        [:p.quote-preview "“" (snippet-of (:quote anchor) 120) "”"]
-       (if (:from-selection? draft)
+       (cond
+         (:from-selection? draft)
          (composer db dispatch!)
-         [:div.actions
-          (for [stance [:agree :disagree]]
-            [:button.btn {:replicant/key (name stance) :class (name stance)
-                          :on {:click #(dispatch! {:pull (create-idea-op {:idea/stance stance :idea/anchors [anchor]})})}}
-             (stance-mark stance) " " (stance-label stance)])
-          [:button.btn {:on {:click #(dispatch! {:db (fn [d] (db/draft-start d [anchor] true))})}} "✎ Note"]
-          [:button.btn.quiet {:on {:click #(dispatch! {:db db/draft-cancel})}} "×"]])])))
+
+         (= :asking status)
+         [:div.asked
+          [:p.question question]
+          [:p.muted.thinking "Thinking about it"]]
+
+         (= :answered status)
+         [:div.asked
+          [:p.question question]
+          (answer-view answer (closing dispatch!))
+          [:div.actions
+           [:button.btn.primary {:title "Keep this answer as your note on the passage"
+                                 :on {:click #(dispatch! {:db (fn [d] (db/draft-start d [anchor] true
+                                                                                      (db/answer-as-note question (:ask/answer answer))))})}}
+            "✎ Keep as note"]
+           (ask-link (closing dispatch!) answer {:class "btn" :title "The answer with its sources"} "Open")]]
+
+         :else
+         [:div
+          [:div.actions
+           (for [stance [:agree :disagree]]
+             [:button.btn {:replicant/key (name stance) :class (name stance)
+                           :on {:click #(dispatch! {:pull (create-idea-op {:idea/stance stance :idea/anchors [anchor]})})}}
+              (stance-mark stance) " " (stance-label stance)])
+           [:button.btn {:on {:click #(dispatch! {:db (fn [d] (db/draft-start d [anchor] true))})}} "✎ Note"]]
+          [:form.ask-selection {:on {:submit (partial submit-selection-ask dispatch!)}}
+           [:input {:name "q" :type "text" :autocomplete "off" :placeholder "Ask about this… e.g. explain it"}]
+           [:button.btn {:type "submit"} "Ask"]]])])))
 
 ;;=============================================================================
 ;; Views
@@ -442,7 +495,9 @@
   (let [ask      (db/current-ask db)
         question (or (:ask/question ask) asking)]
     [:main.single.ask
-     [:span.meta "Question"]
+     (when-let [q (:ask/quote ask)]
+       [:blockquote.asked-about {:replicant/key "quote"} "“" (snippet q 400) "”"])
+     [:span.meta (if (:ask/quote ask) "Question about the passage" "Question")]
      [:h1 question]
      (cond
        ask
@@ -463,7 +518,7 @@
 
        asking
        (list
-        [:p.muted.thinking {:replicant/key "thinking"} "Answering from the knowledge base…"]
+        [:p.muted.thinking {:replicant/key "thinking"} "Answering from the knowledge base"]
         (when-let [hits (seq (get search-hits asking))]
           [:section {:replicant/key "hits"}
            [:h2 "Matches"]

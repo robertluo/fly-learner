@@ -70,6 +70,13 @@
         {:pattern {:answers {nil {:question/id (:question/id question) :response response}}}
          :then    (fn [r] {:db #(db/quiz-graded % (get r 'answers))})}))
 
+    ;; answer a question about the selected text (a create: runs the model)
+    :selection-ask
+    (let [{:keys [anchor ask]} (get-in db [:ideas :selection])]
+      (when (= :asking (:status ask))
+        {:pattern {:asks {nil {:ask/question (:question ask) :ask/anchor anchor}}}
+         :then    (fn [r] {:db #(db/selection-answered % anchor (:question ask) (get r 'asks))})}))
+
     :ideas
     (when-not (get-in db [:ideas :all])
       {:pattern '{:ideas ?all}

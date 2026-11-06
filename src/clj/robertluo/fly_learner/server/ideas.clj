@@ -45,3 +45,16 @@
               (resolved db a i)))))))
 
 (defn delete! [conn id] (store/delete! conn id))
+
+(defn focus
+  "What a selected passage (a quote anchor) is in, for asking about it:
+  {:quote text :nodes [node-id ..]}: its paragraph, or the paragraphs of the
+  PDF page it was selected on. nil unless `anchor` is a quote."
+  [db anchor]
+  (when (and (map? anchor) (= :quote (:anchor/kind anchor)) (string? (:quote anchor)))
+    (let [[kind a b] (ideas/target (anchors/anchors db) anchor)]
+      {:quote (:quote anchor)
+       :nodes (case kind
+                :node [a]
+                :page (vec (take 8 (sort-by str (db/nodes-on-page db a b))))
+                [])})))

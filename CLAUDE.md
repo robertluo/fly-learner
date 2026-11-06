@@ -20,11 +20,15 @@ Web stack follows flybot.sg (github.com/flybot-sg/lasagna-pattern, `examples/fly
     model), `:concepts` (read-only collection), `:nodes` (with `:node/concepts`; `:node/keywords` keeps only
     keywords naming no concept), `:keywords`, `:search` (lookups), `:learning` (lazy overview), `:questions` /
     `:answers` (creates: write a question, grade an answer)
-  - `server/ideas` — ideas resolved for the API (`:idea/targets`, `:idea/within` = ancestor nodes)
+  - `server/ideas` — ideas resolved for the API (`:idea/targets`, `:idea/within` = ancestor nodes); `focus`: a
+    selected passage (quote anchor) -> the nodes it is in, for asking about it (`{:asks {nil {.. :ask/anchor a}}}`)
   - `server/study` — app-layer composition of learning + store + quiz for the API: `overview` (overall, scores,
     next), `new-question!` (sent without its model answer), `answer!` (grading + scores before/after)
   - `ask` — graph RAG over the whole store: `retrieve` (Datalevin full-text + spread to parents/links),
-    `ask!` (answer with the `:common` model from numbered entries, store as `:ask/*`), `view` (cited subgraph)
+    `ask!` (answer with the `:common` model from numbered entries, store as `:ask/*`), `view` (cited subgraph).
+    `:focus {:quote :nodes}`: a question about a passage the learner selected; its nodes and the other
+    paragraphs on their page come first, the passage is quoted, and background the entries lack may be
+    explained, marked as such (stored as `:ask/quote`, `:ask/focus`)
   - `concept` — concepts: ideas with an identity (`:concept/label`, `:concept/gloss`, `:concept/broader`), named by
     keywords (`:concept/aliases`, unique: a keyword names one concept). Mentions are derived: node keyword = alias.
     `resolve!` (model, add-only) assigns unresolved keywords in batches; curation fns (`merge!`, `split!`, `assign!`,

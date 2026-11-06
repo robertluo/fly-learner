@@ -42,9 +42,9 @@
             0 ps)))
 
 (defn selection-anchor
-  "{:anchor quote-anchor :x :y} for the current selection (x, y: where to
-  offer a reaction, in viewport pixels), or nil when nothing anchorable is
-  selected."
+  "{:anchor quote-anchor :x :y :top :vh} for the current selection (x, y:
+  where to offer a reaction, in viewport pixels; top: the selection's top;
+  vh: the viewport's height), or nil when nothing anchorable is selected."
   []
   (let [sel (js/window.getSelection)]
     (when (and sel (not (.-isCollapsed sel)) (pos? (.-rangeCount sel)))
@@ -65,7 +65,9 @@
                                       sel)
                          (seq (.-node ds)) (assoc :node/id (uuid (.-node ds)))
                          (seq (.-page ds)) (assoc :page (js/parseInt (.-page ds) 10)))
-               :x (+ (.-left rect) (/ (.-width rect) 2))
-               :y (.-bottom rect)})))))))
+               :x   (+ (.-left rect) (/ (.-width rect) 2))
+               :y   (.-bottom rect)
+               :top (.-top rect)
+               :vh  js/window.innerHeight})))))))
 
 (defn clear! [] (some-> (js/window.getSelection) .removeAllRanges))

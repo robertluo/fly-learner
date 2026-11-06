@@ -129,8 +129,8 @@
                        (when-not (.closest (.-target e) ".idea-popover")
                          ;; after the browser has settled the selection
                          (js/setTimeout
-                          #(if-let [{:keys [anchor x y]} (select/selection-anchor)]
-                             (dispatch! {:db (fn [d] (db/selection-made d anchor x y))})
+                          #(if-let [sel (select/selection-anchor)]
+                             (dispatch! {:db (fn [d] (db/selection-made d sel))})
                              (when (get-in @app-db [:ideas :selection])
                                (dispatch! {:db db/selection-cleared})))
                           0)))))

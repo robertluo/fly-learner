@@ -73,12 +73,13 @@ Done:
  - URLs per node (`/n/<id>`), concept (`/c/<id>`), keyword (`/k/<keyword>`) and answer (`/a/<id>`), back/forward work.
  - Ask the knowledge base from any page. Full-text matches show at once; then Haiku answers from the knowledge base only (graph RAG: full-text search over titles, keywords, summaries and paragraphs, scores spread to parent sections and keyword links, plus each source's overview), citing the nodes it used. The answer comes with its cited subgraph (document › chapter › section › node) to drill into, follow-up questions and other matches. Answers are stored and listed on the home page. Works across every ingested source; about 4–7 s and $0.001 per question.
  - Your ideas on the knowledge: agree or disagree with a concept, a relation, a passage or any sentence you select (in the text or in the PDF, which now has a selectable text layer), or add a note in your own words, linked to your other ideas. Quotes are marked in the text; concept and node pages list your ideas on them and on anything inside them; the concept graph shows them as diamonds by their concept or relation (toggle "My ideas"). Anchors survive the knowledge changing: a merged concept is followed, a re-ingested passage or quote is found again by its text, and a PDF quote no paragraph contains stays on its page.
+ - Ask about a selection: select text in the article or the PDF and ask about it ("explain this", "what does ι mean here?"). The answer appears beside the selection, grounded in the paragraph it came from and the rest of its page (where a formula usually sits), citing them; background the documents never explain is given briefly and marked as such. Keep the answer as a note on the passage (edit it first), open it as a page with its sources, or let it go (it stays in the ask history).
  - Study page (`/q`): the score of the whole graph, what to study next (with a "Quiz me" for each), and quizzes: a question written by Sonnet from the item's material, a free-text answer (or "I don't know"), then the grade, feedback, the model answer with its key points, and how the item's and the graph's scores moved. A concept page shows how well you know it, with "Quiz me on this". The concept graph is a heat map: concepts fill and relations thicken with their score, and the toolbar and header show the whole graph's score.
 
 To do:
 
  - Quiz on a relation from the graph: click an edge to be asked how two concepts connect.
- - Ask the assistant about a selection (sentences, concepts), then let the exchange go, keep it as an idea, or add it to knowledge as a `:note` source.
+ - Ask about a selection on the concept graph (concepts, relations); add an exchange to knowledge as a `:note` source.
  - Mark PDF quotes on the page; match PDF quotes to paragraphs through formulas (as the highlighting does).
 
 ## Development

@@ -509,11 +509,49 @@ mark.note { background: color-mix(in srgb, var(--note) 10%, transparent); }
   border-radius: 10px;
   box-shadow: 0 6px 24px rgba(0, 0, 0, .15);
 }
-.idea-popover .quote-preview { margin: 0 0 .5rem; font: italic .85rem/1.4 var(--serif); color: var(--muted); }
+.idea-popover .quote-preview { margin: 0 1.2rem .5rem 0; font: italic .85rem/1.4 var(--serif); color: var(--muted); }
 .idea-popover .actions { display: flex; gap: .35rem; flex-wrap: wrap; }
 .idea-popover .btn.agree:hover { border-color: var(--agree); color: var(--agree); }
 .idea-popover .btn.disagree:hover { border-color: var(--disagree); color: var(--disagree); }
 .idea-popover .composer { margin-top: 0; }
+.idea-popover { overflow-y: auto; }
+.popover-close {
+  position: absolute;
+  top: .3rem;
+  right: .4rem;
+  padding: 0 .3rem;
+  border: 0;
+  background: none;
+  color: var(--muted);
+  font-size: 1.1rem;
+  line-height: 1.2;
+  cursor: pointer;
+}
+.popover-close:hover { color: var(--text); }
+.idea-popover.wide { width: 480px; }
+.ask-selection { display: flex; gap: .35rem; margin-top: .5rem; }
+.ask-selection input {
+  flex: 1;
+  min-width: 0;
+  padding: .35rem .6rem;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--bg);
+  color: var(--text);
+  font: inherit;
+  font-size: .9rem;
+}
+.ask-selection input:focus { outline: 2px solid var(--accent-soft); border-color: var(--accent); }
+.asked .question { margin: 0 0 .4rem; font-weight: 600; }
+.asked .answer p { margin: 0 0 .6rem; font: .95rem/1.55 var(--serif); }
+.asked .actions { position: sticky; bottom: -.6rem; padding: .4rem 0 .1rem; background: var(--panel); }
+blockquote.asked-about {
+  margin: 0 0 .8rem;
+  padding-left: .8rem;
+  border-left: 3px solid var(--border);
+  font: italic 1rem/1.5 var(--serif);
+  color: var(--muted);
+}
 
 .graph-toolbar .toggle { display: flex; align-items: center; gap: .3rem; margin-left: .75rem; font-size: .85rem; cursor: pointer; }
 .cgraph .idea-dot rect { fill: var(--note); stroke: var(--panel); stroke-width: 1.5; }
