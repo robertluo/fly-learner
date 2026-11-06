@@ -14,7 +14,10 @@
 ;;=============================================================================
 
 (def initial-state
-  {:view            :home  ; :home | :node | :keyword | :ask | :concept | :concepts | :study
+  {:view            :home  ; :home (the map) | :cluster | :node | :keyword | :ask | :concept | :concepts | :study
+   :universe        nil    ; every cluster (server.study/universe) and the map's layout, once fetched
+   :cluster-id      nil    ; cluster shown in :cluster view
+   :clusters        {}     ; cluster-id -> detail (server.study/cluster): next items in it
    :sources         []     ; [{:source/id :source/title :source/root {:node/id :node/summary}}]
    :node-id         nil    ; node shown in :node view
    :nodes           {}     ; node-id -> node (cache of fetched nodes)
@@ -27,6 +30,7 @@
    :graph           {:ix       nil  ; indexed concept graph (ui.core.graph/index), once fetched
                      :focus    nil  ; concept the shown graph grows from
                      :expanded #{}  ; concepts whose neighbours are shown
+                     :scope    nil  ; #{concept-id}: show exactly these (a cluster), else focus + expanded
                      :pos      {}   ; id -> [x y] target positions
                      :from     {}   ; id -> [x y] positions the animation starts from
                      :t        1.0} ; animation progress, 0..1
@@ -80,7 +84,18 @@
 ;;=============================================================================
 
 (defn go-home [db]
-  (assoc db :view :home :node-id nil :keyword nil :asking nil))
+  (assoc db :view :home :node-id nil :keyword nil :asking nil :cluster-id nil))
+
+(declare cluster-of graph-scope)
+
+(defn open-cluster
+  "Show cluster `id`: what it covers, and its concepts in the graph."
+  [db id]
+  (let [db (assoc db :view :cluster :cluster-id id :asking nil :node-id nil :keyword nil
+                  :loading? (nil? (:universe db)))]
+    (if-let [c (cluster-of db id)]
+      (graph-scope db (:concepts c))
+      db)))
 
 (defn open-node
   "Show node `id`; the source pane follows the node's page again."
@@ -145,6 +160,7 @@
     :keyword (open-keyword db keyword)
     :ask      (open-ask db id)
     :concept  (open-concept db id)
+    :cluster  (open-cluster db id)
     :concepts (open-concepts db)
     :study    (open-study db)
     (go-home db)))
@@ -240,7 +256,10 @@
 (defn quiz-graded
   "The grading arrived: show it, and take the new scores it carries."
   [db result]
-  (cond-> (update db :quiz assoc :status :graded :result result)
+  (cond-> (-> (update db :quiz assoc :status :graded :result result)
+              ;; scores moved: clusters' next items and scores are fetched again
+              (assoc :clusters {})
+              (cond-> (:universe db) (assoc-in [:universe :stale?] true)))
     (:overview result) (assoc :learning (:overview result))))
 
 (defn quiz-close [db] (assoc-in db [:quiz :status] nil))
@@ -414,17 +433,29 @@
   [{:keys [from pos t]}]
   (layout/tween from pos t))
 
+(defn- graph-visible
+  "Concepts the graph shows: its scope (a cluster), else the focus and the
+  neighbours of expanded concepts."
+  [{:keys [ix focus expanded scope]}]
+  (cond
+    (not ix) #{}
+    scope    (into #{} (filter #(get-in ix [:concepts %])) scope)
+    focus    (graph/visible ix focus expanded)
+    :else    #{}))
+
 (defn graph-relayout
   "Lay out what is visible now. Concepts already shown start where they are
   drawn; new ones grow out of the concept that revealed them."
   [db]
-  (let [{:keys [ix focus expanded] :as g} (:graph db)]
-    (if-not (and ix focus)
+  (let [{:keys [ix expanded scope] :as g} (:graph db)
+        vis (graph-visible g)]
+    (if (empty? vis)
       db
-      (let [vis   (graph/visible ix focus expanded)
-            shown (select-keys (shown-positions g) vis)
-            seeds (into {} (for [id vis :when (not (shown id))]
-                             [id (graph/revealer ix vis expanded id)]))]
+      (let [shown (select-keys (shown-positions g) vis)
+            seeds (if scope
+                    {}
+                    (into {} (for [id vis :when (not (shown id))]
+                               [id (graph/revealer ix vis expanded id)])))]
         (update db :graph assoc
                 :pos  (layout/layout vis (graph/edges ix vis) shown seeds
                                      {:height (* max-label-scale 30)
@@ -437,16 +468,24 @@
   "Restart the graph from `id`, expanded."
   [db id]
   (-> db
-      (update :graph assoc :focus id :expanded #{id} :pos {} :from {})
+      (update :graph assoc :focus id :expanded #{id} :scope nil :pos {} :from {})
       graph-relayout))
+
+(defn graph-scope
+  "Show exactly the concepts `ids` (a cluster), laid out afresh."
+  [db ids]
+  (if (= (set ids) (get-in db [:graph :scope]))
+    db
+    (-> db
+        (update :graph assoc :scope (set ids) :focus nil :expanded #{} :pos {} :from {})
+        graph-relayout)))
 
 (defn show-in-graph
   "Keep the graph if `id` is visible in it, else restart it from `id`."
   [db id]
-  (let [{:keys [ix focus expanded]} (:graph db)]
-    (if (and ix focus (contains? (graph/visible ix focus expanded) id))
-      db
-      (graph-reset db id))))
+  (if (contains? (graph-visible (:graph db)) id)
+    db
+    (graph-reset db id)))
 
 (defn graph-toggle [db id]
   (-> db
@@ -458,6 +497,8 @@
   open concept again collapses or re-expands it."
   [db id]
   (cond
+    ;; a cluster's graph shows the cluster: open, never expand
+    (get-in db [:graph :scope])                     (open-concept db id)
     (= id (:concept-id db))                         (graph-toggle db id)
     (contains? (get-in db [:graph :expanded]) id)   (open-concept db id)
     :else                                           (-> db (open-concept id) (graph-toggle id))))
@@ -477,7 +518,7 @@
   "What the graph view draws: {:nodes [..] :edges [..] :box [x y w h] :scale s}."
   [db]
   (let [{:keys [ix focus expanded] :as g} (:graph db)
-        vis (if (and ix focus) (graph/visible ix focus expanded) #{})
+        vis (graph-visible g)
         pos (select-keys (shown-positions g) vis)
         sel (:concept-id db)
         ;; the box covers labels too, not just dots
@@ -495,7 +536,7 @@
                                   :x x :y y :r (radius mentions)
                                   :focus? (= id focus) :selected? (= id sel)
                                   :expanded? (contains? expanded id)
-                                  :hidden (graph/hidden-count ix vis id)}))))
+                                  :hidden (if (:scope g) 0 (graph/hidden-count ix vis id))}))))
                      ;; the selected concept is drawn last, on top
                      (sort-by (juxt :selected? :label))
                      vec)
@@ -510,6 +551,163 @@
        :ideas (graph-ideas db nodes edges)
        ;; labels grow with the zoom-out, so they stay readable (up to a point)
        :scale (-> (/ (nth box 2) 640) (max 1) (min max-label-scale))}))
+
+;;=============================================================================
+;; The map: every cluster (topic) of the knowledge
+;;=============================================================================
+
+(defn bubble-radius
+  "A cluster's bubble grows with its concepts (by area), in map units."
+  [n]
+  (+ 16 (* 4.5 (Math/sqrt n))))
+
+(def map-font
+  "Topic names on the map, in map units (the map is drawn at a fixed size)."
+  22)
+
+(defn label-lines
+  "A topic name on at most two lines, split at the space nearest the middle."
+  [label]
+  (let [words (str/split (str label) #" ")]
+    (if (or (< (count label) 17) (< (count words) 2))
+      [label]
+      (let [half  (/ (count label) 2)
+            cuts  (reductions + (map #(inc (count %)) words))
+            k     (inc (apply min-key #(abs (- (nth cuts %) half)) (range (dec (count words)))))]
+        [(str/join " " (take k words)) (str/join " " (drop k words))]))))
+
+^:rct/test
+(comment
+  (label-lines "Backward induction") ;=> ["Backward" "induction"]
+  (label-lines "Bayesian equilibria and Harsanyi transformation") ;=> ["Bayesian equilibria and" "Harsanyi transformation"]
+  (label-lines "Auctions") ;=> ["Auctions"]
+  )
+
+(defn- name-width [label] (+ 16 (* 0.56 map-font (apply max (map count (label-lines label))))))
+
+(def ^:private map-links-per-cluster
+  "Each topic is drawn joined to its few strongest neighbours: enough to see
+  what sits near what, not a web."
+  3)
+
+(defn- strongest-links
+  "Links among `ids`, keeping for each cluster its `k` strongest."
+  [links ids k]
+  (let [in   (filter #(and (contains? ids (:from %)) (contains? ids (:to %))) links)
+        top  (fn [id] (->> in
+                           (filter #(or (= id (:from %)) (= id (:to %))))
+                           (sort-by (juxt (comp - :weight) (comp str :from) (comp str :to)))
+                           (take k)))]
+    (vec (distinct (mapcat top (sort-by str ids))))))
+
+(defn- domain-layout
+  "Positions of one domain's clusters, centred on [0 0], and its width. Each
+  topic's box is its bubble with its name below, so none overlap."
+  [clusters links]
+  (let [ids  (set (map :cluster/id clusters))
+        ;; one box height for all (the layout's): a typical topic's, not the largest
+        rtyp (let [rs (sort (map (comp bubble-radius count :concepts) clusters))] (nth rs (quot (count rs) 2)))
+        pos  (layout/layout ids
+                            (map #(assoc % :kind :related) (strongest-links links ids map-links-per-cluster))
+                            {} {}
+                            {:length 150 :iterations 300 :aspect 1.0
+                             :height (+ (* 2 rtyp) (* 2.4 map-font))
+                             :widths (into {} (for [{:cluster/keys [id label] :keys [concepts]} clusters]
+                                                [id (max (* 2 (bubble-radius (count concepts))) (name-width label))]))})
+        xs   (map first (vals pos))
+        ys   (map second (vals pos))
+        cx   (/ (+ (apply min xs) (apply max xs)) 2)
+        cy   (/ (+ (apply min ys) (apply max ys)) 2)]
+    {:pos   (into {} (for [[id [x y]] pos] [id [(- x cx) (- y cy)]]))
+     :width (+ (- (apply max xs) (apply min xs)) 380)}))
+
+(defn- map-layout
+  "Positions {cluster-id [x y]}: each domain (the source most of a cluster's
+  passages come from) laid out on its own, the domains side by side, so
+  topics that share edges sit close and domains stay apart."
+  [{:keys [clusters links]}]
+  (let [domains (->> clusters
+                     (group-by (comp :source/id :source))
+                     (sort-by (fn [[src cs]] [(- (count cs)) (str src)]))
+                     (map (fn [[_ cs]] (domain-layout cs links))))]
+    (loop [[d & more] domains, x 0, out {}]
+      (if-not d
+        out
+        (let [cx (+ x (/ (:width d) 2))]
+          (recur more (+ x (:width d))
+                 (into out (for [[id [px py]] (:pos d)] [id [(+ px cx) py]]))))))))
+
+(defn cluster-of
+  "Cluster `id` from the universe, or nil."
+  [db id]
+  (some #(when (= id (:cluster/id %)) %) (get-in db [:universe :clusters])))
+
+(defn concept-cluster
+  "The cluster concept `id` belongs to, or nil."
+  [db id]
+  (some #(when (some #{id} (:concepts %)) %) (get-in db [:universe :clusters])))
+
+(defn current-cluster [db] (cluster-of db (:cluster-id db)))
+
+(defn universe-fetched [db u]
+  (let [db (assoc db :universe (assoc u :pos (map-layout u)) :loading? false)]
+    (if-let [c (and (= :cluster (:view db)) (current-cluster db))]
+      (graph-scope db (:concepts c))
+      db)))
+
+(defn cluster-fetched [db id detail] (assoc-in db [:clusters id] detail))
+
+(defn learning-clusters
+  "The clusters being learned, in the order chosen."
+  [db]
+  (keep #(cluster-of db %) (get-in db [:universe :goals])))
+
+(defn learning-toggled
+  "Start (`on?`) or stop learning cluster `id`, shown at once. What to study
+  next changes with it, so the learning overview is fetched again."
+  [db id on?]
+  (-> db
+      (update-in [:universe :goals] (fn [gs] (if on? (vec (distinct (conj (vec gs) id))) (vec (remove #{id} gs)))))
+      (update-in [:universe :clusters] (fn [cs] (mapv #(cond-> % (= id (:cluster/id %)) (assoc :learning? on?)) cs)))
+      (assoc :learning nil)))
+
+(defn map-scene
+  "What the map draws: {:bubbles [{:id :label :lines :gloss :n :score
+  :learning? :x :y :r :source}] :links [{:x1 :y1 :x2 :y2 :weight}] :domains
+  [{:title :x :y}] :box [x y w h]}, in map units (fixed sizes, see map-font).
+  Domains: where the clusters' passages come from."
+  [db]
+  (let [{:keys [clusters links pos]} (:universe db)
+        bubbles (vec (for [{:cluster/keys [id label gloss] :keys [concepts score learning? source]} clusters
+                           :let [[x y] (pos id)] :when x]
+                       {:id id :label label :lines (label-lines label) :gloss gloss :n (count concepts)
+                        :score (or score 0) :learning? learning? :x x :y y
+                        :r (bubble-radius (count concepts)) :source source}))
+        at      (into {} (map (juxt :id identity)) bubbles)
+        domain  (into {} (map (juxt :id (comp :source/id :source))) bubbles)
+        shown   (->> (group-by :source bubbles) vals
+                     (mapcat #(strongest-links links (set (map :id %)) map-links-per-cluster)))
+        domains (vec (for [[src bs] (group-by :source bubbles) :when src]
+                       {:title (:source/title src)
+                        :x     (/ (reduce + (map :x bs)) (count bs))
+                        :y     (- (apply min (map #(- (:y %) (:r %)) bs)) (* 2.2 map-font))}))]
+    {:bubbles bubbles
+     :links   (vec (for [{:keys [from to weight]} shown
+                         :when (= (domain from) (domain to))
+                         :let [a (at from) b (at to)] :when (and a b)]
+                     {:x1 (:x a) :y1 (:y a) :x2 (:x b) :y2 (:y b) :weight weight}))
+     :domains domains
+     :box     (layout/view-box (into {} (concat
+                                         (for [{:keys [id x y r label lines]} bubbles
+                                               :let [hw (max r (/ (name-width label) 2))]
+                                               [k p] [[[id 0] [(- x hw) (- y r)]]
+                                                      [[id 1] [(+ x hw) (+ y r (* 1.3 map-font (inc (count lines))))]]]]
+                                           [k p])
+                                         (for [{:keys [title x y]} domains
+                                               :let [hw (* 0.36 map-font (count title))]
+                                               [k p] [[[title 0] [(- x hw) (- y map-font)]] [[title 1] [(+ x hw) y]]]]
+                                           [k p])))
+                               {:pad 20})}))
 
 (defn keyword-fetched [db kw nodes]
   (-> db

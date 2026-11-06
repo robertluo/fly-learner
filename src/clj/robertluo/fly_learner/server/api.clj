@@ -8,7 +8,10 @@
     '{:concepts ?all}                              ; every concept (refs, by label)
     '{:concepts {{:concept/id #uuid \"..\"} ?c}}   ; a concept: hierarchy, related, mentions
     '{:concept-graph ?g}                           ; every concept and edge, explored client-side
-    '{:learning ?l}                                ; what the learner knows: overall, scores, next
+    '{:learning ?l}                                ; what the learner knows: overall, scores, next, goals
+    '{:universe ?u}                                ; every cluster (topic) with its score; links between them
+    {:goals {nil {:cluster/id id}}}                ; learn a cluster now; {:goals {{:cluster/id id} nil}} stops
+    '{:clusters {{:cluster/id #uuid \"..\"} ?c}}   ; a cluster's page: what to study next in it
     '{:ideas ?all}                                 ; the learner's ideas, resolved to what they are about
     {:ideas {nil {:idea/stance :note ..}}}         ; add one; {:ideas {{:idea/id id} nil}} removes it
     {:questions {nil {:question/item item}}}       ; write a question (item nil: what to study next)
@@ -105,6 +108,26 @@
   (update! [_ _ _] {:error {:type :forbidden}})
   (delete! [_ _] {:error {:type :forbidden}}))
 
+(defrecord ClustersDataSource [conn learning]
+  coll/DataSource
+  (fetch [_ {:cluster/keys [id]}] (when (uuid? id) (study/cluster (d/db conn) learning id)))
+  (list-all [_] [])
+  (create! [_ _] {:error {:type :forbidden :message "clusters are made from the concept graph"}})
+  (update! [_ _ _] {:error {:type :forbidden}})
+  (delete! [_ _] {:error {:type :forbidden}}))
+
+(defrecord GoalsDataSource [conn learning]
+  coll/DataSource
+  (fetch [_ _] nil)
+  (list-all [_] [])
+  (create! [_ {:cluster/keys [id]}]
+    (if (uuid? id)
+      {:cluster/id id :overview (study/learn! conn learning id true)}
+      {:error {:type :invalid :message "Which cluster?"}}))
+  (update! [_ _ _] {:error {:type :forbidden}})
+  (delete! [_ {:cluster/keys [id]}]
+    (when (uuid? id) (study/learn! conn learning id false) true)))
+
 (defrecord IdeasDataSource [conn]
   coll/DataSource
   (fetch [_ {:idea/keys [id]}] (when (uuid? id) (some #(when (= id (:idea/id %)) %) (ideas/all (d/db conn)))))
@@ -134,6 +157,8 @@
         questions (coll/collection (->QuestionsDataSource conn client learning ask-opts) {:id-key :question/id})
         answers   (coll/collection (->AnswersDataSource conn client learning ask-opts) {:id-key :question/id})
         idea-coll (coll/collection (->IdeasDataSource conn) {:id-key :idea/id})
+        goals     (coll/collection (->GoalsDataSource conn learning) {:id-key :cluster/id})
+        clusters  (coll/read-only (coll/collection (->ClustersDataSource conn learning) {:id-key :cluster/id}))
         nodes   (query-lookup (fn [{:node/keys [id]}] (when (uuid? id) (db/node (d/db conn) id))))
         kws     (query-lookup (fn [{:keys [keyword]}] (when (string? keyword)
                                                         (db/nodes-with-keyword (d/db conn) keyword))))]
@@ -142,6 +167,9 @@
                 :concepts concepts
                 :concept-graph (lazy-value #(concept-view/graph (d/db conn)))
                 :learning (lazy-value #(study/overview (d/db conn) learning))
+                :universe (lazy-value #(study/universe (d/db conn) learning))
+                :goals goals
+                :clusters clusters
                 :questions questions :answers answers
                 :ideas idea-coll}
        :errors {:detect :error

@@ -1,6 +1,7 @@
 (ns robertluo.fly-learner.ui.core.history
   "URL <-> state (pushState). Routes:
-    /            home (sources)
+    /            home: the map of every cluster
+    /g/<uuid>    a cluster (topic)
     /n/<uuid>    a node (?page=N: its source on page N, not the node's own)
     /k/<keyword> nodes tagged with a keyword
     /a/<uuid>    an answer from the knowledge base
@@ -22,8 +23,9 @@
 
 (defn state->path
   "URL for db; nil while a question waits for its answer (no URL yet)."
-  [{:keys [view node-id keyword ask-id concept-id pdf]}]
+  [{:keys [view node-id keyword ask-id concept-id cluster-id pdf]}]
   (case view
+    :cluster  (str "/g/" cluster-id)
     :node     (str "/n/" node-id (when-let [p (:page pdf)] (str "?page=" p)))
     :concept  (str "/c/" concept-id)
     :concepts "/c"
@@ -38,6 +40,8 @@
           page (assoc :page (parse-long page))))
       (when-let [[_ id] (re-matches #"/a/([0-9a-f-]{36})/?" path)]
         {:view :ask :id (parse-uuid id)})
+      (when-let [[_ id] (re-matches #"/g/([0-9a-f-]{36})/?" path)]
+        {:view :cluster :id (parse-uuid id)})
       (when-let [[_ id] (re-matches #"/c/([0-9a-f-]{36})/?" path)]
         {:view :concept :id (parse-uuid id)})
       (when (re-matches #"/c/?" path) {:view :concepts})
@@ -87,6 +91,8 @@
   ;=> {:view :ask :id #uuid "00000000-0000-0000-0000-000000000001"}
   (state->path {:view :ask :ask-id nil}) ;=> nil
   (state->path {:view :concepts}) ;=> "/c"
+  (path->state (state->path {:view :cluster :cluster-id #uuid "00000000-0000-0000-0000-000000000002"}))
+  ;=> {:view :cluster :id #uuid "00000000-0000-0000-0000-000000000002"}
   (path->state "/c/") ;=> {:view :concepts}
   (path->state "/c/00000000-0000-0000-0000-000000000001")
   ;=> {:view :concept :id #uuid "00000000-0000-0000-0000-000000000001"}

@@ -21,6 +21,23 @@
 (defn relation-item [a b]
   (let [[a b] (sort-by str [a b])] [:relation a b]))
 
+(defn concepts-items
+  "Items about the concepts `ids` (a set): each concept, and every relation
+  touching one of them. What learning a cluster of concepts covers."
+  [ids items]
+  (into #{} (filter (fn [[kind a b]]
+                      (case kind
+                        :concept  (contains? ids a)
+                        :relation (or (contains? ids a) (contains? ids b))
+                        false)))
+        items))
+
+^:rct/test
+(comment
+  (concepts-items #{:a} [[:concept :a] [:concept :b] [:relation :a :b] [:relation :b :c]])
+  ;=> #{[:concept :a] [:relation :a :b]}
+  )
+
 (def ^:private source-limit 5)
 
 (def ^:private passage-pull [:db/id :node/title :node/summary :node/text :node/level :node/page])

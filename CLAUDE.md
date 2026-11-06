@@ -18,12 +18,15 @@ Web stack follows flybot.sg (github.com/flybot-sg/lasagna-pattern, `examples/fly
   - `server/system` — fun-map `life-cycle-map` (db, api-fn, ring app, http-kit); `/files/sources/<id>` serves the PDF
   - `server/api` — lasagna-remote pull API on `/api`: `:sources`, `:asks` (collections; creating an ask runs the
     model), `:concepts` (read-only collection), `:nodes` (with `:node/concepts`; `:node/keywords` keeps only
-    keywords naming no concept), `:keywords`, `:search` (lookups), `:learning` (lazy overview), `:questions` /
-    `:answers` (creates: write a question, grade an answer)
+    keywords naming no concept), `:keywords`, `:search` (lookups), `:learning` (lazy overview), `:universe` (lazy:
+    every cluster with its score), `:clusters` (read-only: a cluster's next items), `:goals` (create/delete: learn a
+    cluster), `:questions` / `:answers` (creates: write a question, grade an answer)
   - `server/ideas` — ideas resolved for the API (`:idea/targets`, `:idea/within` = ancestor nodes); `focus`: a
     selected passage (quote anchor) -> the nodes it is in, for asking about it (`{:asks {nil {.. :ask/anchor a}}}`)
-  - `server/study` — app-layer composition of learning + store + quiz for the API: `overview` (overall, scores,
-    next), `new-question!` (sent without its model answer), `answer!` (grading + scores before/after)
+  - `server/study` — app-layer composition of learning + store + quiz + clusters for the API: `overview` (overall,
+    scores, next — from the clusters being learned, if any — and goals), `universe` (clusters with score and
+    `:learning?`), `cluster` (next items within one), `learn!`, `new-question!` (sent without its model answer),
+    `answer!` (grading + scores before/after). A goal is the opaque scope `[:cluster id]`
   - `ask` — graph RAG over the whole store: `retrieve` (Datalevin full-text + spread to parents/links),
     `ask!` (answer with the `:common` model from numbered entries, store as `:ask/*`), `view` (cited subgraph).
     `:focus {:quote :nodes}`: a question about a passage the learner selected; its nodes and the other
@@ -38,10 +41,15 @@ Web stack follows flybot.sg (github.com/flybot-sg/lasagna-pattern, `examples/fly
     nodes), `neighbourhood`, `path` (Dijkstra), `related`
   - `concept/view` — `index`, `concept` (hierarchy, related with shared-passage counts, mentions with paths) and
     `graph` (every concept + broader/related edges; the API's lazy `:concept-graph`) for the API
+  - `concept/cluster` — topics: `communities` (Louvain local moving over broader + co-occurrence weights; fragments
+    under 6 join their most connected neighbour), `refresh!` (re-cluster after an ingest; a cluster mostly the same
+    as an old one, by Jaccard, keeps its id and name; new ones named by `llm-namer`), `universe` (clusters with
+    members, dominant source, links). Stored as `:cluster/*`; `bb ingest` refreshes them
   - `db` (Datalevin knowledge schema + queries; `connect` merges other layers' schemas; `copy!` rebuilds a db under the
     current schema, e.g. after marking an attribute `:db/fulltext` — Datalevin's `re-index` loses full-text entries)
 - `src/cljc/robertluo/fly_learner/ui/core/` — frontend logic, JVM-testable: `db` (pure state fns), `pull` (named pull specs),
-  `history` (URL <-> state), `views` (Replicant hiccup), `highlight` (find a node's text among pdf.js text items),
+  `history` (URL <-> state; `/` the map, `/g/<id>` a cluster), `views` (Replicant hiccup: one flow, map ->
+  cluster -> concept -> passage; the header holds the map and the clusters being learned), `highlight` (find a node's text among pdf.js text items),
   `graph` (concept graph: visible = focus + neighbours of expanded concepts, outline-style), `layout`
   (incremental force layout on primitive arrays: broader-above is a constraint, label boxes never overlap; tween)
 - `src/cljs/robertluo/fly_learner/ui/` — `core` (dispatch-of effects `:db`/`:pull`/`:history`/`:animate`, transit fetch, render,
@@ -61,8 +69,12 @@ Each layer knows the one below as little as possible, so any part can be reimple
   (`init`/`observe`/`score`; `mastery` is the basic one). `overall` = weighted score, the learner's target;
   `next-items` = weight × room to grow × readiness of prerequisites.
   - `learning.decay` — forgetting as a `Model` wrapping any `Model` (FSRS-style stability); learning knows nothing of it
-  - `learning.store` — the evidence log in Datalevin (own schema)
-  - `learning.concepts` — the only bridge: the concept graph as a `Curriculum` (`[:concept id]`, `[:relation a b]`)
+  - `restricted` — a `Curriculum` limited to some items: a learner focusing on part of it (its own `overall`,
+    `next-items`; prerequisites outside still count for readiness)
+  - `learning.store` — the evidence log in Datalevin (own schema), and goals: scopes the learner chose to learn now
+    (opaque ids)
+  - `learning.concepts` — the only bridge: the concept graph as a `Curriculum` (`[:concept id]`, `[:relation a b]`);
+    `concepts-items` = the items a set of concepts (a cluster) covers
 - **features** (`quiz`: generate questions from an item's material, grade free text into `:answer` evidence) —
   depend on learning only, never on knowledge
 - **ideas** (`ideas.cljc`, depends on nothing) — the learner's own voice: an idea takes a stance

@@ -9,6 +9,7 @@
   (:require [clojure.java.io :as io]
             [clojure.string :as str]
             [robertluo.fly-learner.concept :as concept]
+            [robertluo.fly-learner.concept.cluster :as cluster]
             [robertluo.fly-learner.db :as db]
             [robertluo.fly-learner.ingest :as ingest]
             [robertluo.fly-learner.llm :as llm]
@@ -38,7 +39,7 @@
 (defn ingest!
   "Ingest the PDFs at `paths`: extract, fold with Claude and store each
   (replacing an earlier ingest of the same file), then resolve the keywords
-  no concept covers yet into concepts. Uses the running system's db when
+  no concept covers yet into concepts and cluster them into topics again. Uses the running system's db when
   there is one, else opens it and closes it after. Prints progress and the
   cost. Returns {:sources [..] :concepts totals}."
   [& paths]
@@ -65,6 +66,10 @@
                                          {:on-batch (fn [{:keys [new attached ignored]}]
                                                       (println (format "  batch: %d new concepts, %d keywords to existing ones, %d ignored"
                                                                        (or new 0) (or attached 0) (or ignored 0))))})]
+          (println "Clustering concepts into topics")
+          (let [{:keys [clusters kept named dropped]}
+                (cluster/refresh! conn (cluster/llm-namer client {:models models}))]
+            (println (format "  %d clusters: %d kept, %d new (named), %d gone" clusters kept named dropped)))
           (println (format "Done: %d source(s); %d new concepts, %d keywords joined existing ones, %d ignored%s. Cost: $%.2f"
                            (count sources) (:new concepts) (:attached concepts) (:ignored concepts)
                            (if (seq (:missing concepts))

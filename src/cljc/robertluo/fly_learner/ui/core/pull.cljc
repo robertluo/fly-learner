@@ -11,10 +11,24 @@
   [op db]
   (case op
     :init
-    {:pattern '{:sources ?sources :asks ?asks}
+    {:pattern '{:sources ?sources :asks ?asks :universe ?u}
      :then    (fn [r] {:db #(-> %
                                 (db/sources-fetched (get r 'sources))
-                                (db/history-fetched (get r 'asks)))})}
+                                (db/history-fetched (get r 'asks))
+                                (db/universe-fetched (get r 'u)))})}
+
+    ;; every cluster with its score (the map; the header's clusters being learned)
+    :universe
+    (when (or (nil? (:universe db)) (get-in db [:universe :stale?]))
+      {:pattern '{:universe ?u}
+       :then    (fn [r] {:db #(db/universe-fetched % (get r 'u))})})
+
+    ;; what to study next in the cluster shown
+    :cluster
+    (let [id (:cluster-id db)]
+      (when (and id (not (contains? (:clusters db) id)))
+        {:pattern {:clusters {{:cluster/id id} '?c}}
+         :then    (fn [r] {:db #(db/cluster-fetched % id (get r 'c))})}))
 
     :ask
     (let [id (:ask-id db)]
@@ -98,13 +112,22 @@
 (defn for-route
   "Pull operation needed after navigating to a parsed route."
   [{:keys [view]}]
-  (case view :node [:node :ideas] :keyword :keyword :ask :ask :concept [:concept :concept-graph :learning :ideas] :concepts :concept-index :study :learning nil))
+  (case view
+    :home     [:universe :learning]
+    :cluster  [:universe :cluster :concept-graph :learning :ideas]
+    :node     [:node :ideas]
+    :keyword  :keyword
+    :ask      :ask
+    :concept  [:universe :concept :concept-graph :learning :ideas]
+    :concepts :concept-index
+    :study    :learning
+    nil))
 
 ^:rct/test
 (comment
   (def id #uuid "00000000-0000-0000-0000-000000000001")
 
-  (= '{:sources ?sources :asks ?asks} (:pattern (resolve-pull :init db/initial-state))) ;=> true
+  (= '{:sources ?sources :asks ?asks :universe ?u} (:pattern (resolve-pull :init db/initial-state))) ;=> true
 
   ;; asking: create the answer and search right away; nothing when not asking
   (:pattern (resolve-pull :ask-create (db/ask-submitted db/initial-state "Why?")))
@@ -136,7 +159,12 @@
 
   (for-route {:view :node}) ;=> [:node :ideas]
   (for-route {:view :concepts}) ;=> :concept-index
-  (for-route {:view :concept}) ;=> [:concept :concept-graph :learning :ideas]
+  (for-route {:view :concept}) ;=> [:universe :concept :concept-graph :learning :ideas]
+  (for-route {:view :cluster}) ;=> [:universe :cluster :concept-graph :learning :ideas]
+  (for-route {:view :home}) ;=> [:universe :learning]
+  ;; the map is fetched once, and again after scores moved
+  (resolve-pull :universe (db/universe-fetched db/initial-state {:clusters [] :links []})) ;=> nil
+  (some? (resolve-pull :universe (assoc-in (db/universe-fetched db/initial-state {:clusters [] :links []}) [:universe :stale?] true))) ;=> true
   (for-route {:view :study}) ;=> :learning
   (:pattern (resolve-pull :question-create (db/quiz-start db/initial-state [:concept id])))
   ;=> {:questions {nil {:question/item [:concept #uuid "00000000-0000-0000-0000-000000000001"]}}}

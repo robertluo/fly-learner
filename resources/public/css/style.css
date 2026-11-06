@@ -698,3 +698,44 @@ form.ask input:focus { outline: 2px solid var(--accent-soft); border-color: var(
   color: #8a1c12;
 }
 .error button { border: 0; background: none; color: inherit; cursor: pointer; }
+
+/* the map: every topic ----------------------------------------------- */
+
+main.map-home {
+  display: grid;
+  grid-template-columns: 300px minmax(0, 1fr);
+  min-height: calc(100vh - 52px);
+}
+.map-side { padding: 1.5rem 1.5rem 3rem; border-right: 1px solid var(--border); }
+.map-side .big { font: 600 1.6rem/1 var(--serif); color: var(--accent); }
+.map-side .known { margin-top: .4rem; }
+.map-side h2 { margin-top: 1.75rem; }
+.learning-list, ul.plain { list-style: none; padding: 0; margin: 0; display: grid; gap: .55rem; }
+.learning-list li { display: grid; grid-template-columns: 1fr 70px 2.6rem; align-items: center; gap: .5rem; font-size: .92rem; }
+.learning-list .pct { font-size: .8rem; color: var(--muted); text-align: right; }
+ul.plain li { font-size: .9rem; line-height: 1.35; }
+.map-pane { position: sticky; top: 52px; height: calc(100vh - 52px); display: flex; flex-direction: column; background: var(--quote); }
+.map-pane .hint { margin-left: auto; font-size: .82rem; }
+.kmap { flex: 1; width: 100%; min-height: 0; }
+.kmap .links line { stroke: var(--border); stroke-opacity: .9; }
+.kmap .domain { fill: var(--muted); font-family: var(--font); font-weight: 600; letter-spacing: .06em; text-transform: uppercase; }
+.kmap .bubble { cursor: pointer; }
+.kmap .bubble .body { fill: var(--panel); stroke: var(--accent); stroke-width: 1.5; }
+.kmap .bubble .heat { fill: var(--accent); pointer-events: none; }
+.kmap .bubble .ring { fill: none; stroke: var(--accent); stroke-width: 2.5; display: none; }
+.kmap .bubble.learning .ring { display: inline; }
+.kmap .bubble.learning .body { stroke-width: 2.5; }
+.kmap .bubble .n { fill: var(--muted); font-family: var(--font); pointer-events: none; }
+.kmap .bubble .label { fill: var(--text); font-family: var(--font); pointer-events: none; }
+.kmap .bubble:hover .body { fill: var(--accent-soft); }
+.kmap .bubble:hover .label { fill: var(--accent); }
+.legend .key.learning { width: 10px; height: 10px; border: 2px solid var(--accent); border-radius: 50%; background: none; }
+.top-nav a.here { color: var(--text); }
+.top-nav a.learning { color: var(--accent); }
+.chips { display: flex; flex-wrap: wrap; gap: .35rem; }
+
+@media (max-width: 900px) {
+  main.map-home { grid-template-columns: 1fr; }
+  .map-side { border-right: 0; border-bottom: 1px solid var(--border); }
+  .map-pane { position: static; height: 70vh; }
+}

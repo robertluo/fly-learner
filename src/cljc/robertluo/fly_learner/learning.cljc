@@ -65,6 +65,17 @@
       (/ (reduce + (map (fn [[item w]] (* w (get scores item 0))) ws)) total)
       0)))
 
+(defn restricted
+  "`curriculum` limited to the items in `keep?` (a set or predicate): what a
+  learner studies when they focus on part of it. Prerequisites outside still
+  count for readiness."
+  [curriculum keep?]
+  (let [ws (into {} (filter (comp keep? key)) (items curriculum))]
+    (reify Curriculum
+      (items [_] ws)
+      (prerequisites [_ item] (prerequisites curriculum item))
+      (material [_ item] (material curriculum item)))))
+
 (defn readiness
   "How well `item`'s prerequisites are known: their mean score, 1 if none."
   [curriculum scores item]
@@ -133,6 +144,12 @@
 
   ;; :a is half-way known, :b barely: what to study next moves on
   (mapv first (next-items c s 3)) ;=> [:ab :b :a]
+
+  ;; focusing on part of it: its own overall, next items only from there
+  (def ab (restricted c #{:b :ab}))
+  (overall ab s) ;=> 0.03333333333333333 ; (1 x 0.1 + 2 x 0) / 3
+  (mapv first (next-items ab s 3)) ;=> [:ab :b]
+  (readiness ab s :ab) ;=> 0.425 ; :a counts though it is outside
 
   ;; a wrong answer pulls mastery down
   (:mastery (observe m {:mastery 0.8 :answers 1} {:kind :answer :grade 0.0})) ;=> 0.4

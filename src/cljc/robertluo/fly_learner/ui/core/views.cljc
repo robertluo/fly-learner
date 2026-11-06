@@ -54,9 +54,19 @@
   (apply concept-link dispatch! c {:class ["chip" "concept"] :replicant/key (:concept/id c)}
          (:concept/label c) extra))
 
-(def ^:private concepts-effects {:db db/open-concepts :pull :concept-index :history :push})
+(def ^:private map-effects {:db db/go-home :pull [:universe :learning] :history :push})
 
-(def ^:private study-effects {:db db/open-study :pull :learning :history :push})
+(defn- cluster-effects [id]
+  {:db #(db/open-cluster % id) :pull [:universe :cluster :concept-graph :learning :ideas]
+   :history :push :animate true})
+
+(defn- cluster-link
+  "Link to a cluster's page; its gloss shows on hover."
+  [dispatch! {:cluster/keys [id label gloss]} attrs & children]
+  (apply link dispatch! (cluster-effects id)
+         (history/state->path {:view :cluster :cluster-id id})
+         (merge {:title (or gloss label)} attrs)
+         (or (seq children) [label])))
 
 (defn- quiz-effects
   "Quiz on `item` (nil: what to study next)."
@@ -98,13 +108,18 @@
                    (dispatch! (ask-effects q)))))
      :clj  nil))
 
-(defn- header [{:keys [asking] :as db} dispatch!]
+(defn- header
+  "The map, the clusters being learned (each with its score), and the
+  question box: one way in, the rest follows from the page."
+  [{:keys [asking] :as db} dispatch!]
   [:header.top
-   (link dispatch! {:db db/go-home :history :push} "/" {:class "brand"} "Fly Learner")
+   (link dispatch! map-effects "/" {:class "brand" :title "The map of everything you know"} "Fly Learner")
    [:nav.top-nav
-    (link dispatch! concepts-effects "/c" {} "Concepts")
-    (link dispatch! study-effects "/q" {} "Study"
-          (when-let [o (:overall (:learning db))] [:span.count (percent o)]))]
+    (link dispatch! map-effects "/" {:class (when (= :home (:view db)) "here")} "Map")
+    (for [{:cluster/keys [id] :keys [score] :as c} (db/learning-clusters db)]
+      (cluster-link dispatch! c {:replicant/key (str id)
+                                 :class ["learning" (when (= id (:cluster-id db)) "here")]}
+                    (:cluster/label c) [:span.count (percent score)]))]
    [:form.ask {:on {:submit #(submit-ask dispatch! %)}}
     [:input {:name "q" :type "search" :autocomplete "off" :disabled (boolean asking)
              :placeholder (if asking "Answering…" "Ask the knowledge base…")}]]])
@@ -213,7 +228,7 @@
       (when (seq links)
         [:span.links "↔ " (str/join " · " (keep #(snippet-of (:idea/text (by-id %)) 50) links))])]
      [:button.btn.quiet.remove {:title "Remove" :on {:click #(dispatch! {:db (fn [d] (db/idea-removed d id))
-                                                                        :pull (delete-idea-op id)})}}
+                                                                         :pull (delete-idea-op id)})}}
       "×"]]))
 
 (defn- ideas-panel
@@ -310,26 +325,89 @@
 (defn- ask-link [dispatch! {:ask/keys [id]} attrs & children]
   (apply link dispatch! {:db #(db/open-ask % id) :pull :ask :history :push} (str "/a/" id) attrs children))
 
-(defn- home-view [{:keys [sources loading? ask-history]} dispatch!]
-  [:main.single
-   [:h1 "Sources"]
-   (cond
-     (seq sources)
-     [:ul.cards
-      (for [{:source/keys [id title root]} sources]
-        [:li.card {:replicant/key id}
-         (node-link dispatch! root {:class "card-title"} title)
-         [:p.preview (:node/summary root)]])]
-     loading? [:p.muted "Loading…"]
-     :else    [:p.muted "No sources yet. Ingest a PDF from the REPL (see dev/user.clj)."])
-   (when (seq ask-history)
-     [:section
-      [:h2 "Recent questions"]
-      [:ul.cards.compact
-       (for [{:ask/keys [id question title] :as a} (take 8 ask-history)]
-         [:li.card {:replicant/key id}
-          (ask-link dispatch! a {:class "card-title"} question)
-          [:p.preview title]])]])])
+(defn- translate [x y] (str "translate(" x "," y ")"))
+
+(defn- learn-button
+  "Start or stop learning cluster `c` (the header lists the ones being learned)."
+  [dispatch! {:cluster/keys [id] :keys [learning?]}]
+  [:button.btn {:class (when-not learning? "primary")
+                :title (if learning? "Stop learning this topic" "Study this topic now: what to study next comes from it")
+                :on {:click #(dispatch! {:db (fn [d] (db/learning-toggled d id (not learning?)))
+                                         :pull [{:pattern (if learning?
+                                                            {:goals {{:cluster/id id} nil}}
+                                                            {:goals {nil {:cluster/id id}}})
+                                                 :then    (fn [_] {:pull :learning})}]})}}
+   (if learning? "✓ Learning · stop" "Learn this topic")])
+
+(defn- map-bubble [dispatch! {:keys [id label lines gloss n score learning? x y r]}]
+  ;; the same children every time (see graph-node)
+  [:g.bubble {:replicant/key (str id)
+              :class (when learning? "learning")
+              :transform (translate x y)
+              :on {:click (fn [_] (dispatch! (cluster-effects id)))}}
+   [:title (str label (when gloss (str ": " gloss)) " (" n " concepts; you know " (percent score) ")")]
+   [:circle.ring {:r (+ r 6)}]
+   [:circle.body {:r r}]
+   [:circle.heat {:r r :style {:fill-opacity (if (pos? score) (+ 0.15 (* 0.85 score)) 0)}}]
+   [:text.n {:dy "0.35em" :text-anchor "middle" :font-size 18} (str n)]
+   [:text.label {:y (+ r (* 1.2 db/map-font)) :text-anchor "middle" :font-size db/map-font}
+    (for [[i line] (map-indexed vector lines)]
+      [:tspan {:replicant/key i :x 0 :dy (if (zero? i) 0 "1.15em")} line])]])
+
+(defn- knowledge-map [db dispatch!]
+  (let [{:keys [bubbles links domains box]} (db/map-scene db)]
+    (if (seq bubbles)
+      [:svg.kmap {:viewBox (str/join " " box) :preserveAspectRatio "xMidYMid meet"}
+       [:g.links
+        (for [[i {:keys [x1 y1 x2 y2 weight]}] (map-indexed vector links)]
+          [:line {:replicant/key i :x1 x1 :y1 y1 :x2 x2 :y2 y2
+                  :style {:stroke-width (min 6 (+ 1 (* 0.5 weight)))}}])]
+       [:g.domains
+        (for [{:keys [title x y]} domains]
+          [:text.domain {:replicant/key title :x x :y y :text-anchor "middle" :font-size (* 1.1 db/map-font)} title])]
+       [:g.bubbles (for [b bubbles] (map-bubble dispatch! b))]]
+      [:p.muted.graph-empty
+       (if (:universe db)
+         "No topics yet: ingest a source (bb ingest data/sources/<file>.pdf)."
+         "Loading the map…")])))
+
+(defn- home-view
+  "The map of everything: topics (clusters of concepts) grouped by source,
+  sized by concepts, filled by how well they are known. Pick topics to learn."
+  [{:keys [sources ask-history learning] :as db} dispatch!]
+  (let [learning-now (db/learning-clusters db)]
+    [:main.map-home
+     [:aside.map-side
+      [:span.meta "Everything you know"]
+      (when-let [o (:overall learning)]
+        [:div.known [:span.big (percent o)] (score-bar o)])
+      [:section
+       [:h2 "Learning now"]
+       (if (seq learning-now)
+         [:ul.learning-list
+          (for [{:cluster/keys [id] :keys [score] :as c} learning-now]
+            [:li {:replicant/key (str id)}
+             (cluster-link dispatch! c {:class "card-title"})
+             (score-bar score) [:span.pct (percent score)]])]
+         [:p.hint.muted "Pick a topic on the map, then “Learn this topic”. Learn a few at a time."])]
+      (when (seq sources)
+        [:section
+         [:h2 "Sources"]
+         [:ul.plain
+          (for [{:source/keys [id title root]} sources]
+            [:li {:replicant/key (str id)} (node-link dispatch! root {} title)])]])
+      (when (seq ask-history)
+        [:section
+         [:h2 "Recent questions"]
+         [:ul.plain
+          (for [{:ask/keys [id question] :as a} (take 6 ask-history)]
+            [:li {:replicant/key (str id)} (ask-link dispatch! a {} question)])]])]
+     [:section.map-pane
+      [:div.graph-toolbar
+       [:span (count (get-in db [:universe :clusters])) " topics"]
+       [:span.legend [:span.key.heat] "known" [:span.key.learning] "learning"]
+       [:span.hint "Click a topic to open it."]]
+      (knowledge-map db dispatch!)]]))
 
 (defn- node-article [db node dispatch!]
   (let [{:node/keys [id title summary text keywords concepts children links ancestors kind source]} node
@@ -432,7 +510,6 @@
            [i {:keys [x y w h]}] (map-indexed vector rects)]
        [:div.idea-mark {:replicant/key (str id "-" i) :class (name stance)
                         :style {:left (pct x) :top (pct y) :width (pct w) :height (pct h)}}])]))
-
 
 (defn- width-toggle
   "Give the source (right pane) the whole width, or share it again."
@@ -692,7 +769,8 @@
 (defn- concept-article
   [db {:concept/keys [id label gloss aliases by mentions]} score dispatch!]
   [:article.concept
-   [:nav.crumbs (link dispatch! concepts-effects "/c" {} "Concepts") " ›"]
+   [:nav.crumbs (link dispatch! map-effects "/" {} "Map") " › "
+    (when-let [c (db/concept-cluster db id)] (list (cluster-link dispatch! c {:replicant/key "c"}) " ›"))]
    [:span.meta "Concept · " (count mentions) (if (= 1 (count mentions)) " passage" " passages")
     (when-let [p (provenance by)] (str " · " p))]
    [:h1 label]
@@ -706,8 +784,6 @@
      [:section
       [:h2 "Mentioned in"]
       (hit-cards dispatch! mentions)])])
-
-(defn- translate [x y] (str "translate(" x "," y ")"))
 
 (defn- graph-node
   [dispatch! scale {:keys [id label gloss mentions x y r focus? selected? expanded? hidden score]}]
@@ -752,7 +828,7 @@
         id (:concept-id db)]
     [:aside.source.graph-pane
      [:div.graph-toolbar
-      (width-toggle db dispatch! "concept")
+      (width-toggle db dispatch! (if (= :cluster (:view db)) "topic" "concept"))
       [:span (count nodes) (if (= 1 (count nodes)) " concept" " concepts")]
       [:span.legend
        [:span.key.broader] "broader above" [:span.key.related] "related"
@@ -762,9 +838,12 @@
       [:label.toggle [:input {:type "checkbox" :checked (boolean (get-in db [:ideas :layer?]))
                               :on {:change #(dispatch! {:db db/ideas-layer-toggle})}}]
        "My ideas"]
-      [:button {:on {:click #(dispatch! {:db (fn [d] (db/graph-reset d id)) :animate true})}
-                :title "Show only this concept and its neighbours"}
-       "Reset"]]
+      (when (and id (= :concept (:view db)))
+        [:button {:on {:click #(dispatch! {:db (fn [d] (db/graph-reset d id)) :animate true})}
+                  :title (if (get-in db [:graph :scope])
+                           "Leave the topic: show this concept and its neighbours"
+                           "Show only this concept and its neighbours")}
+         "Reset"])]
      (if (seq nodes)
        [:svg.cgraph {:viewBox (str/join " " box) :preserveAspectRatio "xMidYMid meet"}
         [:g.edges (map graph-edge edges)]
@@ -778,8 +857,48 @@
             [:title (str (stance-label stance) (when text (str ": " text)))]
             [:rect {:x -4.5 :y -4.5 :width 9 :height 9 :transform "rotate(45)"}]])]]
        [:p.muted.graph-empty "Loading the concept graph…"])
-     [:p.graph-hint "Click a concept to open and expand it, click it again to collapse. "
-      "+ / − expand or collapse without opening. Filled: how well you know it."]]))
+     [:p.graph-hint (if (get-in db [:graph :scope])
+                      "The topic's concepts. Click one to open it. Filled: how well you know it."
+                      (list "Click a concept to open and expand it, click it again to collapse. "
+                            "+ / − expand or collapse without opening. Filled: how well you know it."))]]))
+
+(defn- cluster-article [db {:cluster/keys [id label gloss] :keys [concepts source score] :as c} dispatch!]
+  (let [ix     (get-in db [:graph :ix])
+        detail (get-in db [:clusters id])]
+    [:article.cluster
+     [:nav.crumbs (link dispatch! map-effects "/" {} "Map") " ›"]
+     [:span.meta "Topic · " (count concepts) " concepts"
+      (when source (str " · " (:source/title source)))]
+     [:h1 label]
+     (when gloss [:p.summary gloss])
+     [:div.known
+      [:span.muted "You know this"] (score-bar score) [:span.pct (percent score)]
+      (learn-button dispatch! c)]
+     (when-let [next (seq (:next detail))]
+       [:section
+        [:h2 "Study next in this topic"]
+        [:ul.cards.compact.next
+         (for [{:keys [item title about score]} next]
+           [:li.card {:replicant/key (str item)}
+            [:div.next-head
+             [:span.card-title title]
+             (score-bar score)
+             [:button.btn.primary {:on {:click #(dispatch! (quiz-effects item))}} "Quiz me"]]
+            [:p.preview about]])]])
+     [:section
+      [:h2 "Concepts"]
+      (if ix
+        [:div.chips
+         (for [cid concepts :let [cc (get-in ix [:concepts cid])] :when cc]
+           (concept-chip dispatch! cc))]
+        [:p.muted "Loading…"])]]))
+
+(defn- cluster-view [db dispatch!]
+  (split db
+         (if-let [c (db/current-cluster db)]
+           (cluster-article db c dispatch!)
+           [:p.muted (if (or (:loading? db) (nil? (:universe db))) "Loading…" "Not found.")])
+         (concept-graph db dispatch!)))
 
 (defn- concept-view [db dispatch!]
   (split db
@@ -820,6 +939,7 @@
      :keyword (keyword-view db dispatch!)
      :ask      (ask-view db dispatch!)
      :concept  (concept-view db dispatch!)
+     :cluster  (cluster-view db dispatch!)
      :concepts (concepts-view db dispatch!)
      :study    (study-view db dispatch!)
      (home-view db dispatch!))])

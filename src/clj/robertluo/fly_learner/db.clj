@@ -47,6 +47,14 @@
    :edit/by         {:db/valueType :db.type/string}
    :edit/at         {:db/valueType :db.type/instant}
 
+   ;; clusters: the concept graph's topics (robertluo.fly-learner.concept.cluster)
+   :cluster/id       {:db/valueType :db.type/uuid :db/unique :db.unique/identity}
+   :cluster/label    {:db/valueType :db.type/string}
+   :cluster/gloss    {:db/valueType :db.type/string}
+   :cluster/concepts {}                              ; [concept-id ...] (EDN value)
+   :cluster/by       {:db/valueType :db.type/string} ; the model that named it
+   :cluster/at       {:db/valueType :db.type/instant}
+
    ;; asks: questions to the knowledge base and their answers (robertluo.fly-learner.ask)
    :ask/id          {:db/valueType :db.type/uuid :db/unique :db.unique/identity}
    :ask/question    {:db/valueType :db.type/string}
