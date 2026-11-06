@@ -29,17 +29,4 @@
    [:node/children {:optional true} [:vector NodeId]]
    [:node/links {:optional true} [:vector NodeId]]])
 
-(def QuestionKind
-  "`:understand` probes comprehension of a node at any level.
-  `:memorize` drills facts that need recall (vocabulary, grammar, ...)."
-  [:enum :understand :memorize])
-
-(def Question
-  [:map
-   [:question/id :uuid]
-   [:question/node NodeId]
-   [:question/kind QuestionKind]
-   [:question/prompt :string]
-   [:question/answer :string]])
-
 (defn leaf? [node] (empty? (:node/children node)))

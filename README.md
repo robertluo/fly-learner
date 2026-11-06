@@ -51,12 +51,13 @@ Done:
  - Stored in Datalevin; re-ingesting a file replaces its earlier version. Each fold is also saved to `data/folds/`.
  - Models: Sonnet 5.5 for ideas that need synthesis (sections, chapters, whole document, quiz questions), Haiku 5.5 for routine paragraph groups. The system prompt (with the document outline) is cached across calls.
  - First source folded: a 116-page thesis -> 1,052 nodes in 68 s for about $0.23 (Opus 5.5 alone: $2.31).
+ - Learning, as layers that know each other as little as possible (checked by a test). What the learner knows is a score from 0 to 1 per item of the graph (each concept, and each relation between two concepts), derived by replaying a log of evidence; the target is the weighted score of the whole graph. Forgetting is an addition: a model wrapping the basic one, so scores fade with time since the last recall (FSRS-style) and reviews are just the most valuable thing to study. What to study next weighs importance, room to grow and how well the prerequisites are known. Quizzes are built on learning alone: a question from an item's material (e.g. how erasure and pseudo-objects relate), a free-text answer graded by Sonnet against key points, with feedback; about $0.005 per question and grading.
  - Concepts: ideas with an identity, separate from the passages that mention them. Fold keywords are only strings ("equality type", "equality types", "untyped equality"), so Sonnet resolves them into concepts, each with a label, a gloss fixing its sense, aliases (the keywords naming it; each keyword names one concept) and broader concepts. On the first source: 406 keywords -> 209 concepts, 126 with a broader concept, 11 keywords ignored as too generic, in 6 calls for $0.24. Concepts are related by shared mentions (normalised PMI, the shared passages kept as evidence), so the graph supports neighbourhoods and the cheapest path between two concepts, each step citing its passages. Both writers make mistakes, so every change, by the model or by hand (merge, split, assign, rename, ignore, broader), is atomic and logged.
 
 To do:
 
  - Group paragraphs by length or by Lemma/Proof boundaries instead of fixed runs of 6.
- - Try quiz generation and progress tracking (SM-2 reviews) on real data; both are written but not yet run against it.
+ - Learning in the API and UI: quiz screens, scores as a heat map on the concept graph, what to study next.
  - Multiple sources and links between them (asking already searches across sources; concepts are resolved across sources).
  - Concept graph: zoom and pan for large graphs (text gets small past ~30 concepts), a path finder between two concepts, curation screens. Retrieval and reviews by concept.
 

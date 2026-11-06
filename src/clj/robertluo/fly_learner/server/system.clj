@@ -10,7 +10,12 @@
             [clojure.string :as str]
             [datalevin.core :as d]
             [robertluo.fly-learner.db :as db]
+            [robertluo.fly-learner.learning :as learning]
+            [robertluo.fly-learner.learning.concepts :as learning.concepts]
+            [robertluo.fly-learner.learning.decay :as decay]
+            [robertluo.fly-learner.learning.store :as learning.store]
             [robertluo.fly-learner.llm :as llm]
+            [robertluo.fly-learner.quiz :as quiz]
             [robertluo.fly-learner.server.api :as api]
             [malli.core :as m]
             [malli.error :as me]
@@ -83,9 +88,16 @@
 
     ::db
     (fnk [::cfg]
-         (let [conn (db/connect (:db-dir cfg))]
+         ;; each layer owns its schema
+         (let [conn (db/connect (:db-dir cfg) learning.store/schema quiz/schema)]
            ;; closeable wraps in a map, so fun-map won't auto-deref the conn inside
            (closeable {:conn conn} #(db/close conn))))
+
+    ;; how learning is wired: the model (decay is an addition to mastery,
+    ;; chosen here) and the curriculum (the concept graph, rebuilt per db value)
+    ::learning
+    (fnk [] {:model      (decay/decaying (learning/mastery))
+             :curriculum learning.concepts/curriculum})
 
     ;; the client is built on the first ask, so the server runs without an API
     ;; key until then; in a map, since fun-map would deref a bare delay

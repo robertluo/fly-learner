@@ -1,6 +1,7 @@
 (ns robertluo.fly-learner.db
-  "Datalevin storage for sources, the folded knowledge DAG, questions and
-  the learner's progress."
+  "Datalevin storage for knowledge: sources, the folded knowledge DAG,
+  concepts and asks. Layers above (learning, quiz) bring their own schema;
+  they are merged at the composition root (robertluo.fly-learner.server.system)."
   (:require [datalevin.core :as d]))
 
 (def schema
@@ -55,31 +56,13 @@
    :ask/matches     {}                               ; [node-id ...] retrieved, not cited
    :ask/followups   {}                               ; [question ...]
    :ask/model       {:db/valueType :db.type/string}
-   :ask/at          {:db/valueType :db.type/instant}
-
-   ;; questions ---------------------------------------------------------
-   :question/id     {:db/valueType :db.type/uuid :db/unique :db.unique/identity}
-   :question/node   {:db/valueType :db.type/ref}
-   :question/kind   {:db/valueType :db.type/keyword}
-   :question/prompt {:db/valueType :db.type/string}
-   :question/answer {:db/valueType :db.type/string}
-
-   ;; progress ----------------------------------------------------------
-   :attempt/question {:db/valueType :db.type/ref}
-   :attempt/response {:db/valueType :db.type/string}
-   :attempt/correct? {:db/valueType :db.type/boolean}
-   :attempt/at       {:db/valueType :db.type/instant}
-
-   ;; spaced-repetition state, one per node the learner is studying
-   :review/node     {:db/valueType :db.type/ref :db/unique :db.unique/identity}
-   :review/ease     {:db/valueType :db.type/double}
-   :review/interval {:db/valueType :db.type/long}   ; days
-   :review/due      {:db/valueType :db.type/instant}})
+   :ask/at          {:db/valueType :db.type/instant}})
 
 (defn connect
-  "Open (or create) the database at `dir`."
-  [dir]
-  (d/get-conn dir schema))
+  "Open (or create) the database at `dir`, with the knowledge `schema` and
+  any `more` schemas (from other layers)."
+  [dir & more]
+  (d/get-conn dir (apply merge schema more)))
 
 (defn close [conn]
   (d/close conn))

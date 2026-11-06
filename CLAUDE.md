@@ -30,7 +30,7 @@ Web stack follows flybot.sg (github.com/flybot-sg/lasagna-pattern, `examples/fly
     nodes), `neighbourhood`, `path` (Dijkstra), `related`
   - `concept/view` — `index`, `concept` (hierarchy, related with shared-passage counts, mentions with paths) and
     `graph` (every concept + broader/related edges; the API's lazy `:concept-graph`) for the API
-  - `quiz`, `progress` (SM-2 reviews), `db` (Datalevin schema + queries; `copy!` rebuilds a db under the
+  - `db` (Datalevin knowledge schema + queries; `connect` merges other layers' schemas; `copy!` rebuilds a db under the
     current schema, e.g. after marking an attribute `:db/fulltext` — Datalevin's `re-index` loses full-text entries)
 - `src/cljc/robertluo/fly_learner/ui/core/` — frontend logic, JVM-testable: `db` (pure state fns), `pull` (named pull specs),
   `history` (URL <-> state), `views` (Replicant hiccup), `highlight` (find a node's text among pdf.js text items),
@@ -38,7 +38,25 @@ Web stack follows flybot.sg (github.com/flybot-sg/lasagna-pattern, `examples/fly
   (incremental force layout on primitive arrays: broader-above is a constraint, label boxes never overlap; tween)
 - `src/cljs/robertluo/fly_learner/ui/` — `core` (dispatch-of effects `:db`/`:pull`/`:history`/`:animate`, transit fetch, render), `pdf` (pdf.js: render a page, highlight boxes)
 - `resources/public/` — `index.html` (loads vendored pdf.js as a module), `css/style.css`
-- `src/cljc/robertluo/fly_learner/knowledge.cljc` — shared malli schemas for nodes/questions
+- `src/cljc/robertluo/fly_learner/knowledge.cljc` — shared malli schema for nodes
+
+### Layers (enforced by `test/clj/.../architecture_test.clj`)
+
+Each layer knows the one below as little as possible, so any part can be reimplemented:
+
+- **knowledge** (`fold`, `ingest`, `concept*`, `ask`, `db`) — depends on nothing above it
+- **learning** (`learning.cljc`, depends on nothing) — score in [0, 1] per item, derived by replaying an evidence
+  log (`{:item :kind :at :grade :source}`; kinds open: `:answer`, `:seen`). States what it needs as protocols:
+  `Curriculum` (items + weights, prerequisites, material `{:title :about :sources}`) and `Model`
+  (`init`/`observe`/`score`; `mastery` is the basic one). `overall` = weighted score, the learner's target;
+  `next-items` = weight × room to grow × readiness of prerequisites.
+  - `learning.decay` — forgetting as a `Model` wrapping any `Model` (FSRS-style stability); learning knows nothing of it
+  - `learning.store` — the evidence log in Datalevin (own schema)
+  - `learning.concepts` — the only bridge: the concept graph as a `Curriculum` (`[:concept id]`, `[:relation a b]`)
+- **features** (`quiz`: generate questions from an item's material, grade free text into `:answer` evidence) —
+  depend on learning only, never on knowledge
+- **app** (`server.*`, `ui.*`) composes: `server.system` merges schemas and picks the model (mastery + decay)
+  and the curriculum
 - `dev/user.clj` — `(start!)` / `(stop!)` / `(cljs!)`, ingest snippet
 - Tests: Kaocha runs `test/clj` plus Rich Comment Tests (`^:rct/test` comment blocks in `src/`)
 
