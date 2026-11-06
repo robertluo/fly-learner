@@ -19,8 +19,8 @@ Web stack follows flybot.sg (github.com/flybot-sg/lasagna-pattern, `examples/fly
   - `server/api` — lasagna-remote pull API on `/api`: `:sources` (collection), `:nodes`, `:keywords` (lookups)
   - `quiz`, `progress` (SM-2 reviews), `db` (Datalevin schema + queries)
 - `src/cljc/learner/ui/core/` — frontend logic, JVM-testable: `db` (pure state fns), `pull` (named pull specs),
-  `history` (URL <-> state), `views` (Replicant hiccup)
-- `src/cljs/learner/ui/` — `core` (dispatch-of effects `:db`/`:pull`/`:history`, transit fetch, render), `pdf` (pdf.js)
+  `history` (URL <-> state), `views` (Replicant hiccup), `highlight` (find a node's text among pdf.js text items)
+- `src/cljs/learner/ui/` — `core` (dispatch-of effects `:db`/`:pull`/`:history`, transit fetch, render), `pdf` (pdf.js: render a page, highlight boxes)
 - `resources/public/` — `index.html` (loads vendored pdf.js as a module), `css/style.css`
 - `src/cljc/learner/knowledge.cljc` — shared malli schemas for nodes/questions
 - `dev/user.clj` — `(start!)` / `(stop!)` / `(cljs!)`, ingest snippet

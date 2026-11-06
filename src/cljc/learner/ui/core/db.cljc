@@ -16,7 +16,9 @@
    :nodes           {}     ; node-id -> node (cache of fetched nodes)
    :keyword         nil    ; keyword shown in :keyword view
    :keyword-results {}     ; keyword -> [node-ref]
-   :pdf             {:page nil :pages {}} ; :page = manual page (nil: follow node); :pages source-id -> count
+   :pdf             {:page      nil   ; manual page (nil: follow the node)
+                     :pages     {}    ; source-id -> page count
+                     :highlight nil}  ; {:key [url page node-id] :aspect w/h :rects [{:x :y :w :h}]}
    :loading?        false
    :error           nil})  ; {:code :reason} or nil
 
@@ -116,6 +118,30 @@
 
 (defn following? [db] (nil? (get-in db [:pdf :page])))
 
+(defn highlight-texts
+  "Source text of `node` to mark on its PDF page: a paragraph's text, a
+  passage's paragraphs, a section's heading."
+  [{:node/keys [kind text title children]}]
+  (case kind
+    :paragraph (when text [text])
+    :group     (vec (keep :node/text children))
+    :section   (when title [title])
+    nil))
+
+(defn highlight-key
+  "Identifies the highlight wanted now: document, page and node."
+  [db url]
+  [url (pdf-page db) (:node-id db)])
+
+(defn highlight
+  "The highlight for `key` once computed (rects as fractions of the page)."
+  [db key]
+  (let [h (get-in db [:pdf :highlight])]
+    (when (= key (:key h)) h)))
+
+(defn highlight-found [db key result]
+  (assoc-in db [:pdf :highlight] (assoc result :key key)))
+
 ^:rct/test
 (comment
   (def id #uuid "00000000-0000-0000-0000-000000000001")
@@ -136,6 +162,19 @@
   (pdf-page paged) ;=> 10
   (following? paged) ;=> false
   (pdf-page (open-node paged id)) ;=> 7
+
+  ;; what gets highlighted
+  (highlight-texts {:node/kind :paragraph :node/text "Some text."}) ;=> ["Some text."]
+  (highlight-texts {:node/kind :group :node/children [{:node/text "a"} {:node/text "b"}]}) ;=> ["a" "b"]
+  (highlight-texts {:node/kind :section :node/title "3.3 Normalization"}) ;=> ["3.3 Normalization"]
+  (highlight-texts {:node/kind :source}) ;=> nil
+
+  ;; a highlight is kept for its page and node only
+  (def shown (-> initial-state (open-node id) (node-fetched n)))
+  (def k (highlight-key shown "/f"))
+  k ;=> ["/f" 7 #uuid "00000000-0000-0000-0000-000000000001"]
+  (:aspect (highlight (highlight-found shown k {:aspect 0.7 :rects []}) k)) ;=> 0.7
+  (highlight (highlight-found shown k {:aspect 0.7 :rects []}) ["/f" 8 id]) ;=> nil
 
   ;; missing node -> error
   (:code (:error (node-fetched initial-state nil))) ;=> :not-found

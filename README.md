@@ -63,13 +63,12 @@ Same stack as [flybot.sg](https://www.flybot.sg) ([source](https://github.com/fl
 Done:
 
  - Browse a source from the birdview down: breadcrumb, summary, keywords, drill-down cards (paragraph text shown inline), related nodes.
- - The original PDF beside it (pdf.js), on the selected node's page, with paging.
+ - The original PDF beside it (pdf.js), on the selected node's page, with paging. The node's source text is highlighted on the page (a paragraph, a passage's paragraphs, or a section's heading) and scrolled into view; text from ingest is matched against pdf.js's text in chunks, so formulas the two extract differently don't break it (on the first source, 98% of paragraphs have at least 90% of their text found).
  - Keywords are links: each opens every node tagged with it.
  - URLs per node (`/n/<id>`) and keyword (`/k/<keyword>`), back/forward work.
 
 To do:
 
- - Highlight the selected paragraph on the PDF page (pdf.js text layer).
  - Quiz and review screens.
 
 ## Development

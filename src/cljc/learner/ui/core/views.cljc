@@ -113,13 +113,31 @@
   #?(:cljs {:replicant/on-render (fn [{:replicant/keys [node]}] (pdf/render-page! node url p on-pages))}
      :clj  {}))
 
+(defn- highlight-attrs
+  "Sheet attrs that find the highlight for `key` once (pdf.js text content),
+  then scroll the pane to it."
+  #?(:cljs [key texts found dispatch!] :clj [_key _texts _found _dispatch!])
+  #?(:cljs {:replicant/on-render
+            (fn [{:replicant/keys [node]}]
+              (if found
+                (pdf/scroll-to-highlight! node key (:rects found))
+                (pdf/ensure-highlight! key texts
+                                       (fn [k result]
+                                         (dispatch! {:db #(db/highlight-found % k result)})))))}
+     :clj  {}))
+
+(defn- pct [x] (str (* 100 x) "%"))
+
 (defn- source-pane
-  "The original document (pdf.js), on the selected node's page."
+  "The original document (pdf.js), on the selected node's page, with the
+  node's source text highlighted."
   [db node dispatch!]
   (let [sid   (get-in node [:node/source :source/id])
         url   (str "/files/sources/" sid)
         p     (db/pdf-page db)
         n     (db/pdf-pages db sid)
+        key   (db/highlight-key db url)
+        found (db/highlight db key)
         goto  (fn [page] #(dispatch! {:db (fn [d] (db/pdf-goto d sid page))}))]
     [:aside.source
      [:div.pdf-toolbar
@@ -129,9 +147,15 @@
       (when-not (db/following? db)
         [:button.follow {:on {:click #(dispatch! {:db db/pdf-follow})}} "Back to selection"])]
      [:div.pdf-page
-      [:canvas (pdf-canvas-attrs url p (fn [pages]
-                                         (when (not= pages n)
-                                           (dispatch! {:db #(db/pdf-loaded % sid pages)}))))]]]))
+      [:div.pdf-sheet (cond-> (highlight-attrs key (db/highlight-texts node) found dispatch!)
+                        found (assoc :style {:aspect-ratio (str (:aspect found))}))
+       [:canvas (pdf-canvas-attrs url p (fn [pages]
+                                          (when (not= pages n)
+                                            (dispatch! {:db #(db/pdf-loaded % sid pages)}))))]
+       [:div.pdf-marks
+        (for [[i {:keys [x y w h]}] (map-indexed vector (:rects found))]
+          [:div.mark {:replicant/key i
+                      :style {:left (pct x) :top (pct y) :width (pct w) :height (pct h)}}])]]]]))
 
 (defn- node-view [db dispatch!]
   (if-let [node (db/current-node db)]

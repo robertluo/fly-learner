@@ -173,7 +173,11 @@ h2 {
 .pdf-toolbar .follow { margin-left: auto; color: var(--accent); }
 
 .pdf-page { flex: 1; overflow: auto; padding: 1rem; }
-.pdf-page canvas { display: block; background: #fff; box-shadow: 0 1px 4px rgba(0, 0, 0, .15); }
+.pdf-sheet { position: relative; }
+.pdf-sheet canvas { display: block; width: 100%; height: auto; background: #fff; box-shadow: 0 1px 4px rgba(0, 0, 0, .15); }
+.pdf-marks { position: absolute; inset: 0; pointer-events: none; }
+/* multiply: the glyphs stay black, overlapping boxes do not darken */
+.pdf-marks .mark { position: absolute; background: #ffe066; mix-blend-mode: multiply; border-radius: 2px; }
 
 /* errors -------------------------------------------------------------- */
 
