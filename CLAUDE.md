@@ -4,7 +4,16 @@ See README.md for goals. Roadmap: backend (knowledge base from one source) first
 
 ## Layout
 
-- `src/clj/learner/` — backend: `ingest/pdf` (PDFBox), `fold` (paragraphs -> layered DAG), `llm` (Anthropic Java SDK), `quiz`, `progress` (SM-2 reviews), `db` (Datalevin schema), `server` (reitit API), `main`
+- `src/clj/learner/` — backend
+  - `ingest` — `ingest-pdf!`: PDF -> section tree -> fold with Claude -> `data/folds/*.edn` + Datalevin
+  - `ingest/pdf` — PDFBox paragraphs -> blocks (`:heading` / `:text`), headings recognised from text
+  - `ingest/outline` — blocks -> section tree (drops cover pages, contents, bibliography, ...)
+  - `fold` — regroup long sections, bottom-up summaries, flatten to nodes, keyword cross-links, `->tx`
+  - `llm` — Anthropic Java SDK; `complete`, `complete-json` (structured outputs), `usage`/`cost` per model.
+    Two tiers in `config.edn` `[:anthropic :models]`: `:strong` (Sonnet: sections, chapters, quizzes) and
+    `:common` (Haiku: paragraph groups). The system prompt carries a cache breakpoint; keep it identical
+    across calls (fold puts the document outline there) and put per-call content in the user prompt.
+  - `quiz`, `progress` (SM-2 reviews), `db` (Datalevin schema), `server` (reitit API), `main`
 - `src/cljc/learner/knowledge.cljc` — shared malli schemas for nodes/questions
 - `src/cljs/learner/app.cljs` — browser UI
 - `dev/user.clj` — `(go)` / `(halt)` / `(reset)`

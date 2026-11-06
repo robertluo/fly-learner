@@ -9,8 +9,7 @@
   (go)
   (halt)
 
-  ;; ingest + fold a PDF
-  (require '[learner.ingest.pdf :as pdf] '[learner.fold :as fold] '[learner.llm :as llm])
-  (def doc (pdf/extract "data/sources/example.pdf"))
-  (def nodes (fold/link-by-keywords
-              (fold/fold (fold/llm-summarizer (llm/client (:anthropic (main/config)))) (:paragraphs doc)))))
+  ;; ingest + fold a PDF into the running system's db
+  (require '[learner.ingest :as ingest] '[learner.llm :as llm])
+  (def client (llm/client (:anthropic (main/config))))
+  (ingest/ingest-pdf! (:conn @main/system) client "data/sources/marmaduke-2024-c2.pdf"))

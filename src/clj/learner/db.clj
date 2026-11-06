@@ -15,6 +15,7 @@
    :node/id         {:db/valueType :db.type/uuid :db/unique :db.unique/identity}
    :node/source     {:db/valueType :db.type/ref}
    :node/level      {:db/valueType :db.type/long}
+   :node/kind       {:db/valueType :db.type/keyword} ; :source :section :group :paragraph
    :node/title      {:db/valueType :db.type/string}
    :node/summary    {:db/valueType :db.type/string :db/fulltext true}
    :node/text       {:db/valueType :db.type/string :db/fulltext true}
