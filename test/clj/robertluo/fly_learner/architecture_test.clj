@@ -10,6 +10,8 @@
     adapter    learning.concepts: the one namespace where learning meets
                knowledge
     features   quiz and the like: learning only, never knowledge
+    ideas      the learner's own voice; the core depends on nothing,
+               ideas.knowledge is the one namespace where it meets knowledge
     app        server and UI compose everything"
   (:require [clojure.java.io :as io]
             [clojure.string :as str]
@@ -25,6 +27,9 @@
       (= n "robertluo.fly-learner.learning.store")    :learning-store
       (= n "robertluo.fly-learner.learning.concepts") :adapter
       (= n "robertluo.fly-learner.quiz")              :features
+      (= n "robertluo.fly-learner.ideas")             :ideas
+      (= n "robertluo.fly-learner.ideas.store")       :ideas-store
+      (= n "robertluo.fly-learner.ideas.knowledge")   :ideas-adapter
       (= n "robertluo.fly-learner.llm")               :infra
       (or (str/starts-with? n "robertluo.fly-learner.server.")
           (str/starts-with? n "robertluo.fly-learner.ui"))      :app
@@ -39,7 +44,11 @@
    :adapter        #{:learning :knowledge}
    :features       #{:learning :learning-store :infra}
    :infra          #{}
-   :app            #{:knowledge :learning :decay :learning-store :adapter :features :infra}})
+   :ideas          #{}
+   :ideas-store    #{:ideas}
+   :ideas-adapter  #{:ideas :knowledge}
+   :app            #{:knowledge :learning :decay :learning-store :adapter :features :infra
+                     :ideas :ideas-store :ideas-adapter}})
 
 (defn- ns-form
   "The ns form of `file`, reader conditionals of both platforms kept."
@@ -84,6 +93,9 @@
   (testing "a feature reaching into knowledge would be caught"
     (is (not (contains? (allowed (layer 'robertluo.fly-learner.quiz))
                         (layer 'robertluo.fly-learner.concept.graph)))))
+  (testing "ideas and learning know nothing of each other"
+    (is (not (contains? (allowed :ideas) :learning)))
+    (is (not (contains? (allowed :learning) :ideas))))
   (testing "learning would be caught knowing about decay"
     (is (not (contains? (allowed (layer 'robertluo.fly-learner.learning))
                         (layer 'robertluo.fly-learner.learning.decay))))))

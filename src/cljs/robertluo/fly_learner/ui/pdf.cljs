@@ -60,6 +60,36 @@
                       (js/console.error "pdf.js:" e))))))))
 
 ;;=============================================================================
+;; Text layer: the page's text over the canvas, selectable
+;;=============================================================================
+
+(defn render-text-layer!
+  "Fill `container` (a .textLayer over the page) with page `p`'s text, laid
+  out by pdf.js to match the canvas, so it can be selected. Cheap to call on
+  every render: skips when that page is already laid out at that width."
+  [^js container url p]
+  (let [width (.-clientWidth (.-parentElement container))
+        key   (str url "#" p "@" width)]
+    (when (and (pos? width) (not= key (.. container -dataset -rendered)))
+      (set! (.. container -dataset -rendered) key)
+      (-> (js/Promise.all #js [(lib) (document url)])
+          (.then (fn [[^js l ^js doc]] (.then (.getPage doc p) (fn [page] [l page]))))
+          (.then (fn [[^js l ^js page]]
+                   (when (= key (.. container -dataset -rendered))
+                     (let [scale (/ width (.-width (.getViewport page #js {:scale 1})))]
+                       (set! (.-innerHTML container) "")
+                       (.setProperty (.-style container) "--total-scale-factor" (str scale))
+                       (.setProperty (.-style container) "--scale-round-x" "1px")
+                       (.setProperty (.-style container) "--scale-round-y" "1px")
+                       (.render (new (.-TextLayer l)
+                                     #js {:textContentSource (.streamTextContent page)
+                                          :container container
+                                          :viewport (.getViewport page #js {:scale scale})}))))))
+          (.catch (fn [e]
+                    (js-delete (.-dataset container) "rendered")
+                    (js/console.error "pdf.js text layer:" e)))))))
+
+;;=============================================================================
 ;; Highlights
 ;;=============================================================================
 

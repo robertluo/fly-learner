@@ -2,6 +2,7 @@
   "UI views: Replicant hiccup. Components receive db and dispatch!, and
   dispatch effect maps ({:db f :pull op :history :push})."
   (:require [clojure.string :as str]
+            [robertluo.fly-learner.ideas :as ideas]
             [robertluo.fly-learner.ui.core.db :as db]
             [robertluo.fly-learner.ui.core.history :as history]
             #?(:cljs [robertluo.fly-learner.ui.pdf :as pdf])))
@@ -26,7 +27,7 @@
         children))
 
 (defn- open-node-effects [id]
-  {:db #(db/open-node % id) :pull :node :history :push})
+  {:db #(db/open-node % id) :pull [:node :ideas] :history :push})
 
 (defn- node-link
   ([dispatch! node] (node-link dispatch! node {} (:node/title node)))
@@ -42,7 +43,7 @@
 (defn- concept-link
   "Link to a concept page; the gloss shows on hover."
   [dispatch! {:concept/keys [id label gloss]} attrs & children]
-  (apply link dispatch! {:db #(db/open-concept % id) :pull [:concept :concept-graph :learning] :history :push
+  (apply link dispatch! {:db #(db/open-concept % id) :pull [:concept :concept-graph :learning :ideas] :history :push
                          :animate true}
          (history/state->path {:view :concept :concept-id id})
          (merge {:title (or gloss label)} attrs)
@@ -113,16 +114,140 @@
      [:span (or (:reason error) (name (:code error)))]
      [:button {:on {:click #(dispatch! {:db db/clear-error})}} "Dismiss"]]))
 
+(declare anchored-text)
+
 (defn- card
-  "A node in a list: title link, kind/page, summary or source text."
-  [dispatch! {:node/keys [id summary text kind] :as n}]
-  [:li.card {:replicant/key id}
-   (node-link dispatch! n {:class "card-title"}
-              (if (= :paragraph kind) (meta-line n) (:node/title n)))
-   (when-not (= :paragraph kind) (meta-line n))
-   (cond
-     (= :paragraph kind) [:p.source-text text]
-     summary             [:p.preview summary])])
+  "A node in a list: title link, kind/page, summary or source text. With
+  `in` ({:db .. :source-id ..}), source text can be selected to react to,
+  and shows the quotes of ideas on it."
+  ([dispatch! n] (card dispatch! n nil))
+  ([dispatch! {:node/keys [id summary text kind] :as n} in]
+   [:li.card {:replicant/key id}
+    (node-link dispatch! n {:class "card-title"}
+               (if (= :paragraph kind) (meta-line n) (:node/title n)))
+    (when-not (= :paragraph kind) (meta-line n))
+    (cond
+      (and (= :paragraph kind) in) (anchored-text :p.source-text in id :text text)
+      (= :paragraph kind)          [:p.source-text text]
+      summary                      [:p.preview summary])]))
+
+;;=============================================================================
+;; Ideas
+;;=============================================================================
+
+(def ^:private stance-mark {:agree "✓" :disagree "✗" :note "✎"})
+(def ^:private stance-label {:agree "Agree" :disagree "Disagree" :note "Note"})
+
+(defn- create-idea-op [data]
+  {:pattern {:ideas {nil data}} :then (fn [r] {:db #(db/idea-added % (get r 'ideas))})})
+
+(defn- delete-idea-op [id]
+  {:pattern {:ideas {{:idea/id id} nil}} :then (fn [_] {})})
+
+(defn- anchored-text
+  "Element `tag` with `text` of node `id`'s `field`: selectable to react to
+  (data-anchor, see robertluo.fly-learner.ui.select), with the quotes of
+  ideas on it marked."
+  [tag {:keys [db source-id]} id field text]
+  (let [marks (db/quote-marks db id field)]
+    [tag {:data-anchor "" :data-node (str id) :data-field (name field) :data-source (str source-id)}
+     (if (empty? marks)
+       text
+       (for [[i [s m]] (map-indexed vector (ideas/mark-segments text marks))]
+         (if m
+           [:mark {:replicant/key i :class (name (:idea/stance m))
+                   :title (or (:idea/text m) (stance-label (:idea/stance m)))} s]
+           [:span {:replicant/key i} s])))]))
+
+(defn- snippet-of [s n] (when s (if (> (count s) n) (str (subs s 0 n) "…") s)))
+
+(defn- composer
+  "The note being written, with ideas it may link to."
+  [db dispatch!]
+  (let [{:keys [anchors text links]} (get-in db [:ideas :draft])
+        others (->> (get-in db [:ideas :all]) (filter :idea/text) (take-last 10) reverse)]
+    [:div.composer
+     [:textarea {:value text :rows 3 :placeholder "Your idea, in your own words…"
+                 :on {:input #(dispatch! {:db (fn [d] (db/draft-typed d (.. % -target -value)))})}}]
+     (when (seq others)
+       [:div.link-picker
+        [:span.muted "Links to "]
+        (for [{:idea/keys [id stance text]} others]
+          [:button.chip {:replicant/key (str id)
+                         :class (when (contains? links id) "on")
+                         :on {:click #(dispatch! {:db (fn [d] (db/draft-link d id))})}}
+           (stance-mark stance) " " (snippet-of text 40)])])
+     [:div.actions
+      [:button.btn.primary {:disabled (str/blank? text)
+                            :on {:click #(dispatch! {:pull (create-idea-op {:idea/stance :note :idea/text text
+                                                                            :idea/anchors anchors
+                                                                            :idea/links (vec links)})})}}
+       "Save note"]
+      [:button.btn.quiet {:on {:click #(dispatch! {:db db/draft-cancel})}} "Cancel"]]]))
+
+(defn- reaction-buttons
+  "Agree / disagree with `anchor`: one at most, clicking again takes it back."
+  [db dispatch! anchor]
+  (let [mine (db/reaction db anchor)]
+    (for [stance [:agree :disagree]
+          :let [on? (= stance (:idea/stance mine))]]
+      [:button.btn.react {:replicant/key (name stance) :class [(name stance) (when on? "on")]
+                          :on {:click #(dispatch! (cond-> {:pull []}
+                                                    mine (-> (assoc :db (fn [d] (db/idea-removed d (:idea/id mine))))
+                                                             (update :pull conj (delete-idea-op (:idea/id mine))))
+                                                    (not on?) (update :pull conj (create-idea-op {:idea/stance stance
+                                                                                                  :idea/anchors [anchor]}))))}}
+       (stance-mark stance) " " (stance-label stance)])))
+
+(defn- idea-item [db dispatch! {:idea/keys [id stance text anchors links targets]} show-target?]
+  (let [by-id (into {} (map (juxt :idea/id identity)) (get-in db [:ideas :all]))]
+    [:li.idea {:replicant/key (str id) :class (name stance)}
+     [:span.stance {:title (stance-label stance)} (stance-mark stance)]
+     [:div.idea-body
+      (for [[i a] (map-indexed vector anchors) :when (:quote a)]
+        [:blockquote {:replicant/key i} (snippet-of (:quote a) 300)])
+      (if text [:p text] [:p.muted (stance-label stance)])
+      (when show-target?
+        [:span.meta "On " (str/join ", " (map :title targets))])
+      (when (seq links)
+        [:span.links "↔ " (str/join " · " (keep #(snippet-of (:idea/text (by-id %)) 50) links))])]
+     [:button.btn.quiet.remove {:title "Remove" :on {:click #(dispatch! {:db (fn [d] (db/idea-removed d id))
+                                                                        :pull (delete-idea-op id)})}}
+      "×"]]))
+
+(defn- ideas-panel
+  "Your ideas on `anchor` (and on `ideas` about things inside it)."
+  [db dispatch! anchor ideas]
+  (let [draft (get-in db [:ideas :draft])]
+    [:section.ideas
+     [:h2 "Your ideas"]
+     [:div.reactions
+      (reaction-buttons db dispatch! anchor)
+      [:button.btn {:on {:click #(dispatch! {:db (fn [d] (db/draft-start d [anchor] false))})}} "✎ Add a note"]]
+     (when (and draft (not (:from-selection? draft)) (= [anchor] (:anchors draft)))
+       (composer db dispatch!))
+     (let [shown (remove #(and (nil? (:idea/text %)) (= [anchor] (:idea/anchors %))) ideas)]
+       (if (seq shown)
+         [:ul.idea-list (for [i (reverse shown)]
+                          (idea-item db dispatch! i (not= [anchor] (:idea/anchors i))))]
+         [:p.hint.muted "Agree, disagree or add a note. Select any sentence to react to just that."]))]))
+
+(defn- selection-popover
+  "Selected text, offered a reaction."
+  [db dispatch!]
+  (when-let [{:keys [anchor x y]} (get-in db [:ideas :selection])]
+    (let [draft (get-in db [:ideas :draft])]
+      [:div.idea-popover {:style {:left (str (max 8 (- x 160)) "px") :top (str (+ y 8) "px")}}
+       [:p.quote-preview "“" (snippet-of (:quote anchor) 120) "”"]
+       (if (:from-selection? draft)
+         (composer db dispatch!)
+         [:div.actions
+          (for [stance [:agree :disagree]]
+            [:button.btn {:replicant/key (name stance) :class (name stance)
+                          :on {:click #(dispatch! {:pull (create-idea-op {:idea/stance stance :idea/anchors [anchor]})})}}
+             (stance-mark stance) " " (stance-label stance)])
+          [:button.btn {:on {:click #(dispatch! {:db (fn [d] (db/draft-start d [anchor] true))})}} "✎ Note"]
+          [:button.btn.quiet {:on {:click #(dispatch! {:db db/draft-cancel})}} "×"]])])))
 
 ;;=============================================================================
 ;; Views
@@ -152,9 +277,10 @@
           (ask-link dispatch! a {:class "card-title"} question)
           [:p.preview title]])]])])
 
-(defn- node-article [node dispatch!]
-  (let [{:node/keys [title summary text keywords concepts children links ancestors kind]} node
-        leaves? (every? #(= :paragraph (:node/kind %)) children)]
+(defn- node-article [db node dispatch!]
+  (let [{:node/keys [id title summary text keywords concepts children links ancestors kind source]} node
+        leaves? (every? #(= :paragraph (:node/kind %)) children)
+        in      {:db db :source-id (:source/id source)}]
     [:article.node
      (when (seq ancestors)
        [:nav.crumbs
@@ -162,8 +288,8 @@
           [:span {:replicant/key (:node/id a)} (node-link dispatch! a) " › "])])
      (meta-line node)
      [:h1 title]
-     (when summary [:p.summary summary])
-     (when (and text (= :paragraph kind)) [:p.source-text.full text])
+     (when summary (anchored-text :p.summary in id :summary summary))
+     (when (and text (= :paragraph kind)) (anchored-text :p.source-text.full in id :text text))
      (when (or (seq concepts) (seq keywords))
        [:div.keywords
         (for [c concepts] (concept-chip dispatch! c))
@@ -171,7 +297,9 @@
      (when (seq children)
        [:section
         [:h2 (if leaves? "Source text" "Drill down")]
-        [:ol.cards (for [c children] (card dispatch! c))]])
+        [:ol.cards (for [c children] (card dispatch! c in))]])
+     (ideas-panel db dispatch! (db/node-anchor node)
+                  (db/ideas-in-node db id [:page (:source/id source) (db/pdf-page db)]))
      (when (seq links)
        [:section
         [:h2 "Related"]
@@ -196,6 +324,14 @@
                                        (fn [k result]
                                          (dispatch! {:db #(db/highlight-found % k result)})))))}
      :clj  {}))
+
+(defn- text-layer-attrs
+  "The PDF page's text, selectable to react to (pdf.js TextLayer, filled
+  after render); inert on the JVM."
+  #?(:cljs [url p source-id] :clj [_url p source-id])
+  (merge {:data-anchor "" :data-field "pdf" :data-source (str source-id) :data-page (str p)}
+         #?(:cljs {:replicant/on-render (fn [{:replicant/keys [node]}] (pdf/render-text-layer! node url p))}
+            :clj  {})))
 
 (defn- pct [x] (str (* 100 x) "%"))
 
@@ -223,6 +359,7 @@
        [:canvas (pdf-canvas-attrs url p (fn [pages]
                                           (when (not= pages n)
                                             (dispatch! {:db #(db/pdf-loaded % sid pages)}))))]
+       [:div.textLayer (assoc (text-layer-attrs url p sid) :replicant/key (str url "#" p))]
        [:div.pdf-marks
         (for [[i {:keys [x y w h]}] (map-indexed vector (:rects found))]
           [:div.mark {:replicant/key i
@@ -231,7 +368,7 @@
 (defn- node-view [db dispatch!]
   (if-let [node (db/current-node db)]
     [:main.split
-     [:section.content (node-article node dispatch!)]
+     [:section.content (node-article db node dispatch!)]
      (source-pane db node dispatch!)]
     [:main.single [:p.muted (if (:loading? db) "Loading…" "Not found.")]]))
 
@@ -430,7 +567,7 @@
         by             (str "Drafted by " by)))
 
 (defn- concept-article
-  [{:concept/keys [id label gloss aliases by mentions]} score dispatch!]
+  [db {:concept/keys [id label gloss aliases by mentions]} score dispatch!]
   [:article.concept
    [:nav.crumbs (link dispatch! concepts-effects "/c" {} "Concepts") " ›"]
    [:span.meta "Concept · " (count mentions) (if (= 1 (count mentions)) " passage" " passages")
@@ -441,6 +578,7 @@
    [:div.known
     [:span.muted "You know this"] (score-bar score) [:span.pct (percent score)]
     [:button.btn.primary {:on {:click #(dispatch! (quiz-effects (db/concept-item id)))}} "Quiz me on this"]]
+   (ideas-panel db dispatch! (db/concept-anchor id) (db/ideas-about-concept db id))
    (when (seq mentions)
      [:section
       [:h2 "Mentioned in"]
@@ -484,7 +622,7 @@
                 "; you know " (percent score))]])
 
 (defn- concept-graph [db dispatch!]
-  (let [{:keys [nodes edges box scale]} (db/graph-scene db)
+  (let [{:keys [nodes edges box scale] {idea-dots :ideas idea-links :links} :ideas} (db/graph-scene db)
         id (:concept-id db)]
     [:aside.source.graph-pane
      [:div.graph-toolbar
@@ -494,13 +632,24 @@
        [:span.key.heat] "known"]
       (when-let [o (:overall (:learning db))]
         [:span.overall {:title "Of the whole graph, weighted by importance"} "You know " (percent o)])
+      [:label.toggle [:input {:type "checkbox" :checked (boolean (get-in db [:ideas :layer?]))
+                              :on {:change #(dispatch! {:db db/ideas-layer-toggle})}}]
+       "My ideas"]
       [:button {:on {:click #(dispatch! {:db (fn [d] (db/graph-reset d id)) :animate true})}
                 :title "Show only this concept and its neighbours"}
        "Reset"]]
      (if (seq nodes)
        [:svg.cgraph {:viewBox (str/join " " box) :preserveAspectRatio "xMidYMid meet"}
         [:g.edges (map graph-edge edges)]
-        [:g.nodes (for [n nodes] (graph-node dispatch! scale n))]]
+        [:g.nodes (for [n nodes] (graph-node dispatch! scale n))]
+        [:g.ideas
+         (for [[i [[x1 y1] [x2 y2]]] (map-indexed vector idea-links)]
+           [:line.idea-link {:replicant/key i :x1 x1 :y1 y1 :x2 x2 :y2 y2}])
+         (for [{{:idea/keys [id stance text]} :idea x :x y :y} idea-dots]
+           [:g.idea-dot {:replicant/key (str id) :class (name stance)
+                         :transform (str (translate x y) " scale(" scale ")")}
+            [:title (str (stance-label stance) (when text (str ": " text)))]
+            [:rect {:x -4.5 :y -4.5 :width 9 :height 9 :transform "rotate(45)"}]])]]
        [:p.muted.graph-empty "Loading the concept graph…"])
      [:p.graph-hint "Click a concept to open and expand it, click it again to collapse. "
       "+ / − expand or collapse without opening. Filled: how well you know it."]]))
@@ -509,7 +658,7 @@
   [:main.split
    [:section.content
     (if-let [c (db/current-concept db)]
-      (concept-article c (db/item-score db (db/concept-item (:concept/id c))) dispatch!)
+      (concept-article db c (db/item-score db (db/concept-item (:concept/id c))) dispatch!)
       [:p.muted (if (:loading? db) "Loading…" "Not found.")])]
    (concept-graph db dispatch!)])
 
@@ -539,6 +688,7 @@
   [:div.app
    (header db dispatch!)
    (error-banner db dispatch!)
+   (selection-popover db dispatch!)
    (case (:view db)
      :node    (node-view db dispatch!)
      :keyword (keyword-view db dispatch!)

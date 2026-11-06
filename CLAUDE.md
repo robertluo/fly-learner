@@ -20,6 +20,7 @@ Web stack follows flybot.sg (github.com/flybot-sg/lasagna-pattern, `examples/fly
     model), `:concepts` (read-only collection), `:nodes` (with `:node/concepts`; `:node/keywords` keeps only
     keywords naming no concept), `:keywords`, `:search` (lookups), `:learning` (lazy overview), `:questions` /
     `:answers` (creates: write a question, grade an answer)
+  - `server/ideas` — ideas resolved for the API (`:idea/targets`, `:idea/within` = ancestor nodes)
   - `server/study` — app-layer composition of learning + store + quiz for the API: `overview` (overall, scores,
     next), `new-question!` (sent without its model answer), `answer!` (grading + scores before/after)
   - `ask` — graph RAG over the whole store: `retrieve` (Datalevin full-text + spread to parents/links),
@@ -39,7 +40,9 @@ Web stack follows flybot.sg (github.com/flybot-sg/lasagna-pattern, `examples/fly
   `history` (URL <-> state), `views` (Replicant hiccup), `highlight` (find a node's text among pdf.js text items),
   `graph` (concept graph: visible = focus + neighbours of expanded concepts, outline-style), `layout`
   (incremental force layout on primitive arrays: broader-above is a constraint, label boxes never overlap; tween)
-- `src/cljs/robertluo/fly_learner/ui/` — `core` (dispatch-of effects `:db`/`:pull`/`:history`/`:animate`, transit fetch, render), `pdf` (pdf.js: render a page, highlight boxes)
+- `src/cljs/robertluo/fly_learner/ui/` — `core` (dispatch-of effects `:db`/`:pull`/`:history`/`:animate`, transit fetch, render,
+  mouseup -> text selection), `pdf` (pdf.js: render a page, its selectable text layer, highlight boxes), `select` (the
+  selection inside a `data-anchor` element as a quote anchor; `<br>` between PDF lines counts as a space)
 - `resources/public/` — `index.html` (loads vendored pdf.js as a module), `css/style.css`
 - `src/cljc/robertluo/fly_learner/knowledge.cljc` — shared malli schema for nodes
 
@@ -58,6 +61,15 @@ Each layer knows the one below as little as possible, so any part can be reimple
   - `learning.concepts` — the only bridge: the concept graph as a `Curriculum` (`[:concept id]`, `[:relation a b]`)
 - **features** (`quiz`: generate questions from an item's material, grade free text into `:answer` evidence) —
   depend on learning only, never on knowledge
+- **ideas** (`ideas.cljc`, depends on nothing) — the learner's own voice: an idea takes a stance
+  (`:agree`/`:disagree`) or is a `:note`, on one or more anchors (opaque maps), and may link to other ideas.
+  `Anchors` protocol (`target` -> a key ideas are grouped by, `describe`); W3C-style text quotes
+  (`quote-selector`, `find-quote`, `mark-segments`) re-find a span after the text changes.
+  - `ideas.store` — Datalevin, own schema
+  - `ideas.knowledge` — the only bridge: anchors on concepts (follows merges), relations, nodes (re-found by
+    title after re-ingest) and quotes in node text/summary or the PDF (re-found by text; a PDF quote no
+    paragraph contains stays on its page)
+  - ideas and learning know nothing of each other
 - **app** (`server.*`, `ui.*`; the UI knows item ids `[:concept id]` / `[:relation a b]` for the heat map) composes: `server.system` merges schemas and picks the model (mastery + decay)
   and the curriculum
 - `dev/user.clj` — `(start!)` / `(stop!)` / `(cljs!)`, ingest snippet

@@ -70,6 +70,11 @@
         {:pattern {:answers {nil {:question/id (:question/id question) :response response}}}
          :then    (fn [r] {:db #(db/quiz-graded % (get r 'answers))})}))
 
+    :ideas
+    (when-not (get-in db [:ideas :all])
+      {:pattern '{:ideas ?all}
+       :then    (fn [r] {:db #(db/ideas-fetched % (get r 'all))})})
+
     :concept-index
     (when-not (:concept-index db)
       {:pattern '{:concepts ?all}
@@ -86,7 +91,7 @@
 (defn for-route
   "Pull operation needed after navigating to a parsed route."
   [{:keys [view]}]
-  (case view :node :node :keyword :keyword :ask :ask :concept [:concept :concept-graph :learning] :concepts :concept-index :study :learning nil))
+  (case view :node [:node :ideas] :keyword :keyword :ask :ask :concept [:concept :concept-graph :learning :ideas] :concepts :concept-index :study :learning nil))
 
 ^:rct/test
 (comment
@@ -122,9 +127,9 @@
   ;=> true
   (resolve-pull :concept-index (db/concept-index-fetched db/initial-state [])) ;=> nil
 
-  (for-route {:view :node}) ;=> :node
+  (for-route {:view :node}) ;=> [:node :ideas]
   (for-route {:view :concepts}) ;=> :concept-index
-  (for-route {:view :concept}) ;=> [:concept :concept-graph :learning]
+  (for-route {:view :concept}) ;=> [:concept :concept-graph :learning :ideas]
   (for-route {:view :study}) ;=> :learning
   (:pattern (resolve-pull :question-create (db/quiz-start db/initial-state [:concept id])))
   ;=> {:questions {nil {:question/item [:concept #uuid "00000000-0000-0000-0000-000000000001"]}}}

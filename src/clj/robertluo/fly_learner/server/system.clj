@@ -10,6 +10,7 @@
             [clojure.string :as str]
             [datalevin.core :as d]
             [robertluo.fly-learner.db :as db]
+            [robertluo.fly-learner.ideas.store :as ideas.store]
             [robertluo.fly-learner.learning :as learning]
             [robertluo.fly-learner.learning.concepts :as learning.concepts]
             [robertluo.fly-learner.learning.decay :as decay]
@@ -89,7 +90,7 @@
     ::db
     (fnk [::cfg]
          ;; each layer owns its schema
-         (let [conn (db/connect (:db-dir cfg) learning.store/schema quiz/schema)]
+         (let [conn (db/connect (:db-dir cfg) learning.store/schema quiz/schema ideas.store/schema)]
            ;; closeable wraps in a map, so fun-map won't auto-deref the conn inside
            (closeable {:conn conn} #(db/close conn))))
 

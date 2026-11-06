@@ -13,6 +13,7 @@
             [robertluo.fly-learner.ui.core.history :as history]
             [robertluo.fly-learner.ui.core.pull :as pull]
             [robertluo.fly-learner.ui.core.views :as views]
+            [robertluo.fly-learner.ui.select :as select]
             [replicant.dom :as r]))
 
 ;;=============================================================================
@@ -103,6 +104,9 @@
   (add-watch app-db ::render
              (fn [_ _ old new]
                (render!)
+               ;; a reaction was made (or dismissed): let go of the selected text
+               (when (and (get-in old [:ideas :selection]) (not (get-in new [:ideas :selection])))
+                 (select/clear!))
                (when (not= (select-keys old [:view :node-id :ask-id :keyword :concept-id])
                            (select-keys new [:view :node-id :ask-id :keyword :concept-id]))
                  (js/window.scrollTo 0 0)))))
@@ -117,6 +121,19 @@
 (defn ^:export init! []
   (go-to-route! (history/path->state (history/current-path)))
   (dispatch! {:pull :init}))
+
+;; selecting text offers a reaction to it (robertluo.fly-learner.ui.select)
+(defonce _select
+  (.addEventListener js/document "mouseup"
+                     (fn [^js e]
+                       (when-not (.closest (.-target e) ".idea-popover")
+                         ;; after the browser has settled the selection
+                         (js/setTimeout
+                          #(if-let [{:keys [anchor x y]} (select/selection-anchor)]
+                             (dispatch! {:db (fn [d] (db/selection-made d anchor x y))})
+                             (when (get-in @app-db [:ideas :selection])
+                               (dispatch! {:db db/selection-cleared})))
+                          0)))))
 
 (defonce _popstate
   (.addEventListener js/window "popstate" (partial history/on-popstate! go-to-route!)))

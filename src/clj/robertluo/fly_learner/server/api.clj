@@ -9,6 +9,8 @@
     '{:concepts {{:concept/id #uuid \"..\"} ?c}}   ; a concept: hierarchy, related, mentions
     '{:concept-graph ?g}                           ; every concept and edge, explored client-side
     '{:learning ?l}                                ; what the learner knows: overall, scores, next
+    '{:ideas ?all}                                 ; the learner's ideas, resolved to what they are about
+    {:ideas {nil {:idea/stance :note ..}}}         ; add one; {:ideas {{:idea/id id} nil}} removes it
     {:questions {nil {:question/item item}}}       ; write a question (item nil: what to study next)
     {:answers {nil {:question/id .. :response \"..\"}}} ; grade an answer, record it, new scores
     '{:search {{:q \"function extensionality\"} ?hits}} ; full-text + graph ranking, no model
@@ -22,6 +24,7 @@
             [robertluo.fly-learner.ask :as ask]
             [robertluo.fly-learner.concept.view :as concept-view]
             [robertluo.fly-learner.db :as db]
+            [robertluo.fly-learner.server.ideas :as ideas]
             [robertluo.fly-learner.server.study :as study]
             [sg.flybot.pullable.collection :as coll]))
 
@@ -96,6 +99,14 @@
   (update! [_ _ _] {:error {:type :forbidden}})
   (delete! [_ _] {:error {:type :forbidden}}))
 
+(defrecord IdeasDataSource [conn]
+  coll/DataSource
+  (fetch [_ {:idea/keys [id]}] (when (uuid? id) (some #(when (= id (:idea/id %)) %) (ideas/all (d/db conn)))))
+  (list-all [_] (ideas/all (d/db conn)))
+  (create! [_ data] (ideas/create! conn data))
+  (update! [_ _ _] {:error {:type :forbidden :message "ideas are added or removed"}})
+  (delete! [_ {:idea/keys [id]}] (boolean (and (uuid? id) (ideas/delete! conn id)))))
+
 (defn- lazy-value
   "A value computed by `f` only when a pattern binds it (serialised via ->wire)."
   [f]
@@ -116,6 +127,7 @@
                                                   {:id-key :concept/id}))
         questions (coll/collection (->QuestionsDataSource conn client learning ask-opts) {:id-key :question/id})
         answers   (coll/collection (->AnswersDataSource conn client learning ask-opts) {:id-key :question/id})
+        idea-coll (coll/collection (->IdeasDataSource conn) {:id-key :idea/id})
         nodes   (query-lookup (fn [{:node/keys [id]}] (when (uuid? id) (db/node (d/db conn) id))))
         kws     (query-lookup (fn [{:keys [keyword]}] (when (string? keyword)
                                                         (db/nodes-with-keyword (d/db conn) keyword))))]
@@ -124,6 +136,7 @@
                 :concepts concepts
                 :concept-graph (lazy-value #(concept-view/graph (d/db conn)))
                 :learning (lazy-value #(study/overview (d/db conn) learning))
-                :questions questions :answers answers}
+                :questions questions :answers answers
+                :ideas idea-coll}
        :errors {:detect :error
                 :codes  {:forbidden 403 :not-found 404 :invalid 400 :refused 422 :llm-error 502}}})))

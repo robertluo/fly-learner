@@ -5,6 +5,7 @@
   Effects are declared in views as effect maps and executed by dispatch!
   (robertluo.fly-learner.ui.core)."
   (:require [clojure.string :as str]
+            [robertluo.fly-learner.ideas :as ideas]
             [robertluo.fly-learner.ui.core.graph :as graph]
             [robertluo.fly-learner.ui.core.layout :as layout]))
 
@@ -35,6 +36,10 @@
                      :question nil  ; the question, without its answer
                      :response ""   ; the learner's answer being written
                      :result   nil} ; grading, model answer, scores before/after
+   :ideas           {:all       nil   ; [idea with :idea/targets] once fetched (server.ideas/all)
+                     :selection nil   ; {:anchor quote-anchor :x :y}: selected text offered a reaction
+                     :draft     nil   ; {:anchors [..] :text "" :links #{}}: a note being written
+                     :layer?    true} ; show my ideas on the concept graph
    :ask-id          nil    ; answer shown in :ask view
    :asking          nil    ; question waiting for its answer (:ask view, no :ask-id yet)
    :asks            {}     ; ask-id -> ask (see robertluo.fly-learner.ask/view)
@@ -235,6 +240,115 @@
 (defn quiz-close [db] (assoc-in db [:quiz :status] nil))
 
 ;;=============================================================================
+;; Ideas: the learner's own voice on the knowledge
+;;=============================================================================
+
+(defn concept-anchor [id] {:anchor/kind :concept :concept/id id})
+
+(defn node-anchor [{:node/keys [id title source]}]
+  {:anchor/kind :node :node/id id :node/title title :source/id (:source/id source)})
+
+(defn ideas-fetched [db all] (assoc-in db [:ideas :all] (vec all)))
+
+(defn idea-added
+  "A new idea was stored: list it, and close the selection and draft it came from."
+  [db idea]
+  (-> db
+      (update-in [:ideas :all] (fnil conj []) idea)
+      (update :ideas assoc :selection nil :draft nil)))
+
+(defn idea-removed [db id]
+  (update-in db [:ideas :all] (fn [all] (vec (remove #(= id (:idea/id %)) all)))))
+
+(defn- target-keys [idea] (set (map :key (:idea/targets idea))))
+
+(defn ideas-on
+  "Ideas about any target in `keys` (e.g. #{[:concept id]}), oldest first."
+  [db keys]
+  (filterv #(some keys (target-keys %)) (get-in db [:ideas :all])))
+
+(defn ideas-in-node
+  "Ideas on node `id`, on anything inside it, or on the PDF page `page-key`
+  ([:page source-id page]) shown beside it."
+  [db id page-key]
+  (filterv #(or (some #{[:node id] page-key} (target-keys %))
+                (some #{id} (:idea/within %)))
+           (get-in db [:ideas :all])))
+
+(defn ideas-about-concept
+  "Ideas on concept `id` and on its relations."
+  [db id]
+  (filterv #(some (fn [[kind a b]] (or (= [kind a] [:concept id])
+                                       (and (= :relation kind) (or (= a id) (= b id)))))
+                  (target-keys %))
+           (get-in db [:ideas :all])))
+
+(defn reaction
+  "The learner's bare agree/disagree (no text) on exactly `anchor`, or nil."
+  [db anchor]
+  (some #(when (and (#{:agree :disagree} (:idea/stance %)) (nil? (:idea/text %))
+                    (= [anchor] (:idea/anchors %)))
+           %)
+        (get-in db [:ideas :all])))
+
+(defn quote-marks
+  "Marks for the `field` text of node `id`: quotes of ideas about it."
+  [db id field]
+  (for [i (ideas-on db #{[:node id]})
+        a (:idea/anchors i)
+        :when (and (= :quote (:anchor/kind a)) (= field (:field a)))]
+    {:selector a :mark i}))
+
+(defn selection-made [db anchor x y]
+  (assoc-in db [:ideas :selection] {:anchor anchor :x x :y y}))
+
+(defn selection-cleared [db]
+  (cond-> db
+    (not (get-in db [:ideas :draft :from-selection?])) (assoc-in [:ideas :selection] nil)))
+
+(defn draft-start
+  "Write a note about `anchors`."
+  [db anchors from-selection?]
+  (assoc-in db [:ideas :draft] {:anchors (vec anchors) :text "" :links #{} :from-selection? from-selection?}))
+
+(defn draft-typed [db s] (assoc-in db [:ideas :draft :text] s))
+
+(defn draft-link
+  "Link the note being written to idea `id`, or unlink it."
+  [db id]
+  (update-in db [:ideas :draft :links] #(if (contains? % id) (disj % id) (conj % id))))
+
+(defn draft-cancel [db] (update db :ideas assoc :draft nil :selection nil))
+
+(defn ideas-layer-toggle [db] (update-in db [:ideas :layer?] not))
+
+(defn- graph-ideas
+  "Ideas placed on the drawn graph: around their concept, or at the middle of
+  their relation. {:ideas [{:idea .. :x :y}] :links [[from-xy to-xy] ..]}."
+  [db nodes edges]
+  (when (get-in db [:ideas :layer?])
+    (let [at-node (into {} (map (juxt #(vector :concept (:id %)) identity)) nodes)
+          at-edge (into {} (map (juxt #(relation-item (:from %) (:to %)) identity)) edges)
+          placed  (->> (get-in db [:ideas :all])
+                       (keep (fn [i] (some (fn [k] (when (or (at-node k) (at-edge k)) [k i])) (target-keys i))))
+                       (group-by first)
+                       (mapcat (fn [[k kis]]
+                                 (map-indexed
+                                  (fn [n [_ i]]
+                                    (if-let [{:keys [x y r]} (at-node k)]
+                                      (let [a (+ -0.9 (* 0.55 n)), d (+ r 14)]
+                                        {:idea i :x (+ x (* d (Math/cos a))) :y (+ y (* d (Math/sin a)))})
+                                      (let [{:keys [x1 y1 x2 y2]} (at-edge k)]
+                                        {:idea i :x (+ (/ (+ x1 x2) 2) (* 12 n)) :y (- (/ (+ y1 y2) 2) 8)})))
+                                  kis)))
+                       vec)
+          by-id   (into {} (map (juxt (comp :idea/id :idea) identity)) placed)]
+      {:ideas placed
+       :links (vec (for [link (ideas/links (map :idea placed))
+                         :let [[a b] (map by-id link)]]
+                     [[(:x a) (:y a)] [(:x b) (:y b)]]))})))
+
+;;=============================================================================
 ;; Concept graph
 ;;=============================================================================
 
@@ -324,28 +438,31 @@
                                             :let [hw (/ (label-width (get-in ix [:concepts id :concept/label])) 2)]
                                             [k p] [[[id 0] [(- x hw) (- y 20)]] [[id 1] [(+ x hw) (+ y 34)]]]]
                                         [k p]))
-                             {:pad 24})]
-    {:nodes (->> vis
-                 (keep (fn [id]
-                         (when-let [[x y] (pos id)]
-                           (let [{:concept/keys [label gloss mentions]} (get-in ix [:concepts id])]
-                             {:id id :label label :gloss gloss :mentions mentions
-                              :score (item-score db (concept-item id))
-                              :x x :y y :r (radius mentions)
-                              :focus? (= id focus) :selected? (= id sel)
-                              :expanded? (contains? expanded id)
-                              :hidden (graph/hidden-count ix vis id)}))))
-                 ;; the selected concept is drawn last, on top
-                 (sort-by (juxt :selected? :label))
-                 vec)
-     :edges (vec (for [{:keys [from to] :as e} (graph/edges ix vis)
-                       :let [[x1 y1] (pos from), [x2 y2] (pos to)]
-                       :when (and x1 x2)]
-                   (assoc e :x1 x1 :y1 y1 :x2 x2 :y2 y2
-                          :score (item-score db (relation-item from to)))))
-     :box   box
-     ;; labels grow with the zoom-out, so they stay readable (up to a point)
-     :scale (-> (/ (nth box 2) 640) (max 1) (min max-label-scale))}))
+                             {:pad 24})
+        nodes (->> vis
+                     (keep (fn [id]
+                             (when-let [[x y] (pos id)]
+                               (let [{:concept/keys [label gloss mentions]} (get-in ix [:concepts id])]
+                                 {:id id :label label :gloss gloss :mentions mentions
+                                  :score (item-score db (concept-item id))
+                                  :x x :y y :r (radius mentions)
+                                  :focus? (= id focus) :selected? (= id sel)
+                                  :expanded? (contains? expanded id)
+                                  :hidden (graph/hidden-count ix vis id)}))))
+                     ;; the selected concept is drawn last, on top
+                     (sort-by (juxt :selected? :label))
+                     vec)
+          edges (vec (for [{:keys [from to] :as e} (graph/edges ix vis)
+                           :let [[x1 y1] (pos from), [x2 y2] (pos to)]
+                           :when (and x1 x2)]
+                       (assoc e :x1 x1 :y1 y1 :x2 x2 :y2 y2
+                              :score (item-score db (relation-item from to)))))]
+      {:nodes nodes
+       :edges edges
+       :box   box
+       :ideas (graph-ideas db nodes edges)
+       ;; labels grow with the zoom-out, so they stay readable (up to a point)
+       :scale (-> (/ (nth box 2) 640) (max 1) (min max-label-scale))}))
 
 (defn keyword-fetched [db kw nodes]
   (-> db
@@ -516,6 +633,33 @@
   (get-in (set-error asked "boom") [:quiz :status]) ;=> nil
   ;; a late question for a quiz already closed is dropped
   (get-in (question-created (quiz-close asked) {:question/id 1}) [:quiz :status]) ;=> nil
+
+  ;; ideas: grouped by what they are about; a note links to others
+  (def ag {:idea/id :i1 :idea/stance :agree :idea/anchors [(concept-anchor :t)]
+           :idea/targets [{:key [:concept :t]}]})
+  (def nt {:idea/id :i2 :idea/stance :note :idea/text "Hm" :idea/links [:i1]
+           :idea/anchors [{:anchor/kind :quote :field :text :quote "why"}]
+           :idea/targets [{:key [:node :n]}]})
+  (def withi (ideas-fetched g1 [ag nt]))
+  (map :idea/id (ideas-on withi #{[:concept :t]})) ;=> [:i1]
+  ;; a section shows ideas inside it, and on the page beside it
+  (def inside {:idea/id :i5 :idea/targets [{:key [:node :para]}] :idea/within [:sec :chap]})
+  (def on-page {:idea/id :i6 :idea/targets [{:key [:page :s 28]}]})
+  (map :idea/id (ideas-in-node (ideas-fetched g1 [inside on-page ag]) :chap [:page :s 28])) ;=> [:i5 :i6]
+  (map :idea/id (ideas-in-node (ideas-fetched g1 [inside on-page ag]) :other [:page :s 3])) ;=> []
+  (= ag (reaction withi (concept-anchor :t))) ;=> true
+  (reaction withi (concept-anchor :p)) ;=> nil
+  (map :mark (quote-marks withi :n :text)) ;=> [nt]
+  (quote-marks withi :n :summary) ;=> ()
+  ;; on the graph, the agreement sits by its concept
+  (map (comp :idea/id :idea) (:ideas (:ideas (graph-scene withi)))) ;=> [:i1]
+  (:ideas (graph-scene (ideas-layer-toggle withi))) ;=> nil
+  ;; a note from a text selection keeps the selection until saved or cancelled
+  (def drafting (-> withi (selection-made {:anchor/kind :quote} 1 2) (draft-start [{:anchor/kind :quote}] true)))
+  (get-in (selection-cleared drafting) [:ideas :selection :x]) ;=> 1
+  (get-in (-> drafting (draft-link :i1) (draft-link :i2) (draft-link :i1)) [:ideas :draft :links]) ;=> #{:i2}
+  (get-in (idea-added drafting {:idea/id :i3}) [:ideas :draft]) ;=> nil
+  (map :idea/id (get-in (idea-removed withi :i1) [:ideas :all])) ;=> [:i2]
 
   ;; routes
   (:view (apply-route initial-state {:view :study})) ;=> :study
