@@ -44,15 +44,14 @@ in
   scripts.clj-nrepl-eval = cmlScript "Evaluate Clojure via nREPL from the command line" "clojure-mcp-light.nrepl-eval";
   scripts.clj-paren-repair = cmlScript "Fix Clojure delimiters in files on demand" "clojure-mcp-light.paren-repair";
 
-  # `devenv up` starts the backend nREPL and the shadow-cljs watcher.
-  processes.repl.exec = "clojure -M:dev:nrepl";
-  processes.cljs.exec = "npx shadow-cljs watch app";
+  # `devenv up`: nREPL (backend + shadow-cljs middleware); start things from the REPL.
+  processes.repl.exec = "bb dev";
 
   enterShell = ''
     clj-nrepl-eval --help >/dev/null 2>&1 || echo "warning: could not fetch clojure-mcp-light"
   '';
 
   enterTest = ''
-    clojure -M:test
+    bb test
   '';
 }

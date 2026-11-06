@@ -14,6 +14,8 @@ devenv.local.yaml
 .nrepl-port
 .shadow-cljs
 .clj-kondo/.cache
+.clj-kondo/imports
+.rebel_readline_history
 .lsp
 .calva
 target
@@ -23,3 +25,5 @@ resources/public/js
 
 # local data: datalevin db, ingested sources
 data
+
+resources/public/vendor

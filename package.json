@@ -3,10 +3,12 @@
   "private": true,
   "scripts": {
     "watch": "shadow-cljs watch app",
-    "release": "shadow-cljs release app",
-    "test": "shadow-cljs compile test"
+    "release": "shadow-cljs release app"
   },
   "devDependencies": {
     "shadow-cljs": "3.5.11"
+  },
+  "dependencies": {
+    "pdfjs-dist": "6.5.438"
   }
 }

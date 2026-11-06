@@ -1,15 +1,14 @@
 {:deps {:aliases [:cljs]}
 
- :dev-http {8280 "resources/public"}
+ ;; frontend on :3000, /api and /files proxied to the backend on :8080
+ :dev-http {3000 {:root "resources/public"
+                  :proxy-url "http://localhost:8080"}}
+
+ :nrepl {:port 0}
 
  :builds
  {:app {:target :browser
         :output-dir "resources/public/js"
         :asset-path "/js"
-        :modules {:main {:init-fn learner.app/init}}
-        :devtools {:after-load learner.app/reload}}
-
-  :test {:target :node-test
-         :output-to "target/cljs-test/test.js"
-         :ns-regexp "-test$"
-         :autorun true}}}
+        :modules {:main {:entries [learner.ui.core]}}
+        :devtools {:after-load learner.ui.core/render!}}}}

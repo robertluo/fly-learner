@@ -52,15 +52,53 @@
 (defn close [conn]
   (d/close conn))
 
+(def ^:private node-ref
+  "Shape of a node when referenced from another node."
+  [:node/id :node/title :node/kind :node/level :node/order :node/page :node/summary :node/text])
+
+(defn- ancestors-of
+  "Parent chain of entity `eid`, root first, as node refs."
+  [db eid]
+  (loop [eid eid, acc ()]
+    (if-let [parent (first (:node/_children (d/pull db [{:node/_children [:db/id]}] eid)))]
+      (let [pid (:db/id parent)]
+        (recur pid (conj acc (d/pull db [:node/id :node/title :node/kind] pid))))
+      (vec acc))))
+
 (defn node
-  "Pull a node with its direct children and links (ids + titles only)."
+  "A node for display: its own fields, children and links (as node refs),
+  ancestors (root first) and its source. nil when not found."
   [db node-id]
-  (d/pull db '[* {:node/children [:node/id :node/title :node/level :node/order]}
-               {:node/links [:node/id :node/title :node/level]}]
-          [:node/id node-id]))
+  (when-let [eid (d/entid db [:node/id node-id])]
+    (let [n (d/pull db [:node/id :node/kind :node/level :node/order :node/title :node/summary
+                        :node/text :node/keywords :node/page
+                        {:node/children node-ref} {:node/links node-ref}
+                        {:node/source [:source/id :source/title]}]
+                    eid)]
+      (-> n
+          (update :node/children #(vec (sort-by :node/order %)))
+          (update :node/links #(vec (sort-by (juxt :node/level :node/title) %)))
+          (update :node/keywords #(vec (sort %)))
+          (assoc :node/ancestors (ancestors-of db eid))))))
 
 (defn sources [db]
-  (d/q '[:find [(pull ?s [:source/id :source/title :source/type
-                          {:source/root [:node/id]}]) ...]
-         :where [?s :source/id]]
-       db))
+  (->> (d/q '[:find [(pull ?s [:source/id :source/title :source/type
+                               {:source/root [:node/id :node/summary]}]) ...]
+              :where [?s :source/id]]
+            db)
+       (sort-by :source/title)
+       vec))
+
+(defn source [db source-id]
+  (d/pull db [:source/id :source/title :source/type :source/path {:source/root [:node/id :node/summary]}]
+          [:source/id source-id]))
+
+(defn nodes-with-keyword
+  "Summarised nodes carrying keyword `kw`, highest level first."
+  [db kw]
+  (->> (d/q '[:find [(pull ?n [:node/id :node/title :node/kind :node/level :node/page :node/summary]) ...]
+              :in $ ?kw
+              :where [?n :node/keywords ?kw]]
+            db kw)
+       (sort-by (juxt :node/level :node/title))
+       vec))

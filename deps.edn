@@ -10,47 +10,40 @@
 
         ;; AI
         com.anthropic/anthropic-java {:mvn/version "3.6.0"}
-
-        ;; http api
-        metosin/reitit {:mvn/version "0.11.0"}
-        ring/ring-jetty-adapter {:mvn/version "1.15.6"}
         metosin/jsonista {:mvn/version "1.0.2"}
 
-        ;; data schemas shared with the frontend
+        ;; web stack, same as flybot.sg (flybot-sg/lasagna-pattern examples/flybot-site)
+        sg.flybot/lasagna-remote {:mvn/version "0.1.8"} ; pull-pattern API (+ pattern, collection)
+        io.github.robertluo/fun-map {:mvn/version "0.5.124"} ; system lifecycle / DI
+        http-kit/http-kit {:mvn/version "2.8.1"}
+        ring/ring-core {:mvn/version "1.15.6"}
         metosin/malli {:mvn/version "0.20.3"}}
 
  :aliases
- {;; Datalevin needs these on the JVM
-  :jvm-base {:jvm-opts ["--add-opens=java.base/java.nio=ALL-UNNAMED"
-                        "--add-opens=java.base/sun.nio.ch=ALL-UNNAMED"
-                        "--enable-native-access=ALL-UNNAMED"]}
+ {;; Every JVM alias carries the --add-opens flags Datalevin needs.
 
+  ;; bb dev: one nREPL for backend + shadow-cljs (writes .nrepl-port)
   :dev {:extra-paths ["dev" "test/clj"]
+        :extra-deps {nrepl/nrepl {:mvn/version "1.8.0"}
+                     cider/cider-nrepl {:mvn/version "0.64.0"}
+                     lambdaisland/kaocha {:mvn/version "1.91.1392"}
+                     io.github.robertluo/rich-comment-tests {:mvn/version "1.1.82"}}
         :jvm-opts ["--add-opens=java.base/java.nio=ALL-UNNAMED"
                    "--add-opens=java.base/sun.nio.ch=ALL-UNNAMED"
                    "--enable-native-access=ALL-UNNAMED"
                    "-Djdk.attach.allowAttachSelf"]}
 
-  ;; clojure -M:dev:nrepl  -> writes .nrepl-port (found by clj-nrepl-eval --discover-ports)
-  :nrepl {:extra-deps {nrepl/nrepl {:mvn/version "1.8.0"}
-                       cider/cider-nrepl {:mvn/version "0.64.0"}}
-          :main-opts ["-m" "nrepl.cmdline" "--middleware" "[cider.nrepl/cider-middleware]"]}
+  ;; bb test: Kaocha runs clojure.test + Rich Comment Tests (test/clj/learner/rct_test.clj)
+  :kaocha {:main-opts ["-m" "kaocha.runner"]}
 
-  ;; clojure -M:run
+  ;; bb serve
   :run {:jvm-opts ["--add-opens=java.base/java.nio=ALL-UNNAMED"
                    "--add-opens=java.base/sun.nio.ch=ALL-UNNAMED"
                    "--enable-native-access=ALL-UNNAMED"]
-        :main-opts ["-m" "learner.main"]}
+        :main-opts ["-m" "learner.server.system"]}
 
-  ;; clojure -M:test
-  :test {:extra-paths ["test/clj"]
-         :extra-deps {io.github.cognitect-labs/test-runner {:git/tag "v0.5.1" :git/sha "dfb30dd"}}
-         :jvm-opts ["--add-opens=java.base/java.nio=ALL-UNNAMED"
-                    "--add-opens=java.base/sun.nio.ch=ALL-UNNAMED"
-                    "--enable-native-access=ALL-UNNAMED"]
-         :main-opts ["-m" "cognitect.test-runner" "-d" "test/clj"]}
-
-  ;; used by shadow-cljs (see shadow-cljs.edn :deps)
-  :cljs {:extra-paths ["src/cljs" "test/cljs"]
+  ;; frontend build (shadow-cljs.edn :deps)
+  :cljs {:extra-paths ["src/cljs"]
          :extra-deps {thheller/shadow-cljs {:mvn/version "3.5.11"}
-                      no.cjohansen/replicant {:mvn/version "2026.07.1"}}}}}
+                      no.cjohansen/replicant {:mvn/version "2026.07.1"}
+                      com.cognitect/transit-cljs {:mvn/version "0.8.280"}}}}}

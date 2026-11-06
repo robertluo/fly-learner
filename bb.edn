@@ -1,25 +1,39 @@
 {:tasks
  {:requires ([babashka.fs :as fs])
 
-  nrepl
-  {:doc "Start backend nREPL (writes .nrepl-port)"
-   :task (shell "clojure -M:dev:nrepl")}
+  vendor
+  {:doc "Copy the pdf.js bundle and worker from node_modules into resources/public/vendor"
+   :task (let [src  "node_modules/pdfjs-dist/build"
+               dest "resources/public/vendor/pdfjs"]
+           (fs/create-dirs dest)
+           (doseq [f ["pdf.min.mjs" "pdf.worker.min.mjs"]]
+             (fs/copy (fs/path src f) dest {:replace-existing true})))}
 
-  cljs
-  {:doc "Watch frontend with shadow-cljs (http://localhost:8280)"
+  install
+  {:doc "Install npm packages from package-lock.json, then vendor pdf.js"
+   :task (do (shell "npm ci") (run 'vendor))}
+
+  dev
+  {:doc "nREPL for backend + frontend (writes .nrepl-port). In the REPL:
+         (user/start!) for the backend on :8080, (user/cljs!) for shadow-cljs on :3000"
+   :depends [install]
+   :task (clojure "-M:dev:cljs -m nrepl.cmdline --middleware"
+                  "[shadow.cljs.devtools.server.nrepl/middleware,cider.nrepl/cider-middleware]")}
+
+  watch
+  {:doc "shadow-cljs watch without a REPL (http://localhost:3000)"
+   :depends [install]
    :task (shell "npx shadow-cljs watch app")}
 
   serve
-  {:doc "Run the backend server"
-   :task (shell "clojure -M:run")}
+  {:doc "Run the backend server (:8080) serving the release frontend"
+   :depends [install]
+   :task (do (shell "npx shadow-cljs release app")
+             (clojure "-M:run"))}
 
   test
-  {:doc "Run JVM tests"
-   :task (shell "clojure -M:test")}
-
-  test-cljs
-  {:doc "Run ClojureScript tests on node"
-   :task (shell "npx shadow-cljs compile test")}
+  {:doc "Run tests (Kaocha: clojure.test + Rich Comment Tests)"
+   :task (apply clojure "-M:dev:kaocha" *command-line-args*)}
 
   lint
   {:doc "Lint with clj-kondo"

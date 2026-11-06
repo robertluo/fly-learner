@@ -4,6 +4,8 @@ See README.md for goals. Roadmap: backend (knowledge base from one source) first
 
 ## Layout
 
+Web stack follows flybot.sg (github.com/flybot-sg/lasagna-pattern, `examples/flybot-site`); Datalevin instead of Datahike.
+
 - `src/clj/learner/` — backend
   - `ingest` — `ingest-pdf!`: PDF -> section tree -> fold with Claude -> `data/folds/*.edn` + Datalevin
   - `ingest/pdf` — PDFBox paragraphs -> blocks (`:heading` / `:text`), headings recognised from text
@@ -13,19 +15,23 @@ See README.md for goals. Roadmap: backend (knowledge base from one source) first
     Two tiers in `config.edn` `[:anthropic :models]`: `:strong` (Sonnet: sections, chapters, quizzes) and
     `:common` (Haiku: paragraph groups). The system prompt carries a cache breakpoint; keep it identical
     across calls (fold puts the document outline there) and put per-call content in the user prompt.
-  - `quiz`, `progress` (SM-2 reviews), `db` (Datalevin schema), `server` (reitit API), `main`
+  - `server/system` — fun-map `life-cycle-map` (db, api-fn, ring app, http-kit); `/files/sources/<id>` serves the PDF
+  - `server/api` — lasagna-remote pull API on `/api`: `:sources` (collection), `:nodes`, `:keywords` (lookups)
+  - `quiz`, `progress` (SM-2 reviews), `db` (Datalevin schema + queries)
+- `src/cljc/learner/ui/core/` — frontend logic, JVM-testable: `db` (pure state fns), `pull` (named pull specs),
+  `history` (URL <-> state), `views` (Replicant hiccup)
+- `src/cljs/learner/ui/` — `core` (dispatch-of effects `:db`/`:pull`/`:history`, transit fetch, render), `pdf` (pdf.js)
+- `resources/public/` — `index.html` (loads vendored pdf.js as a module), `css/style.css`
 - `src/cljc/learner/knowledge.cljc` — shared malli schemas for nodes/questions
-- `src/cljs/learner/app.cljs` — browser UI
-- `dev/user.clj` — `(go)` / `(halt)` / `(reset)`
-- `test/clj`, `test/cljs`
+- `dev/user.clj` — `(start!)` / `(stop!)` / `(cljs!)`, ingest snippet
+- Tests: Kaocha runs `test/clj` plus Rich Comment Tests (`^:rct/test` comment blocks in `src/`)
 
 ## Commands (inside `devenv shell`)
 
-- `bb nrepl` — backend nREPL; `bb cljs` — shadow-cljs watch on http://localhost:8280
-- `bb test`, `bb test-cljs`, `bb lint`, `bb serve`
-- `devenv up` — nREPL + shadow-cljs together
-
-The Anthropic API key is read from the macOS keychain (service `learner`, account `anthropic`, set in `resources/config.edn`) unless `ANTHROPIC_API_KEY` is set. Never print or log it.
+- `bb dev` — nREPL (backend + shadow-cljs middleware); then `(user/start!)` (:8080) and `(user/cljs!)` (:3000, proxies to :8080)
+- `bb watch` — shadow-cljs without a REPL; `bb serve` — release build served by the backend on :8080
+- `bb test`, `bb lint`; `bb install` / `bb vendor` copy pdf.js into `resources/public/vendor/pdfjs`
+- `devenv up` — runs `bb dev`
 
 Every JVM alias needs the Datalevin `--add-opens` flags; keep them when adding aliases.
 

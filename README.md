@@ -56,15 +56,28 @@ To do:
  - Try quiz generation and progress tracking (SM-2 reviews) on real data; both are written but not yet run against it.
  - Multiple sources and links between them.
 
-### 2. Frontend (not started)
+### 2. Frontend (in progress)
 
-A minimal ClojureScript (Replicant) page that browses the DAG exists as a skeleton.
+Same stack as [flybot.sg](https://www.flybot.sg) ([source](https://github.com/flybot-sg/lasagna-pattern/tree/main/examples/flybot-site)): Replicant UI with an effect-map dispatch, a single pull-pattern API ([lasagna-pattern](https://github.com/flybot-sg/lasagna-pattern)) over Transit, http-kit + fun-map on the server, Kaocha + Rich Comment Tests. Storage stays on Datalevin.
+
+Done:
+
+ - Browse a source from the birdview down: breadcrumb, summary, keywords, drill-down cards (paragraph text shown inline), related nodes.
+ - The original PDF beside it (pdf.js), on the selected node's page, with paging.
+ - Keywords are links: each opens every node tagged with it.
+ - URLs per node (`/n/<id>`) and keyword (`/k/<keyword>`), back/forward work.
+
+To do:
+
+ - Highlight the selected paragraph on the PDF page (pdf.js text layer).
+ - Quiz and review screens.
 
 ## Development
 
 Inside `devenv shell` (JDK, Clojure, Node, babashka, clojure-mcp-light):
 
- - `bb nrepl` backend nREPL, `bb cljs` frontend watch (http://localhost:8280), `devenv up` both
- - `bb test`, `bb test-cljs`, `bb lint`
+ - `bb dev` starts an nREPL; in it `(user/start!)` runs the backend (http://localhost:8080) and `(user/cljs!)` the frontend watch (http://localhost:3000)
+ - `bb serve` builds the frontend and serves everything from http://localhost:8080
+ - `bb test`, `bb lint`
  - Anthropic API key: `ANTHROPIC_API_KEY`, or the macOS keychain item named in `resources/config.edn`
  - Ingest a PDF from the REPL: see the `comment` block in `dev/user.clj`
