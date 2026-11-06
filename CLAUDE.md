@@ -53,7 +53,8 @@ Web stack follows flybot.sg (github.com/flybot-sg/lasagna-pattern, `examples/fly
   `graph` (concept graph: visible = focus + neighbours of expanded concepts, outline-style), `layout`
   (incremental force layout on primitive arrays: broader-above is a constraint, label boxes never overlap; tween)
 - `src/cljs/robertluo/fly_learner/ui/` — `core` (dispatch-of effects `:db`/`:pull`/`:history`/`:animate`, transit fetch, render,
-  mouseup -> text selection), `pdf` (pdf.js: render a page, its selectable text layer, highlight boxes), `select` (the
+  mouseup -> text selection), `pdf` (pdf.js: render a page, its selectable text layer, highlight boxes; the source as one scrolling column of
+  pages, drawn near the view only: `sync-scroll!` keeps it at the state's page, `watch-scroll!` turns the page as the learner scrolls), `select` (the
   selection inside a `data-anchor` element as a quote anchor; `<br>` between PDF lines counts as a space)
 - `resources/public/` — `index.html` (loads vendored pdf.js as a module), `css/style.css`
 - `src/cljc/robertluo/fly_learner/knowledge.cljc` — shared malli schema for nodes

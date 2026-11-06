@@ -52,8 +52,9 @@
    :search-hits     {}     ; question -> [node-ref with :node/path] (full-text, no model)
    :pdf             {:page      nil   ; manual page (nil: follow the node)
                      :pages     {}    ; source-id -> page count
+                     :aspect    {}    ; source-id -> width/height of a page (pages not yet drawn)
                      :highlight nil   ; {:key [url page node-id] :aspect w/h :rects [{:x :y :w :h}]}
-                     :text-ready nil  ; "url#page" whose text layer is laid out
+                     :text-ready #{}  ; "url#page" whose text layer has been laid out
                      :placed    {}}   ; quotes key (pdf-quotes-key) -> {idea-id [{:x :y :w :h}]}
    :source-only?    false  ; split views: the left pane hidden, the source (PDF, graph) full width
    :loading?        false
@@ -734,8 +735,27 @@
 
 (defn pdf-pages [db source-id] (get-in db [:pdf :pages source-id]))
 
-(defn pdf-loaded [db source-id n]
-  (assoc-in db [:pdf :pages source-id] n))
+(defn pdf-loaded
+  "Source `source-id` has `n` pages; `aspect` (width/height of one) sizes
+  the pages not drawn yet."
+  ([db source-id n] (pdf-loaded db source-id n nil))
+  ([db source-id n aspect]
+   (cond-> (assoc-in db [:pdf :pages source-id] n)
+     (and aspect (not (get-in db [:pdf :aspect source-id])))
+     (assoc-in [:pdf :aspect source-id] aspect))))
+
+(defn pdf-aspect [db source-id] (get-in db [:pdf :aspect source-id]))
+
+(defn pdf-scrolled
+  "The learner scrolled the source to page `p`: it no longer follows the node."
+  [db p]
+  (assoc-in db [:pdf :page] p))
+
+(defn pdf-window
+  "Whether page `q` is near page `p` (the one at the top of the pane), so
+  worth drawing: the others are blank sheets of the right size."
+  [p q]
+  (<= (- p 2) q (+ p 3)))
 
 (defn pdf-goto
   "Show page `p` (clamped to the document) regardless of the selected node."
@@ -765,9 +785,10 @@
     nil))
 
 (defn highlight-key
-  "Identifies the highlight wanted now: document, page and node."
+  "Identifies the highlight wanted now: document, the node's page and node
+  (wherever the source is scrolled to)."
   [db url]
-  [url (pdf-page db) (:node-id db)])
+  [url (some-> (current-node db) node-page) (:node-id db)])
 
 (defn highlight
   "The highlight for `key` once computed (rects as fractions of the page)."
@@ -794,9 +815,9 @@
   [sid p quotes]
   [sid p (vec (sort (map (comp str :idea/id :idea) quotes)))])
 
-(defn text-layer-ready [db url p] (assoc-in db [:pdf :text-ready] (str url "#" p)))
+(defn text-layer-ready [db url p] (update-in db [:pdf :text-ready] (fnil conj #{}) (str url "#" p)))
 
-(defn text-layer-ready? [db url p] (= (str url "#" p) (get-in db [:pdf :text-ready])))
+(defn text-layer-ready? [db url p] (contains? (get-in db [:pdf :text-ready]) (str url "#" p)))
 
 (defn pdf-quotes-placed
   "Boxes of the quotes keyed `k` were found: {idea-id [{:x :y :w :h}]}."
@@ -834,10 +855,16 @@
   (node-page {}) ;=> 1
 
   ;; manual paging is clamped and survives until the next node is opened
+  (def shown-n (-> initial-state (open-node id) (node-fetched n)))
   (def paged (-> initial-state (open-node id) (node-fetched n) (pdf-loaded :s 10) (pdf-goto :s 42)))
   (pdf-page paged) ;=> 10
   (following? paged) ;=> false
   (pdf-page (open-node paged id)) ;=> 7
+  ;; scrolling the source turns its page; the first page drawn sizes the rest
+  (pdf-page (pdf-scrolled shown-n 9)) ;=> 9
+  (following? (pdf-scrolled shown-n 9)) ;=> false
+  (pdf-aspect (-> initial-state (pdf-loaded :s 10 0.7) (pdf-loaded :s 10 0.8)) :s) ;=> 0.7
+  (filter #(pdf-window 5 %) (range 1 12)) ;=> [3 4 5 6 7 8]
 
   ;; what gets highlighted
   (highlight-texts {:node/kind :paragraph :node/text "Some text."}) ;=> ["Some text."]
@@ -851,6 +878,8 @@
   k ;=> ["/f" 7 #uuid "00000000-0000-0000-0000-000000000001"]
   (:aspect (highlight (highlight-found shown k {:aspect 0.7 :rects []}) k)) ;=> 0.7
   (highlight (highlight-found shown k {:aspect 0.7 :rects []}) ["/f" 8 id]) ;=> nil
+  ;; the node's page, wherever the source is scrolled to
+  (highlight-key (pdf-scrolled shown 12) "/f") ;=> ["/f" 7 #uuid "00000000-0000-0000-0000-000000000001"]
 
   ;; missing node -> error
   (:code (:error (node-fetched initial-state nil))) ;=> :not-found

@@ -456,18 +456,27 @@
   #?(:cljs (on-render #(pdf/render-page! % url p on-pages))
      :clj  {}))
 
-(defn- highlight-attrs
-  "Sheet attrs that find the highlight for `key` once (pdf.js text content),
-  then scroll the pane to it."
-  #?(:cljs [key texts found dispatch!] :clj [_key _texts _found _dispatch!])
-  #?(:cljs (on-render
-            (fn [node]
-              (if found
-                (pdf/scroll-to-highlight! node key (:rects found))
-                (pdf/ensure-highlight! key texts
-                                       (fn [k result]
-                                         (dispatch! {:db #(db/highlight-found % k result)}))))))
-     :clj  {}))
+(defn- pages-attrs
+  "Attrs of the column of pages: kept at the page shown, and at the node's
+  highlight while following the node (`sync`, see pdf/sync-scroll!; an
+  attribute too, so the hook runs when it changes); scrolling it turns the
+  page, one step in history once it pauses. Finds the highlight `key` once
+  (pdf.js text content). Inert on the JVM."
+  #?(:cljs [following? sync key texts found dispatch!] :clj [following? sync _key _texts _found _dispatch!])
+  (merge {:data-following (str (boolean following?)) :data-sync (pr-str sync)}
+         #?(:cljs (on-render
+                   (fn [pane]
+                     (pdf/watch-scroll! pane
+                                        (fn [p] (dispatch! {:db #(db/pdf-scrolled % p)}))
+                                        ;; leaving the node's page is one step back in history
+                                        (fn [was-following?]
+                                          (dispatch! {:history (if was-following? :push :replace)})))
+                     (when-not found
+                       (pdf/ensure-highlight! key texts
+                                              (fn [k result]
+                                                (dispatch! {:db #(db/highlight-found % k result)}))))
+                     (pdf/sync-scroll! pane sync)))
+            :clj  {})))
 
 (defn- text-layer-attrs
   "The PDF page's text, selectable to react to (pdf.js TextLayer, filled
@@ -526,9 +535,27 @@
    [:section.content left]
    right])
 
+(defn- pdf-sheet
+  "Page `q` of the source: drawn when near the page shown, else a blank
+  sheet of the same size. The node's page carries its highlight."
+  [db {:keys [sid url aspect hl-page found layout on-doc]} dispatch! q near?]
+  [:div.pdf-sheet {:replicant/key (str url "#" q) :data-page (str q)
+                   :style (when-let [a (if (= q hl-page) (or (:aspect found) aspect) aspect)]
+                            {:aspect-ratio (str a)})}
+   (when near?
+     [:div.pdf-layers
+      [:canvas (merge (pdf-canvas-attrs url q on-doc) layout)]
+      [:div.textLayer (merge (text-layer-attrs url q sid dispatch!) layout {:replicant/key (str url "#" q)})]
+      (pdf-quote-marks db sid url q dispatch!)
+      [:div.pdf-marks
+       (when (= q hl-page)
+         (for [[i {:keys [x y w h]}] (map-indexed vector (:rects found))]
+           [:div.mark {:replicant/key i
+                       :style {:left (pct x) :top (pct y) :width (pct w) :height (pct h)}}]))]])])
+
 (defn- source-pane
-  "The original document (pdf.js), on the selected node's page, with the
-  node's source text highlighted."
+  "The original document (pdf.js), every page in one scrolling column, at
+  the selected node's page with its source text highlighted."
   [db node dispatch!]
   (let [sid   (get-in node [:node/source :source/id])
         url   (str "/files/sources/" sid)
@@ -536,34 +563,36 @@
         n     (db/pdf-pages db sid)
         key   (db/highlight-key db url)
         found (db/highlight db key)
+        following? (db/following? db)
         ;; leaving the node's page for the source is one step back in history;
         ;; turning further pages replaces it
         goto  (fn [page] #(dispatch! {:db (fn [d] (db/pdf-goto d sid page))
-                                      :history (if (db/following? db) :push :replace)}))
-        ;; the page is drawn to fit the pane's width: an attribute that changes with it
+                                      :history (if following? :push :replace)}))
+        ;; pages are drawn to fit the pane's width: an attribute that changes with it
         ;; re-runs the drawing hooks when the pane widens or narrows
-        layout {:data-layout (if (:source-only? db) "wide" "split")}]
+        mode   (if (:source-only? db) "wide" "split")
+        layout {:data-layout mode}
+        sheet  {:sid sid :url url :aspect (db/pdf-aspect db sid) :hl-page (second key)
+                :found found :layout layout
+                :on-doc (fn [pages aspect]
+                          (when (or (not= pages n) (nil? (db/pdf-aspect db sid)))
+                            (dispatch! {:db #(db/pdf-loaded % sid pages aspect)})))}
+        sync   {:page p
+                :y (when (and following? found) (some :y (:rects found)))
+                :key (pr-str key)
+                :layout (pr-str [url n mode])}]
     [:aside.source
      [:div.pdf-toolbar
       (width-toggle db dispatch! "text")
       [:button {:disabled (<= p 1) :on {:click (goto (dec p))}} "‹"]
       [:span.page "Page " p (when n (str " / " n))]
       [:button {:disabled (boolean (and n (>= p n))) :on {:click (goto (inc p))}} "›"]
-      (when-not (db/following? db)
+      (when-not following?
         [:button.follow {:on {:click #(dispatch! {:db db/pdf-follow :history :push})}} "Back to selection"])]
-     [:div.pdf-page
-      [:div.pdf-sheet (cond-> (merge (highlight-attrs key (db/highlight-texts node) found dispatch!) layout)
-                        found (assoc :style {:aspect-ratio (str (:aspect found))}))
-       [:canvas (merge (pdf-canvas-attrs url p (fn [pages]
-                                                 (when (not= pages n)
-                                                   (dispatch! {:db #(db/pdf-loaded % sid pages)}))))
-                       layout)]
-       [:div.textLayer (merge (text-layer-attrs url p sid dispatch!) layout {:replicant/key (str url "#" p)})]
-       (pdf-quote-marks db sid url p dispatch!)
-       [:div.pdf-marks
-        (for [[i {:keys [x y w h]}] (map-indexed vector (:rects found))]
-          [:div.mark {:replicant/key i
-                      :style {:left (pct x) :top (pct y) :width (pct w) :height (pct h)}}])]]]]))
+     [:div.pdf-page (pages-attrs following? sync key (db/highlight-texts node) found dispatch!)
+      ;; until the page count is known, only the page shown
+      (for [q (if n (range 1 (inc n)) [p])]
+        (pdf-sheet db sheet dispatch! q (db/pdf-window p q)))]]))
 
 (defn- node-view [db dispatch!]
   (if-let [node (db/current-node db)]

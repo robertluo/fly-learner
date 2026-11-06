@@ -29,7 +29,8 @@
 (defn render-page!
   "Draw page `p` of `url` into `canvas`, fitted to the width of its parent.
   Cheap to call on every render: skips when that page is already drawn at
-  that width. Calls (on-doc num-pages) once the document is loaded."
+  that width. Calls (on-doc num-pages aspect) once the page is loaded,
+  aspect being its width / height."
   [^js canvas url p on-doc]
   (let [width (some-> (.-parentElement canvas) .-clientWidth)
         key   (str url "#" p "@" width)]
@@ -38,10 +39,10 @@
       (set! (.. canvas -dataset -rendered) key)
       (some-> ^js (.-renderTask canvas) .cancel)
       (-> (document url)
-          (.then (fn [^js doc]
-                   (on-doc (.-numPages doc))
-                   (.getPage doc p)))
-          (.then (fn [^js page]
+          (.then (fn [^js doc] (.then (.getPage doc p) (fn [page] [doc page]))))
+          (.then (fn [[^js doc ^js page]]
+                   (let [vp1 (.getViewport page #js {:scale 1})]
+                     (on-doc (.-numPages doc) (/ (.-width vp1) (.-height vp1))))
                    ;; a newer render may have started meanwhile
                    (when (= key (.. canvas -dataset -rendered))
                      (let [scale (/ width (.-width (.getViewport page #js {:scale 1})))
@@ -151,18 +152,80 @@
                     (when (= key @pending) (reset! pending nil))
                     (js/console.error "pdf.js highlight:" e)))))))
 
-(defn scroll-to-highlight!
-  "Scroll the pane (the sheet's scrolling parent) to the first highlighted
-  box, or to the top when there is none. Once per `key`."
-  [^js sheet key rects]
-  (let [k (pr-str key)]
-    (when (and (.-parentElement sheet) (not= k (.. sheet -dataset -scrolled)))
-      (set! (.. sheet -dataset -scrolled) k)
-      (let [pane ^js (.-parentElement sheet)
-            top  (if-let [y (some :y rects)]
-                   (let [offset (- (.-top (.getBoundingClientRect sheet))
-                                   (.-top (.getBoundingClientRect pane))
-                                   (- (.-scrollTop pane)))]
-                     (max 0 (- (+ offset (* y (.-clientHeight sheet))) 48)))
-                   0)]
-        (.scrollTo pane #js {:top top :behavior "smooth"})))))
+;;=============================================================================
+;; Scrolling: every page in one column (.pdf-page, of .pdf-sheet[data-page])
+;;=============================================================================
+
+(def ^:private probe
+  "How far below the pane's top edge the line is whose page is the current one."
+  56)
+
+(defn- sheet [^js pane p] (.querySelector pane (str ".pdf-sheet[data-page=\"" p "\"]")))
+
+(defn- page-at
+  "The page under the probe line: the first sheet ending below it."
+  [^js pane]
+  (let [y (+ (.-scrollTop pane) probe)]
+    (some (fn [^js s]
+            (when (> (+ (.-offsetTop s) (.-offsetHeight s)) y)
+              (parse-long (.. s -dataset -page))))
+          (js/Array.from (.querySelectorAll pane ".pdf-sheet")))))
+
+(defn- scroll-pane!
+  "Scroll `pane` to `top`; the scroll events this causes are not the learner's."
+  [^js pane top smooth?]
+  (set! (.-ignoreUntil pane) (+ (js/performance.now) (if smooth? 700 120)))
+  (.scrollTo pane #js {:top (max 0 top) :behavior (if smooth? "smooth" "instant")}))
+
+(defn sync-scroll!
+  "Keep `pane` at page `page`. Scrolls there when the page was changed other
+  than by scrolling (pane.dataset.at is the page the scroll position is at)
+  or when the pages moved (`layout`, a string: the document, its page count,
+  the pane's width). `y`, a fraction of the page, is where the highlight
+  `key` (a string) is when it should be in view: scrolled to once, smoothly
+  when already on its page."
+  [^js pane {:keys [page y key layout]}]
+  (let [ds     (.-dataset pane)
+        moved? (or (not= (str page) (.-at ds)) (not= layout (.-layout ds)))
+        new-y? (and y (not= key (.-placed ds)))]
+    (when (or moved? new-y?)
+      (when-let [^js s (sheet pane page)]
+        (set! (.-at ds) (str page))
+        (set! (.-layout ds) layout)
+        (when y (set! (.-placed ds) key))
+        (scroll-pane! pane
+                      (if y
+                        (- (+ (.-offsetTop s) (* y (.-clientHeight s))) 48)
+                        (- (.-offsetTop s) 16))
+                      (not moved?))))))
+
+(defn watch-scroll!
+  "Once per pane: as the learner scrolls, (on-page p) when another page
+  reaches the probe line, and (on-settle following?) once those changes
+  pause; following? says whether the pane followed the node (its
+  data-following) when the first of them happened."
+  [^js pane on-page on-settle]
+  (when-not (.-watching pane)
+    (set! (.-watching pane) true)
+    (let [frame (volatile! nil), settle (volatile! nil), following (volatile! nil)]
+      (.addEventListener
+       pane "scroll"
+       (fn []
+         (when-not @frame
+           (vreset! frame
+                    (js/requestAnimationFrame
+                     (fn []
+                       (vreset! frame nil)
+                       (when (> (js/performance.now) (or (.-ignoreUntil pane) 0))
+                         (when-let [p (page-at pane)]
+                           (when (not= (str p) (.. pane -dataset -at))
+                             (set! (.. pane -dataset -at) (str p))
+                             (when (nil? @following)
+                               (vreset! following (= "true" (.. pane -dataset -following))))
+                             (on-page p)
+                             (js/clearTimeout @settle)
+                             (vreset! settle (js/setTimeout (fn []
+                                                              (on-settle @following)
+                                                              (vreset! following nil))
+                                                            400))))))))))
+       #js {:passive true}))))
