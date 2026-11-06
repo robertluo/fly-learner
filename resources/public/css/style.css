@@ -446,6 +446,7 @@ input.filter:focus { outline: 2px solid var(--accent-soft); border-color: var(--
 @media (prefers-color-scheme: dark) { :root { --agree: #6cc495; --disagree: #e38b74; --note: #d8b25e; } }
 
 .ideas .reactions { display: flex; flex-wrap: wrap; gap: .5rem; }
+.ideas .hint { margin: .6rem 0 0; }
 .btn.react.agree.on { background: var(--agree); border-color: var(--agree); color: var(--panel); }
 .btn.react.disagree.on { background: var(--disagree); border-color: var(--disagree); color: var(--panel); }
 
@@ -626,9 +627,10 @@ form.ask input:focus { outline: 2px solid var(--accent-soft); border-color: var(
 .pdf-page { flex: 1; overflow: auto; padding: 1rem; }
 .pdf-sheet { position: relative; }
 .pdf-sheet canvas { display: block; width: 100%; height: auto; background: #fff; box-shadow: 0 1px 4px rgba(0, 0, 0, .15); }
-.pdf-marks { position: absolute; inset: 0; pointer-events: none; }
-/* multiply: the glyphs stay black, overlapping boxes do not darken */
-.pdf-marks .mark { position: absolute; background: #ffe066; mix-blend-mode: multiply; border-radius: 2px; }
+.pdf-marks { position: absolute; inset: 0; pointer-events: none; mix-blend-mode: multiply; }
+/* multiply the whole layer (it has a z-index, so it is its own stacking context: a blend on
+   each mark would only see the layer): the glyphs stay black, overlapping boxes do not darken */
+.pdf-marks .mark { position: absolute; background: #ffe066; border-radius: 2px; }
 
 /* errors -------------------------------------------------------------- */
 
