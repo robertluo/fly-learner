@@ -350,7 +350,8 @@ input.filter:focus { outline: 2px solid var(--accent-soft); border-color: var(--
 .cnode { cursor: pointer; }
 .cnode .dot { fill: var(--panel); stroke: var(--accent); stroke-width: 2; }
 .cnode .heat { fill: var(--accent); pointer-events: none; }
-.cnode .halo { fill: none; stroke: var(--accent); stroke-width: 2; stroke-dasharray: 3 3; }
+.cnode .halo { display: none; fill: none; stroke: var(--accent); stroke-width: 2; stroke-dasharray: 3 3; }
+.cnode.selected .halo { display: inline; }
 .cnode.focus .dot { stroke-width: 3.5; }
 .cnode:hover .dot { stroke-width: 3.5; }
 .cnode .label {

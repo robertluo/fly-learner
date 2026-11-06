@@ -652,10 +652,13 @@
        :on {:click (fn [_] (dispatch! {:db #(db/graph-click % id) :pull :concept
                                        :history :push :animate true}))}}
    [:title (str label (when gloss (str ": " gloss)) " (" mentions " passages; you know " (percent score) ")")]
-   (when selected? [:circle.halo {:r (+ r 5)}])
+   ;; the same children every time, shown or hidden by class: a keyed node that
+   ;; moves (the selected one is drawn last) and gains a child in the same render
+   ;; leaves Replicant's view of the DOM out of step, and old edges stay drawn
+   [:circle.halo {:r (+ r 5)}]
    [:circle.dot {:r r}]
    ;; the heat: how well it is known
-   (when (pos? score) [:circle.heat {:r r :style {:fill-opacity (+ 0.15 (* 0.85 score))}}])
+   [:circle.heat {:r r :style {:fill-opacity (if (pos? score) (+ 0.15 (* 0.85 score)) 0)}}]
    [:text.label {:y (+ r (* 14 scale)) :text-anchor "middle" :font-size (* 12 scale)} label]
    (when (or expanded? (pos? hidden))
      [:g.badge {:transform (str (translate (* 0.75 r) (* -0.75 r)) " scale(" scale ")")
