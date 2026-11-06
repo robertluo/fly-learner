@@ -5,7 +5,9 @@
     :db      pure state updater (swap! app-db f)
     :pull    named pull op (robertluo.fly-learner.ui.core.pull), {:pattern .. :then ..},
              or a vector of these (sent in parallel)
-    :history :push or :replace the URL for the new state"
+    :history :push or :replace the URL for the new state
+    :animate true: play the concept graph's layout change (advances
+             [:graph :t] from 0 to 1 over `animation-ms`)"
   (:require [cognitect.transit :as t]
             [robertluo.fly-learner.ui.core.db :as db]
             [robertluo.fly-learner.ui.core.history :as history]
@@ -44,7 +46,24 @@
 
 (defonce app-db (atom db/initial-state))
 
-(def ^:private effect-order [:db :pull :history])
+(def ^:private effect-order [:db :pull :history :animate])
+
+(def ^:private animation-ms 450)
+
+(defonce ^:private animation (atom 0)) ; generation: a newer animation stops older loops
+
+(defn- animate!
+  "Advance the graph animation each frame until done or superseded."
+  [app-db]
+  (let [gen   (swap! animation inc)
+        start (js/performance.now)]
+    (letfn [(frame [now]
+              (when (= gen @animation)
+                (let [t (min 1 (/ (- now start) animation-ms))]
+                  (swap! app-db db/graph-tick t)
+                  (when (< t 1) (js/requestAnimationFrame frame)))))]
+      (when (db/graph-animating? @app-db)
+        (js/requestAnimationFrame frame)))))
 
 (defn dispatch-of [app-db]
   (let [self (volatile! nil)
@@ -63,7 +82,8 @@
                                   #(@self {:db (fn [d] (db/set-error d %))}))))
               :history (if (= :replace effect)
                          (history/replace-state! @app-db)
-                         (history/push-state! @app-db)))))]
+                         (history/push-state! @app-db))
+              :animate (animate! app-db))))]
     (vreset! self dispatch!)
     dispatch!))
 
@@ -83,8 +103,8 @@
   (add-watch app-db ::render
              (fn [_ _ old new]
                (render!)
-               (when (not= (select-keys old [:view :node-id :ask-id :keyword])
-                           (select-keys new [:view :node-id :ask-id :keyword]))
+               (when (not= (select-keys old [:view :node-id :ask-id :keyword :concept-id])
+                           (select-keys new [:view :node-id :ask-id :keyword :concept-id]))
                  (js/window.scrollTo 0 0)))))
 
 ;;=============================================================================

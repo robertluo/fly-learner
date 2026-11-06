@@ -4,6 +4,8 @@
     /n/<uuid>    a node
     /k/<keyword> nodes tagged with a keyword
     /a/<uuid>    an answer from the knowledge base
+    /c           every concept
+    /c/<uuid>    a concept
   The server serves index.html for these paths (robertluo.fly-learner.server.system)."
   (:require [clojure.string :as str]))
 
@@ -19,9 +21,11 @@
 
 (defn state->path
   "URL for db; nil while a question waits for its answer (no URL yet)."
-  [{:keys [view node-id keyword ask-id]}]
+  [{:keys [view node-id keyword ask-id concept-id]}]
   (case view
-    :node    (str "/n/" node-id)
+    :node     (str "/n/" node-id)
+    :concept  (str "/c/" concept-id)
+    :concepts "/c"
     :keyword (str "/k/" (url-encode keyword))
     :ask     (when ask-id (str "/a/" ask-id))
     "/"))
@@ -31,6 +35,9 @@
         {:view :node :id (parse-uuid id)})
       (when-let [[_ id] (re-matches #"/a/([0-9a-f-]{36})/?" path)]
         {:view :ask :id (parse-uuid id)})
+      (when-let [[_ id] (re-matches #"/c/([0-9a-f-]{36})/?" path)]
+        {:view :concept :id (parse-uuid id)})
+      (when (re-matches #"/c/?" path) {:view :concepts})
       (when-let [[_ kw] (re-matches #"/k/(.+?)/?" path)]
         {:view :keyword :keyword (url-decode kw)})
       {:view :home}))
@@ -70,4 +77,8 @@
   (path->state "/a/00000000-0000-0000-0000-000000000001")
   ;=> {:view :ask :id #uuid "00000000-0000-0000-0000-000000000001"}
   (state->path {:view :ask :ask-id nil}) ;=> nil
+  (state->path {:view :concepts}) ;=> "/c"
+  (path->state "/c/") ;=> {:view :concepts}
+  (path->state "/c/00000000-0000-0000-0000-000000000001")
+  ;=> {:view :concept :id #uuid "00000000-0000-0000-0000-000000000001"}
   (path->state "/whatever")) ;=> {:view :home}

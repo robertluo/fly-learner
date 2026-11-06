@@ -41,6 +41,22 @@
         {:pattern {:nodes {{:node/id id} '?node}}
          :then    (fn [r] {:db #(db/node-fetched % (get r 'node))})}))
 
+    :concept
+    (let [id (:concept-id db)]
+      (when (and id (not (contains? (:concepts db) id)))
+        {:pattern {:concepts {{:concept/id id} '?concept}}
+         :then    (fn [r] {:db #(db/concept-fetched % (get r 'concept))})}))
+
+    :concept-graph
+    (when-not (get-in db [:graph :ix])
+      {:pattern '{:concept-graph ?g}
+       :then    (fn [r] {:db #(db/graph-fetched % (get r 'g)) :animate true})})
+
+    :concept-index
+    (when-not (:concept-index db)
+      {:pattern '{:concepts ?all}
+       :then    (fn [r] {:db #(db/concept-index-fetched % (get r 'all))})})
+
     :keyword
     (let [kw (:keyword db)]
       (when (and kw (not (contains? (:keyword-results db) kw)))
@@ -52,7 +68,7 @@
 (defn for-route
   "Pull operation needed after navigating to a parsed route."
   [{:keys [view]}]
-  (case view :node :node :keyword :keyword :ask :ask nil))
+  (case view :node :node :keyword :keyword :ask :ask :concept [:concept :concept-graph] :concepts :concept-index nil))
 
 ^:rct/test
 (comment
@@ -83,5 +99,13 @@
      (:pattern (resolve-pull :keyword (db/open-keyword db/initial-state "confluence"))))
   ;=> true
 
+  (= {:concepts {{:concept/id id} '?concept}}
+     (:pattern (resolve-pull :concept (db/open-concept db/initial-state id))))
+  ;=> true
+  (resolve-pull :concept-index (db/concept-index-fetched db/initial-state [])) ;=> nil
+
   (for-route {:view :node}) ;=> :node
+  (for-route {:view :concepts}) ;=> :concept-index
+  (for-route {:view :concept}) ;=> [:concept :concept-graph]
+  (= '{:concept-graph ?g} (:pattern (resolve-pull :concept-graph db/initial-state))) ;=> true
   (for-route {:view :home})) ;=> nil

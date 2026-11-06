@@ -55,6 +55,8 @@ a:hover { text-decoration: underline; }
 }
 
 .brand { font-weight: 600; letter-spacing: .02em; color: var(--text); }
+.top-nav a { color: var(--muted); font-size: .92rem; }
+.top-nav a:hover { color: var(--accent); }
 
 main.single { max-width: 820px; margin: 0 auto; padding: 2rem 1.5rem 4rem; }
 
@@ -122,6 +124,89 @@ h2 {
   background: var(--accent-soft);
   font-size: .85rem;
 }
+
+.chip.keyword { background: none; border: 1px solid var(--border); color: var(--muted); }
+.chip.keyword:hover { color: var(--accent); }
+
+.count {
+  display: inline-block;
+  min-width: 1.4em;
+  padding: 0 .35em;
+  border-radius: 999px;
+  background: var(--panel);
+  color: var(--muted);
+  font-size: .72rem;
+  text-align: center;
+}
+
+/* concepts ------------------------------------------------------------ */
+
+.aliases { margin: .25rem 0 0; font-size: .92rem; }
+.hierarchy { display: flex; flex-wrap: wrap; gap: 0 2.5rem; }
+.hierarchy > div { min-width: 0; }
+.hint { margin: -.4rem 0 0; font-size: .85rem; }
+
+input.filter {
+  width: 100%;
+  margin: .5rem 0 .25rem;
+  padding: .45rem .8rem;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--panel);
+  color: var(--text);
+  font: inherit;
+}
+input.filter:focus { outline: 2px solid var(--accent-soft); border-color: var(--accent); }
+
+.concept-list { list-style: none; padding: 0; margin: .5rem 0 0; }
+.concept-list li {
+  display: grid;
+  grid-template-columns: max-content max-content 1fr;
+  align-items: baseline;
+  gap: .6rem;
+  padding: .35rem 0;
+  border-bottom: 1px solid var(--border);
+}
+.concept-list .count { background: var(--accent-soft); }
+.concept-list .gloss { color: var(--muted); font-size: .9rem; min-width: 0; }
+.concept-name { font-weight: 600; }
+
+/* concept graph ------------------------------------------------------- */
+
+.graph-toolbar { color: var(--muted); }
+.graph-toolbar button { margin-left: auto; }
+.legend { display: flex; align-items: center; gap: .35rem; font-size: .8rem; margin-left: 1rem; }
+.legend .key { display: inline-block; width: 18px; height: 0; border-top: 2px solid var(--muted); margin-left: .5rem; }
+.legend .key.related { border-top: 2px dashed var(--accent); }
+
+.cgraph { flex: 1; width: 100%; min-height: 0; display: block; user-select: none; }
+.graph-empty { padding: 1rem; }
+.graph-hint { margin: 0; padding: .4rem 1rem; font-size: .8rem; color: var(--muted); border-top: 1px solid var(--border); }
+
+.cgraph .edge, .cgraph circle { vector-effect: non-scaling-stroke; }
+.cgraph .edge { stroke-width: 1.5; }
+.cgraph .edge.broader { stroke: var(--muted); stroke-opacity: .8; }
+.cgraph .edge.related { stroke: var(--accent); stroke-dasharray: 4 4; }
+
+.cnode { cursor: pointer; }
+.cnode .dot { fill: var(--panel); stroke: var(--accent); stroke-width: 2; }
+.cnode.expanded .dot { fill: var(--accent-soft); }
+.cnode.focus .dot { stroke-width: 3.5; }
+.cnode.selected .dot { fill: var(--accent); }
+.cnode:hover .dot { stroke-width: 3.5; }
+.cnode .label {
+  font-family: var(--font);
+  fill: var(--text);
+  paint-order: stroke;
+  stroke: var(--quote);
+  stroke-width: 4px;
+  stroke-linejoin: round;
+}
+.cnode.selected .label { font-weight: 700; }
+.cnode .badge circle { fill: var(--panel); stroke: var(--muted); stroke-width: 1.2; }
+.cnode .badge text { font: 700 12px var(--font); fill: var(--muted); pointer-events: none; }
+.cnode .badge:hover circle { stroke: var(--accent); }
+.cnode .badge:hover text { fill: var(--accent); }
 
 /* cards --------------------------------------------------------------- */
 
@@ -204,7 +289,7 @@ form.ask input:focus { outline: 2px solid var(--accent-soft); border-color: var(
 
 /* source pane --------------------------------------------------------- */
 
-.pdf-toolbar {
+.pdf-toolbar, .graph-toolbar {
   display: flex;
   align-items: center;
   gap: .5rem;

@@ -5,6 +5,9 @@
     '{:sources {{:source/id #uuid \"..\"} ?s}}      ; one source
     '{:nodes {{:node/id #uuid \"..\"} ?node}}       ; node + children, links, ancestors
     '{:keywords {{:keyword \"confluence\"} ?nodes}} ; nodes tagged with a keyword
+    '{:concepts ?all}                              ; every concept (refs, by label)
+    '{:concepts {{:concept/id #uuid \"..\"} ?c}}   ; a concept: hierarchy, related, mentions
+    '{:concept-graph ?g}                           ; every concept and edge, explored client-side
     '{:search {{:q \"function extensionality\"} ?hits}} ; full-text + graph ranking, no model
     '{:asks ?recent}                                ; recent questions
     '{:asks {{:ask/id #uuid \"..\"} ?ask}}         ; an answer with its cited subgraph
@@ -14,6 +17,7 @@
   (:require [clojure.string :as str]
             [datalevin.core :as d]
             [robertluo.fly-learner.ask :as ask]
+            [robertluo.fly-learner.concept.view :as concept-view]
             [robertluo.fly-learner.db :as db]
             [sg.flybot.pullable.collection :as coll]))
 
@@ -22,6 +26,14 @@
   (fetch [_ {:source/keys [id]}] (when id (db/source (d/db conn) id)))
   (list-all [_] (db/sources (d/db conn)))
   (create! [_ _] {:error {:type :forbidden :message "sources are created by ingest"}})
+  (update! [_ _ _] {:error {:type :forbidden}})
+  (delete! [_ _] {:error {:type :forbidden}}))
+
+(defrecord ConceptsDataSource [conn]
+  coll/DataSource
+  (fetch [_ {:concept/keys [id]}] (when (uuid? id) (concept-view/concept (d/db conn) id)))
+  (list-all [_] (concept-view/index (d/db conn)))
+  (create! [_ _] {:error {:type :forbidden :message "concepts are made by resolution and curation"}})
   (update! [_ _ _] {:error {:type :forbidden}})
   (delete! [_ _] {:error {:type :forbidden}}))
 
@@ -56,6 +68,11 @@
     coll/Wireable
     (->wire [_] nil)))
 
+(defn- lazy-value
+  "A value computed by `f` only when a pattern binds it (serialised via ->wire)."
+  [f]
+  (reify coll/Wireable (->wire [_] (f))))
+
 (defn make-api
   "api-fn for remote/wrap-api: ring request -> {:data .. :errors ..}.
   `client` is a delay of the Anthropic client (built on the first ask);
@@ -66,10 +83,14 @@
                                                   (ask/search (d/db conn) q 12))))
         sources (coll/read-only (coll/collection (->SourcesDataSource conn)
                                                  {:id-key :source/id}))
+        concepts (coll/read-only (coll/collection (->ConceptsDataSource conn)
+                                                  {:id-key :concept/id}))
         nodes   (query-lookup (fn [{:node/keys [id]}] (when (uuid? id) (db/node (d/db conn) id))))
         kws     (query-lookup (fn [{:keys [keyword]}] (when (string? keyword)
                                                         (db/nodes-with-keyword (d/db conn) keyword))))]
     (fn [_request]
-      {:data   {:sources sources :nodes nodes :keywords kws :search search :asks asks}
+      {:data   {:sources sources :nodes nodes :keywords kws :search search :asks asks
+                :concepts concepts
+                :concept-graph (lazy-value #(concept-view/graph (d/db conn)))}
        :errors {:detect :error
                 :codes  {:forbidden 403 :not-found 404 :invalid 400 :refused 422 :llm-error 502}}})))

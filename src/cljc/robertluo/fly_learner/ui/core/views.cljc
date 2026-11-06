@@ -36,8 +36,23 @@
 (defn- keyword-link [dispatch! kw]
   (link dispatch! {:db #(db/open-keyword % kw) :pull :keyword :history :push}
         (history/state->path {:view :keyword :keyword kw})
-        {:class "chip"}
+        {:class ["chip" "keyword"] :title "Keyword (names no concept)"}
         kw))
+
+(defn- concept-link
+  "Link to a concept page; the gloss shows on hover."
+  [dispatch! {:concept/keys [id label gloss]} attrs & children]
+  (apply link dispatch! {:db #(db/open-concept % id) :pull [:concept :concept-graph] :history :push
+                         :animate true}
+         (history/state->path {:view :concept :concept-id id})
+         (merge {:title (or gloss label)} attrs)
+         (or (seq children) [label])))
+
+(defn- concept-chip [dispatch! c & extra]
+  (apply concept-link dispatch! c {:class ["chip" "concept"] :replicant/key (:concept/id c)}
+         (:concept/label c) extra))
+
+(def ^:private concepts-effects {:db db/open-concepts :pull :concept-index :history :push})
 
 (defn- meta-line [{:node/keys [kind page]}]
   [:span.meta (kind-label kind) (when page (str " · p. " page))])
@@ -66,6 +81,7 @@
 (defn- header [{:keys [asking]} dispatch!]
   [:header.top
    (link dispatch! {:db db/go-home :history :push} "/" {:class "brand"} "Fly Learner")
+   [:nav.top-nav (link dispatch! concepts-effects "/c" {} "Concepts")]
    [:form.ask {:on {:submit #(submit-ask dispatch! %)}}
     [:input {:name "q" :type "search" :autocomplete "off" :disabled (boolean asking)
              :placeholder (if asking "Answering…" "Ask the knowledge base…")}]]])
@@ -116,7 +132,7 @@
           [:p.preview title]])]])])
 
 (defn- node-article [node dispatch!]
-  (let [{:node/keys [title summary text keywords children links ancestors kind]} node
+  (let [{:node/keys [title summary text keywords concepts children links ancestors kind]} node
         leaves? (every? #(= :paragraph (:node/kind %)) children)]
     [:article.node
      (when (seq ancestors)
@@ -127,8 +143,10 @@
      [:h1 title]
      (when summary [:p.summary summary])
      (when (and text (= :paragraph kind)) [:p.source-text.full text])
-     (when (seq keywords)
-       [:div.keywords (for [kw keywords] [:span {:replicant/key kw} (keyword-link dispatch! kw)])])
+     (when (or (seq concepts) (seq keywords))
+       [:div.keywords
+        (for [c concepts] (concept-chip dispatch! c))
+        (for [kw keywords] [:span {:replicant/key kw} (keyword-link dispatch! kw)])])
      (when (seq children)
        [:section
         [:h2 (if leaves? "Source text" "Drill down")]
@@ -296,6 +314,108 @@
        loading? [:p.muted "Loading…"]
        :else    [:p.muted "Not found."])]))
 
+;;=============================================================================
+;; Concepts
+;;=============================================================================
+
+(defn- provenance [by]
+  (cond (= "human" by) "Curated"
+        by             (str "Drafted by " by)))
+
+(defn- concept-article
+  [{:concept/keys [label gloss aliases by mentions]} dispatch!]
+  [:article.concept
+   [:nav.crumbs (link dispatch! concepts-effects "/c" {} "Concepts") " ›"]
+   [:span.meta "Concept · " (count mentions) (if (= 1 (count mentions)) " passage" " passages")
+    (when-let [p (provenance by)] (str " · " p))]
+   [:h1 label]
+   (when gloss [:p.summary gloss])
+   (when (seq aliases) [:p.aliases [:span.muted "Also written "] (str/join ", " aliases)])
+   (when (seq mentions)
+     [:section
+      [:h2 "Mentioned in"]
+      (hit-cards dispatch! mentions)])])
+
+(defn- translate [x y] (str "translate(" x "," y ")"))
+
+(defn- graph-node
+  [dispatch! scale {:keys [id label gloss mentions x y r focus? selected? expanded? hidden]}]
+  [:g {:replicant/key id
+       :class (cond-> ["cnode"]
+                focus?    (conj "focus")
+                selected? (conj "selected")
+                expanded? (conj "expanded"))
+       :transform (translate x y)
+       :on {:click (fn [_] (dispatch! {:db #(db/graph-click % id) :pull :concept
+                                       :history :push :animate true}))}}
+   [:title (str label (when gloss (str ": " gloss)) " (" mentions " passages)")]
+   [:circle.dot {:r r}]
+   [:text.label {:y (+ r (* 14 scale)) :text-anchor "middle" :font-size (* 12 scale)} label]
+   (when (or expanded? (pos? hidden))
+     [:g.badge {:transform (str (translate (* 0.75 r) (* -0.75 r)) " scale(" scale ")")
+                :on {:click (fn [e]
+                              (.stopPropagation e)
+                              (dispatch! {:db #(db/graph-toggle % id) :animate true}))}}
+      [:title (if expanded? "Collapse" (str "Expand: " hidden " more"))]
+      [:circle {:r 8}]
+      [:text {:dy "0.35em" :text-anchor "middle"} (if expanded? "−" "+")]])])
+
+(defn- graph-edge [{:keys [from to kind weight shared x1 y1 x2 y2]}]
+  [:line {:replicant/key (str from "-" to)
+          :class ["edge" (name kind)]
+          :x1 x1 :y1 y1 :x2 x2 :y2 y2
+          :style (when (= :related kind) {:stroke-opacity (+ 0.25 (min 0.6 (* 1.5 (or weight 0))))})}
+   [:title (if (= :broader kind) "is a kind or part of" (str shared " shared passages"))]])
+
+(defn- concept-graph [db dispatch!]
+  (let [{:keys [nodes edges box scale]} (db/graph-scene db)
+        id (:concept-id db)]
+    [:aside.source.graph-pane
+     [:div.graph-toolbar
+      [:span (count nodes) (if (= 1 (count nodes)) " concept" " concepts")]
+      [:span.legend
+       [:span.key.broader] "broader above" [:span.key.related] "related"]
+      [:button {:on {:click #(dispatch! {:db (fn [d] (db/graph-reset d id)) :animate true})}
+                :title "Show only this concept and its neighbours"}
+       "Reset"]]
+     (if (seq nodes)
+       [:svg.cgraph {:viewBox (str/join " " box) :preserveAspectRatio "xMidYMid meet"}
+        [:g.edges (map graph-edge edges)]
+        [:g.nodes (for [n nodes] (graph-node dispatch! scale n))]]
+       [:p.muted.graph-empty "Loading the concept graph…"])
+     [:p.graph-hint "Click a concept to open and expand it, click it again to collapse. "
+      "+ / − expand or collapse without opening."]]))
+
+(defn- concept-view [db dispatch!]
+  [:main.split
+   [:section.content
+    (if-let [c (db/current-concept db)]
+      (concept-article c dispatch!)
+      [:p.muted (if (:loading? db) "Loading…" "Not found.")])]
+   (concept-graph db dispatch!)])
+
+(defn- concepts-view [{:keys [concept-index concept-filter loading?] :as db} dispatch!]
+  (let [shown (db/filtered-concepts db)]
+    [:main.single.concepts
+     [:h1 "Concepts"]
+     [:p.muted "The ideas the knowledge base is about, across sources. Each passage's keywords name them."]
+     [:input.filter {:type "search" :placeholder "Filter by name or gloss…" :value concept-filter
+                     :autocomplete "off"
+                     :on {:input #(dispatch! {:db (fn [d] (db/set-concept-filter d (.. % -target -value)))})}}]
+     (cond
+       (seq shown)
+       (list
+        [:p.meta {:replicant/key "n"} (count shown) " of " (count concept-index)]
+        [:ul.concept-list {:replicant/key "list"}
+         (for [{:concept/keys [id label gloss mentions] :as c} shown]
+           [:li {:replicant/key id}
+            (concept-link dispatch! c {:class "concept-name"} label)
+            [:span.count mentions]
+            (when gloss [:span.gloss gloss])])])
+       (and loading? (nil? concept-index)) [:p.muted "Loading…"]
+       (seq concept-index) [:p.muted "No concept matches."]
+       :else [:p.muted "No concepts yet. Resolve keywords from the REPL (see dev/user.clj)."])]))
+
 (defn app-view [db dispatch!]
   [:div.app
    (header db dispatch!)
@@ -303,7 +423,9 @@
    (case (:view db)
      :node    (node-view db dispatch!)
      :keyword (keyword-view db dispatch!)
-     :ask     (ask-view db dispatch!)
+     :ask      (ask-view db dispatch!)
+     :concept  (concept-view db dispatch!)
+     :concepts (concepts-view db dispatch!)
      (home-view db dispatch!))])
 
 ^:rct/test

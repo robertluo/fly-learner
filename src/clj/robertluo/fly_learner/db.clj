@@ -106,8 +106,8 @@
   "Shape of a node when referenced from another node."
   [:node/id :node/title :node/kind :node/level :node/order :node/page :node/summary :node/text])
 
-(defn- ancestors-of
-  "Parent chain of entity `eid`, root first, as node refs."
+(defn ancestors-of
+  "Parent chain of entity `eid`, root first: [{:node/id :node/title :node/kind} ..]."
   [db eid]
   (loop [eid eid, acc ()]
     (if-let [parent (first (:node/_children (d/pull db [{:node/_children [:db/id]}] eid)))]
@@ -115,9 +115,22 @@
         (recur pid (conj acc (d/pull db [:node/id :node/title :node/kind] pid))))
       (vec acc))))
 
+(defn- node-concepts
+  "Concepts node `eid` mentions (one of its keywords is their alias), by label."
+  [db eid]
+  (->> (d/q '[:find [(pull ?c [:concept/id :concept/label]) ...]
+              :in $ ?n :where [?n :node/keywords ?k] [?c :concept/aliases ?k]]
+            db eid)
+       (sort-by :concept/label)
+       vec))
+
+(defn- covered-keywords [db eid]
+  (d/q '[:find [?k ...] :in $ ?n :where [?n :node/keywords ?k] [_ :concept/aliases ?k]] db eid))
+
 (defn node
   "A node for display: its own fields, children and links (as node refs),
-  ancestors (root first) and its source. nil when not found."
+  ancestors (root first), its source, the concepts it mentions, and the
+  keywords that name no concept. nil when not found."
   [db node-id]
   (when-let [eid (d/entid db [:node/id node-id])]
     (let [n (d/pull db [:node/id :node/kind :node/level :node/order :node/title :node/summary
@@ -128,7 +141,9 @@
       (-> n
           (update :node/children #(vec (sort-by :node/order %)))
           (update :node/links #(vec (sort-by (juxt :node/level :node/title) %)))
-          (update :node/keywords #(vec (sort %)))
+          (assoc :node/concepts (node-concepts db eid))
+          ;; keywords naming a concept are shown as the concept
+          (update :node/keywords #(vec (sort (remove (set (covered-keywords db eid)) %))))
           (assoc :node/ancestors (ancestors-of db eid))))))
 
 (defn sources [db]

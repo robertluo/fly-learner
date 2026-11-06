@@ -47,7 +47,7 @@
 (defn- spa-route?
   "Client-side routes served by index.html (see robertluo.fly-learner.ui.core.history)."
   [uri]
-  (or (= "/" uri) (some #(str/starts-with? uri %) ["/n/" "/k/" "/a/"])))
+  (or (#{"/" "/c"} uri) (some #(str/starts-with? uri %) ["/n/" "/k/" "/a/" "/c/"])))
 
 (defn- source-file
   "GET /files/sources/<uuid> -> the source's original file (only paths stored

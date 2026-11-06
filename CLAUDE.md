@@ -17,7 +17,8 @@ Web stack follows flybot.sg (github.com/flybot-sg/lasagna-pattern, `examples/fly
     across calls (fold puts the document outline there) and put per-call content in the user prompt.
   - `server/system` — fun-map `life-cycle-map` (db, api-fn, ring app, http-kit); `/files/sources/<id>` serves the PDF
   - `server/api` — lasagna-remote pull API on `/api`: `:sources`, `:asks` (collections; creating an ask runs the
-    model), `:nodes`, `:keywords`, `:search` (lookups)
+    model), `:concepts` (read-only collection), `:nodes` (with `:node/concepts`; `:node/keywords` keeps only
+    keywords naming no concept), `:keywords`, `:search` (lookups)
   - `ask` — graph RAG over the whole store: `retrieve` (Datalevin full-text + spread to parents/links),
     `ask!` (answer with the `:common` model from numbered entries, store as `:ask/*`), `view` (cited subgraph)
   - `concept` — concepts: ideas with an identity (`:concept/label`, `:concept/gloss`, `:concept/broader`), named by
@@ -27,11 +28,15 @@ Web stack follows flybot.sg (github.com/flybot-sg/lasagna-pattern, `examples/fly
     alias must leave one concept before joining another, inside `with-transaction`). Every change is an `:edit/*`.
   - `concept/graph` — pure over `load-graph`: `edges` (broader/narrower + NPMI co-occurrence, evidence = shared
     nodes), `neighbourhood`, `path` (Dijkstra), `related`
+  - `concept/view` — `index`, `concept` (hierarchy, related with shared-passage counts, mentions with paths) and
+    `graph` (every concept + broader/related edges; the API's lazy `:concept-graph`) for the API
   - `quiz`, `progress` (SM-2 reviews), `db` (Datalevin schema + queries; `copy!` rebuilds a db under the
     current schema, e.g. after marking an attribute `:db/fulltext` — Datalevin's `re-index` loses full-text entries)
 - `src/cljc/robertluo/fly_learner/ui/core/` — frontend logic, JVM-testable: `db` (pure state fns), `pull` (named pull specs),
-  `history` (URL <-> state), `views` (Replicant hiccup), `highlight` (find a node's text among pdf.js text items)
-- `src/cljs/robertluo/fly_learner/ui/` — `core` (dispatch-of effects `:db`/`:pull`/`:history`, transit fetch, render), `pdf` (pdf.js: render a page, highlight boxes)
+  `history` (URL <-> state), `views` (Replicant hiccup), `highlight` (find a node's text among pdf.js text items),
+  `graph` (concept graph: visible = focus + neighbours of expanded concepts, outline-style), `layout`
+  (incremental force layout on primitive arrays: broader-above is a constraint, label boxes never overlap; tween)
+- `src/cljs/robertluo/fly_learner/ui/` — `core` (dispatch-of effects `:db`/`:pull`/`:history`/`:animate`, transit fetch, render), `pdf` (pdf.js: render a page, highlight boxes)
 - `resources/public/` — `index.html` (loads vendored pdf.js as a module), `css/style.css`
 - `src/cljc/robertluo/fly_learner/knowledge.cljc` — shared malli schemas for nodes/questions
 - `dev/user.clj` — `(start!)` / `(stop!)` / `(cljs!)`, ingest snippet
