@@ -42,7 +42,7 @@
 (defn- concept-link
   "Link to a concept page; the gloss shows on hover."
   [dispatch! {:concept/keys [id label gloss]} attrs & children]
-  (apply link dispatch! {:db #(db/open-concept % id) :pull [:concept :concept-graph] :history :push
+  (apply link dispatch! {:db #(db/open-concept % id) :pull [:concept :concept-graph :learning] :history :push
                          :animate true}
          (history/state->path {:view :concept :concept-id id})
          (merge {:title (or gloss label)} attrs)
@@ -53,6 +53,24 @@
          (:concept/label c) extra))
 
 (def ^:private concepts-effects {:db db/open-concepts :pull :concept-index :history :push})
+
+(def ^:private study-effects {:db db/open-study :pull :learning :history :push})
+
+(defn- quiz-effects
+  "Quiz on `item` (nil: what to study next)."
+  [item]
+  {:db #(db/quiz-start % item) :pull [:question-create :learning] :history :push})
+
+(defn percent
+  "A score as a percentage: whole numbers, one decimal below 10%."
+  [x]
+  (let [p (* 100 (or x 0))]
+    (if (and (pos? p) (< p 10))
+      (str (/ (Math/round (* 10.0 p)) 10.0) "%")
+      (str (Math/round (double p)) "%"))))
+
+(defn- score-bar [score]
+  [:span.score-bar [:span.fill {:style {:width (str (* 100 (or score 0)) "%")}}]])
 
 (defn- meta-line [{:node/keys [kind page]}]
   [:span.meta (kind-label kind) (when page (str " · p. " page))])
@@ -78,10 +96,13 @@
                    (dispatch! (ask-effects q)))))
      :clj  nil))
 
-(defn- header [{:keys [asking]} dispatch!]
+(defn- header [{:keys [asking] :as db} dispatch!]
   [:header.top
    (link dispatch! {:db db/go-home :history :push} "/" {:class "brand"} "Fly Learner")
-   [:nav.top-nav (link dispatch! concepts-effects "/c" {} "Concepts")]
+   [:nav.top-nav
+    (link dispatch! concepts-effects "/c" {} "Concepts")
+    (link dispatch! study-effects "/q" {} "Study"
+          (when-let [o (:overall (:learning db))] [:span.count (percent o)]))]
    [:form.ask {:on {:submit #(submit-ask dispatch! %)}}
     [:input {:name "q" :type "search" :autocomplete "off" :disabled (boolean asking)
              :placeholder (if asking "Answering…" "Ask the knowledge base…")}]]])
@@ -315,6 +336,92 @@
        :else    [:p.muted "Not found."])]))
 
 ;;=============================================================================
+;; Study
+;;=============================================================================
+
+(defn- submit-answer [dispatch!]
+  (dispatch! {:db db/quiz-submitted :pull :answer-create}))
+
+(defn- quiz-panel [{{:keys [status question response result]} :quiz} dispatch!]
+  (let [{:keys [title] :question/keys [prompt]} question]
+    [:section.quiz
+     (case status
+       :asking
+       [:p.muted.thinking "Writing a question"]
+
+       (:answering :grading)
+       (list
+        [:span.meta {:replicant/key "m"} "Question · " title]
+        [:p.prompt {:replicant/key "p"} prompt]
+        [:textarea {:replicant/key "t"
+                    :value response :rows 6 :placeholder "Answer in your own words…"
+                    :disabled (= :grading status)
+                    :on {:input   #(dispatch! {:db (fn [d] (db/quiz-typed d (.. % -target -value)))})
+                         :keydown #(when (and (= "Enter" (.-key %)) (or (.-metaKey %) (.-ctrlKey %))
+                                              (not (str/blank? response)))
+                                     (submit-answer dispatch!))}}]
+        (if (= :grading status)
+          [:p.muted.thinking {:replicant/key "g"} "Grading"]
+          [:div.actions {:replicant/key "a"}
+           [:button.btn.primary {:disabled (str/blank? response) :on {:click #(submit-answer dispatch!)}
+                                 :title "⌘/Ctrl + Enter"}
+            "Submit"]
+           [:button.btn {:on {:click #(dispatch! {:db (fn [d] (-> d (db/quiz-typed "") db/quiz-submitted))
+                                                  :pull :answer-create})}
+                         :title "Counts as a wrong answer: honest scores pick better questions"}
+            "I don't know"]
+           [:button.btn.quiet {:on {:click #(dispatch! {:db db/quiz-close})}} "Skip"]]))
+
+       :graded
+       (let [{:keys [grade feedback before after] :question/keys [answer points]} result]
+         (list
+          [:span.meta {:replicant/key "m"} "Question · " title]
+          [:p.prompt {:replicant/key "p"} prompt]
+          [:div.graded {:replicant/key "g"}
+           [:span.grade (percent grade)] (score-bar grade)]
+          [:p.feedback {:replicant/key "f"} feedback]
+          (when-not (str/blank? response)
+            [:details {:replicant/key "y"} [:summary "Your answer"] [:p.source-text response]])
+          [:details {:replicant/key "x" :open (< grade 0.8)}
+           [:summary "Model answer"]
+           [:p answer]
+           [:ul.points (for [[i pt] (map-indexed vector points)] [:li {:replicant/key i} pt])]]
+          [:p.change {:replicant/key "c"}
+           title " " (percent (:item before)) " → " [:strong (percent (:item after))]
+           [:span.muted " · whole graph "] (percent (:overall before)) " → " [:strong (percent (:overall after))]]
+          [:div.actions {:replicant/key "a"}
+           [:button.btn.primary {:on {:click #(dispatch! (quiz-effects nil))}} "Next question"]
+           [:button.btn.quiet {:on {:click #(dispatch! {:db db/quiz-close})}} "Done"]]))
+
+       nil)]))
+
+(defn- study-view [{:keys [learning quiz loading?] :as db} dispatch!]
+  (let [{:keys [overall answers next]} learning]
+    [:main.single.study
+     [:span.meta "Study"]
+     [:h1 "What you know"]
+     (if learning
+       [:div.overall-score
+        [:span.big (percent overall)] (score-bar overall)
+        [:p.muted "of the whole knowledge graph: every concept and every relation between two, "
+         "weighted by how much the sources discuss it. Scores fade as you forget; a review brings them back. "
+         (when (pos? answers) (str answers (if (= 1 answers) " answer" " answers") " so far."))]]
+       (when loading? [:p.muted "Loading…"]))
+     (when (:status quiz) (quiz-panel db dispatch!))
+     (when (and (seq next) (not (#{:asking :answering :grading} (:status quiz))))
+       [:section
+        [:h2 "Study next"]
+        [:p.hint.muted "What raises your score most: important, not yet known, and built on what you already know."]
+        [:ul.cards.compact.next
+         (for [{:keys [item title about score]} next]
+           [:li.card {:replicant/key (str item)}
+            [:div.next-head
+             [:span.card-title title]
+             (score-bar score)
+             [:button.btn.primary {:on {:click #(dispatch! (quiz-effects item))}} "Quiz me"]]
+            [:p.preview about]])]])]))
+
+;;=============================================================================
 ;; Concepts
 ;;=============================================================================
 
@@ -323,7 +430,7 @@
         by             (str "Drafted by " by)))
 
 (defn- concept-article
-  [{:concept/keys [label gloss aliases by mentions]} dispatch!]
+  [{:concept/keys [id label gloss aliases by mentions]} score dispatch!]
   [:article.concept
    [:nav.crumbs (link dispatch! concepts-effects "/c" {} "Concepts") " ›"]
    [:span.meta "Concept · " (count mentions) (if (= 1 (count mentions)) " passage" " passages")
@@ -331,6 +438,9 @@
    [:h1 label]
    (when gloss [:p.summary gloss])
    (when (seq aliases) [:p.aliases [:span.muted "Also written "] (str/join ", " aliases)])
+   [:div.known
+    [:span.muted "You know this"] (score-bar score) [:span.pct (percent score)]
+    [:button.btn.primary {:on {:click #(dispatch! (quiz-effects (db/concept-item id)))}} "Quiz me on this"]]
    (when (seq mentions)
      [:section
       [:h2 "Mentioned in"]
@@ -339,7 +449,7 @@
 (defn- translate [x y] (str "translate(" x "," y ")"))
 
 (defn- graph-node
-  [dispatch! scale {:keys [id label gloss mentions x y r focus? selected? expanded? hidden]}]
+  [dispatch! scale {:keys [id label gloss mentions x y r focus? selected? expanded? hidden score]}]
   [:g {:replicant/key id
        :class (cond-> ["cnode"]
                 focus?    (conj "focus")
@@ -348,8 +458,11 @@
        :transform (translate x y)
        :on {:click (fn [_] (dispatch! {:db #(db/graph-click % id) :pull :concept
                                        :history :push :animate true}))}}
-   [:title (str label (when gloss (str ": " gloss)) " (" mentions " passages)")]
+   [:title (str label (when gloss (str ": " gloss)) " (" mentions " passages; you know " (percent score) ")")]
+   (when selected? [:circle.halo {:r (+ r 5)}])
    [:circle.dot {:r r}]
+   ;; the heat: how well it is known
+   (when (pos? score) [:circle.heat {:r r :style {:fill-opacity (+ 0.15 (* 0.85 score))}}])
    [:text.label {:y (+ r (* 14 scale)) :text-anchor "middle" :font-size (* 12 scale)} label]
    (when (or expanded? (pos? hidden))
      [:g.badge {:transform (str (translate (* 0.75 r) (* -0.75 r)) " scale(" scale ")")
@@ -360,12 +473,15 @@
       [:circle {:r 8}]
       [:text {:dy "0.35em" :text-anchor "middle"} (if expanded? "−" "+")]])])
 
-(defn- graph-edge [{:keys [from to kind weight shared x1 y1 x2 y2]}]
+(defn- graph-edge [{:keys [from to kind weight shared x1 y1 x2 y2 score]}]
   [:line {:replicant/key (str from "-" to)
-          :class ["edge" (name kind)]
+          :class (cond-> ["edge" (name kind)] (pos? score) (conj "known"))
           :x1 x1 :y1 y1 :x2 x2 :y2 y2
-          :style (when (= :related kind) {:stroke-opacity (+ 0.25 (min 0.6 (* 1.5 (or weight 0))))})}
-   [:title (if (= :broader kind) "is a kind or part of" (str shared " shared passages"))]])
+          :style (if (pos? score)
+                   {:stroke-width (+ 2 (* 4 score)) :stroke-opacity (+ 0.4 (* 0.6 score))}
+                   (when (= :related kind) {:stroke-opacity (+ 0.25 (min 0.6 (* 1.5 (or weight 0))))}))}
+   [:title (str (if (= :broader kind) "is a kind or part of" (str shared " shared passages"))
+                "; you know " (percent score))]])
 
 (defn- concept-graph [db dispatch!]
   (let [{:keys [nodes edges box scale]} (db/graph-scene db)
@@ -374,7 +490,10 @@
      [:div.graph-toolbar
       [:span (count nodes) (if (= 1 (count nodes)) " concept" " concepts")]
       [:span.legend
-       [:span.key.broader] "broader above" [:span.key.related] "related"]
+       [:span.key.broader] "broader above" [:span.key.related] "related"
+       [:span.key.heat] "known"]
+      (when-let [o (:overall (:learning db))]
+        [:span.overall {:title "Of the whole graph, weighted by importance"} "You know " (percent o)])
       [:button {:on {:click #(dispatch! {:db (fn [d] (db/graph-reset d id)) :animate true})}
                 :title "Show only this concept and its neighbours"}
        "Reset"]]
@@ -384,13 +503,13 @@
         [:g.nodes (for [n nodes] (graph-node dispatch! scale n))]]
        [:p.muted.graph-empty "Loading the concept graph…"])
      [:p.graph-hint "Click a concept to open and expand it, click it again to collapse. "
-      "+ / − expand or collapse without opening."]]))
+      "+ / − expand or collapse without opening. Filled: how well you know it."]]))
 
 (defn- concept-view [db dispatch!]
   [:main.split
    [:section.content
     (if-let [c (db/current-concept db)]
-      (concept-article c dispatch!)
+      (concept-article c (db/item-score db (db/concept-item (:concept/id c))) dispatch!)
       [:p.muted (if (:loading? db) "Loading…" "Not found.")])]
    (concept-graph db dispatch!)])
 
@@ -426,6 +545,7 @@
      :ask      (ask-view db dispatch!)
      :concept  (concept-view db dispatch!)
      :concepts (concepts-view db dispatch!)
+     :study    (study-view db dispatch!)
      (home-view db dispatch!))])
 
 ^:rct/test

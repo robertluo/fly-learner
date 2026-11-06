@@ -6,6 +6,7 @@
     /a/<uuid>    an answer from the knowledge base
     /c           every concept
     /c/<uuid>    a concept
+    /q           study: what you know, quizzes
   The server serves index.html for these paths (robertluo.fly-learner.server.system)."
   (:require [clojure.string :as str]))
 
@@ -26,6 +27,7 @@
     :node     (str "/n/" node-id)
     :concept  (str "/c/" concept-id)
     :concepts "/c"
+    :study    "/q"
     :keyword (str "/k/" (url-encode keyword))
     :ask     (when ask-id (str "/a/" ask-id))
     "/"))
@@ -38,6 +40,7 @@
       (when-let [[_ id] (re-matches #"/c/([0-9a-f-]{36})/?" path)]
         {:view :concept :id (parse-uuid id)})
       (when (re-matches #"/c/?" path) {:view :concepts})
+      (when (re-matches #"/q/?" path) {:view :study})
       (when-let [[_ kw] (re-matches #"/k/(.+?)/?" path)]
         {:view :keyword :keyword (url-decode kw)})
       {:view :home}))

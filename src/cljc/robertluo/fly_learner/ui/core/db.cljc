@@ -13,7 +13,7 @@
 ;;=============================================================================
 
 (def initial-state
-  {:view            :home  ; :home | :node | :keyword | :ask | :concept | :concepts
+  {:view            :home  ; :home | :node | :keyword | :ask | :concept | :concepts | :study
    :sources         []     ; [{:source/id :source/title :source/root {:node/id :node/summary}}]
    :node-id         nil    ; node shown in :node view
    :nodes           {}     ; node-id -> node (cache of fetched nodes)
@@ -29,6 +29,12 @@
                      :pos      {}   ; id -> [x y] target positions
                      :from     {}   ; id -> [x y] positions the animation starts from
                      :t        1.0} ; animation progress, 0..1
+   :learning        nil    ; what the learner knows (robertluo.fly-learner.server.study/overview), once fetched
+   :quiz            {:status   nil  ; nil | :asking | :answering | :grading | :graded
+                     :item     nil  ; item asked about (nil: the server picks what to study next)
+                     :question nil  ; the question, without its answer
+                     :response ""   ; the learner's answer being written
+                     :result   nil} ; grading, model answer, scores before/after
    :ask-id          nil    ; answer shown in :ask view
    :asking          nil    ; question waiting for its answer (:ask view, no :ask-id yet)
    :asks            {}     ; ask-id -> ask (see robertluo.fly-learner.ask/view)
@@ -50,8 +56,11 @@
 (defn set-loading [db] (assoc db :loading? true :error nil))
 
 (defn set-error [db error]
-  (assoc db :loading? false :asking nil
-         :error (if (map? error) error {:code :unknown :reason (str error)})))
+  (-> db
+      (assoc :loading? false :asking nil
+             :error (if (map? error) error {:code :unknown :reason (str error)}))
+      ;; a failed model call: back to where the learner can try again
+      (update-in [:quiz :status] {:asking nil :grading :answering})))
 
 (defn clear-error [db] (assoc db :error nil))
 
@@ -86,7 +95,7 @@
   [db question]
   (assoc db :view :ask :ask-id nil :asking question :node-id nil :keyword nil :error nil))
 
-(declare show-in-graph)
+(declare show-in-graph open-study)
 
 (defn open-concept
   "Show concept `id`; the graph keeps its shape when `id` is already in it,
@@ -126,6 +135,7 @@
     :ask      (open-ask db id)
     :concept  (open-concept db id)
     :concepts (open-concepts db)
+    :study    (open-study db)
     (go-home db)))
 
 ;;=============================================================================
@@ -181,6 +191,48 @@
 
 (defn concept-index-fetched [db refs]
   (assoc db :concept-index (vec refs) :loading? false))
+
+;;=============================================================================
+;; Learning: scores and quizzes
+;;=============================================================================
+
+(defn concept-item [id] [:concept id])
+
+(defn relation-item
+  "Item of the relation between concepts `a` and `b` (as robertluo.fly-learner.learning.concepts)."
+  [a b]
+  (let [[a b] (sort-by str [a b])] [:relation a b]))
+
+(defn item-score [db item] (get-in db [:learning :scores item] 0))
+
+(defn learning-fetched [db overview]
+  (assoc db :learning overview))
+
+(defn open-study [db]
+  (assoc db :view :study :asking nil :loading? (nil? (:learning db))))
+
+(defn quiz-start
+  "Ask a question on `item` (nil: what to study next), on the study page."
+  [db item]
+  (-> (open-study db)
+      (assoc :quiz {:status :asking :item item :question nil :response "" :result nil})))
+
+(defn question-created [db question]
+  (if (= :asking (get-in db [:quiz :status]))
+    (update db :quiz assoc :status :answering :question question :item (:question/item question))
+    db))
+
+(defn quiz-typed [db s] (assoc-in db [:quiz :response] s))
+
+(defn quiz-submitted [db] (assoc-in db [:quiz :status] :grading))
+
+(defn quiz-graded
+  "The grading arrived: show it, and take the new scores it carries."
+  [db result]
+  (cond-> (update db :quiz assoc :status :graded :result result)
+    (:overview result) (assoc :learning (:overview result))))
+
+(defn quiz-close [db] (assoc-in db [:quiz :status] nil))
 
 ;;=============================================================================
 ;; Concept graph
@@ -278,6 +330,7 @@
                          (when-let [[x y] (pos id)]
                            (let [{:concept/keys [label gloss mentions]} (get-in ix [:concepts id])]
                              {:id id :label label :gloss gloss :mentions mentions
+                              :score (item-score db (concept-item id))
                               :x x :y y :r (radius mentions)
                               :focus? (= id focus) :selected? (= id sel)
                               :expanded? (contains? expanded id)
@@ -288,7 +341,8 @@
      :edges (vec (for [{:keys [from to] :as e} (graph/edges ix vis)
                        :let [[x1 y1] (pos from), [x2 y2] (pos to)]
                        :when (and x1 x2)]
-                   (assoc e :x1 x1 :y1 y1 :x2 x2 :y2 y2)))
+                   (assoc e :x1 x1 :y1 y1 :x2 x2 :y2 y2
+                          :score (item-score db (relation-item from to)))))
      :box   box
      ;; labels grow with the zoom-out, so they stay readable (up to a point)
      :scale (-> (/ (nth box 2) 640) (max 1) (min max-label-scale))}))
@@ -443,7 +497,28 @@
   ;; opening a concept not in the graph restarts it there
   (get-in (open-concept g1 :d) [:graph :focus]) ;=> :d
 
+  ;; scores reach the graph: concepts and relations, unknown = 0
+  (def scored (learning-fetched g1 {:scores {[:concept :t] 0.4 (relation-item :t :p) 0.2}}))
+  (:score (first (filter #(= :t (:id %)) (:nodes (graph-scene scored))))) ;=> 0.4
+  (set (map :score (:edges (graph-scene scored)))) ;=> #{0.2 0}
+
+  ;; a quiz: ask, answer, grade; new scores come with the grading
+  (def asked (quiz-start initial-state [:concept :t]))
+  [(:view asked) (get-in asked [:quiz :status])] ;=> [:study :asking]
+  (def answering (question-created asked {:question/id 1 :question/item [:concept :t] :question/prompt "Why?"}))
+  (get-in answering [:quiz :status]) ;=> :answering
+  (def graded (-> answering (quiz-typed "Because.") quiz-submitted
+                  (quiz-graded {:grade 0.5 :overview {:overall 0.1 :scores {[:concept :t] 0.25}}})))
+  [(get-in graded [:quiz :status]) (get-in graded [:quiz :response]) (item-score graded [:concept :t])]
+  ;=> [:graded "Because." 0.25]
+  ;; a failed model call goes back a step, so the learner can retry
+  (get-in (set-error (quiz-submitted answering) "boom") [:quiz :status]) ;=> :answering
+  (get-in (set-error asked "boom") [:quiz :status]) ;=> nil
+  ;; a late question for a quiz already closed is dropped
+  (get-in (question-created (quiz-close asked) {:question/id 1}) [:quiz :status]) ;=> nil
+
   ;; routes
+  (:view (apply-route initial-state {:view :study})) ;=> :study
   (:view (apply-route initial-state {:view :concept :id id})) ;=> :concept
   (:view (apply-route initial-state {:view :concepts})) ;=> :concepts
   (:view (apply-route initial-state {:view :ask :id id})) ;=> :ask

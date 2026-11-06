@@ -52,7 +52,7 @@
 (defn- spa-route?
   "Client-side routes served by index.html (see robertluo.fly-learner.ui.core.history)."
   [uri]
-  (or (#{"/" "/c"} uri) (some #(str/starts-with? uri %) ["/n/" "/k/" "/a/" "/c/"])))
+  (or (#{"/" "/c" "/q"} uri) (some #(str/starts-with? uri %) ["/n/" "/k/" "/a/" "/c/"])))
 
 (defn- source-file
   "GET /files/sources/<uuid> -> the source's original file (only paths stored
@@ -105,8 +105,8 @@
     (fnk [::cfg] {:client (delay (llm/client (:anthropic cfg)))})
 
     ::api-fn
-    (fnk [::cfg ::db ::llm]
-         (api/make-api (:conn db) (:client llm) {:models (get-in cfg [:anthropic :models])}))
+    (fnk [::cfg ::db ::llm ::learning]
+         (api/make-api (:conn db) (:client llm) {:models (get-in cfg [:anthropic :models])} learning))
 
     ::ring-app
     (fnk [::db ::api-fn] (make-ring-app (:conn db) api-fn))

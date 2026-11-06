@@ -18,7 +18,10 @@ Web stack follows flybot.sg (github.com/flybot-sg/lasagna-pattern, `examples/fly
   - `server/system` — fun-map `life-cycle-map` (db, api-fn, ring app, http-kit); `/files/sources/<id>` serves the PDF
   - `server/api` — lasagna-remote pull API on `/api`: `:sources`, `:asks` (collections; creating an ask runs the
     model), `:concepts` (read-only collection), `:nodes` (with `:node/concepts`; `:node/keywords` keeps only
-    keywords naming no concept), `:keywords`, `:search` (lookups)
+    keywords naming no concept), `:keywords`, `:search` (lookups), `:learning` (lazy overview), `:questions` /
+    `:answers` (creates: write a question, grade an answer)
+  - `server/study` — app-layer composition of learning + store + quiz for the API: `overview` (overall, scores,
+    next), `new-question!` (sent without its model answer), `answer!` (grading + scores before/after)
   - `ask` — graph RAG over the whole store: `retrieve` (Datalevin full-text + spread to parents/links),
     `ask!` (answer with the `:common` model from numbered entries, store as `:ask/*`), `view` (cited subgraph)
   - `concept` — concepts: ideas with an identity (`:concept/label`, `:concept/gloss`, `:concept/broader`), named by
@@ -55,7 +58,7 @@ Each layer knows the one below as little as possible, so any part can be reimple
   - `learning.concepts` — the only bridge: the concept graph as a `Curriculum` (`[:concept id]`, `[:relation a b]`)
 - **features** (`quiz`: generate questions from an item's material, grade free text into `:answer` evidence) —
   depend on learning only, never on knowledge
-- **app** (`server.*`, `ui.*`) composes: `server.system` merges schemas and picks the model (mastery + decay)
+- **app** (`server.*`, `ui.*`; the UI knows item ids `[:concept id]` / `[:relation a b]` for the heat map) composes: `server.system` merges schemas and picks the model (mastery + decay)
   and the curriculum
 - `dev/user.clj` — `(start!)` / `(stop!)` / `(cljs!)`, ingest snippet
 - Tests: Kaocha runs `test/clj` plus Rich Comment Tests (`^:rct/test` comment blocks in `src/`)

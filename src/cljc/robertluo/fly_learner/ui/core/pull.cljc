@@ -52,6 +52,24 @@
       {:pattern '{:concept-graph ?g}
        :then    (fn [r] {:db #(db/graph-fetched % (get r 'g)) :animate true})})
 
+    :learning
+    (when-not (:learning db)
+      {:pattern '{:learning ?l}
+       :then    (fn [r] {:db #(db/learning-fetched % (get r 'l))})})
+
+    ;; write a question on the quiz's item (a create: runs the model)
+    :question-create
+    (when (= :asking (get-in db [:quiz :status]))
+      {:pattern {:questions {nil {:question/item (get-in db [:quiz :item])}}}
+       :then    (fn [r] {:db #(db/question-created % (get r 'questions))})})
+
+    ;; grade the answer (a create: runs the model, records evidence)
+    :answer-create
+    (let [{:keys [status question response]} (:quiz db)]
+      (when (= :grading status)
+        {:pattern {:answers {nil {:question/id (:question/id question) :response response}}}
+         :then    (fn [r] {:db #(db/quiz-graded % (get r 'answers))})}))
+
     :concept-index
     (when-not (:concept-index db)
       {:pattern '{:concepts ?all}
@@ -68,7 +86,7 @@
 (defn for-route
   "Pull operation needed after navigating to a parsed route."
   [{:keys [view]}]
-  (case view :node :node :keyword :keyword :ask :ask :concept [:concept :concept-graph] :concepts :concept-index nil))
+  (case view :node :node :keyword :keyword :ask :ask :concept [:concept :concept-graph :learning] :concepts :concept-index :study :learning nil))
 
 ^:rct/test
 (comment
@@ -106,6 +124,10 @@
 
   (for-route {:view :node}) ;=> :node
   (for-route {:view :concepts}) ;=> :concept-index
-  (for-route {:view :concept}) ;=> [:concept :concept-graph]
+  (for-route {:view :concept}) ;=> [:concept :concept-graph :learning]
+  (for-route {:view :study}) ;=> :learning
+  (:pattern (resolve-pull :question-create (db/quiz-start db/initial-state [:concept id])))
+  ;=> {:questions {nil {:question/item [:concept #uuid "00000000-0000-0000-0000-000000000001"]}}}
+  (resolve-pull :answer-create db/initial-state) ;=> nil
   (= '{:concept-graph ?g} (:pattern (resolve-pull :concept-graph db/initial-state))) ;=> true
   (for-route {:view :home})) ;=> nil
