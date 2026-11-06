@@ -4,10 +4,12 @@
     {:kind :heading :depth d :title \"1.1 System Fω\" :page p}
     {:kind :text    :text \"...\" :page p}
 
-  Paragraphs come from PDFBox's paragraph detection. Page numbers are dropped,
-  paragraphs split by a page break are rejoined, and runs of short fragments
-  (formulas, figure bodies) are merged into one block. Headings are recognised
-  from their text since many PDFs carry no outline."
+  Paragraphs come from PDFBox's paragraph detection. Page numbers and running
+  headers (a line on many pages) are dropped, paragraphs split by a page break
+  are rejoined, and runs of short fragments (formulas, figure bodies) are
+  merged into one block. Headings are recognised from their text since many
+  PDFs carry no outline; a book whose chapter openings are not recognised
+  gets its chapters from its numbered sections (2.1 belongs to chapter 2)."
   (:require [clojure.java.io :as io]
             [clojure.string :as str])
   (:import (org.apache.pdfbox Loader)
@@ -43,11 +45,16 @@
       (re-matches #"Chapter \d+" s)
       {:depth 1 :title s :chapter-marker true}
 
-      (and (re-matches #"(\d+(?:\.\d+)+)\s+\p{Lu}.{0,80}" s)
-           (not (re-find #"[.:;,]$|\. \. \." s)))
-      {:depth (count (re-seq #"\d+" (first (str/split s #"\s")))) :title s}
+      ;; not a contents line ("2.5 Games ....... 81")
+      (and (re-matches #"(\d+(?:\.\d+)+)\.?\s+\p{Lu}.{0,80}" s)
+           (not (re-find #"[.:;,]$|\. \. \.|\.{4,}|…" s)))
+      {:depth (count (re-seq #"\d+" (first (str/split s #"\s"))))
+       :title (str/replace s #"^(\d+(?:\.\d+)+)\.\s" "$1 ")}
 
-      (re-matches #"[\p{Lu}][\p{Lu}\s\-]{2,40}" s)
+      ;; a title in capitals, with at least one real word: figure labels
+      ;; ("L R", "A N N" in a game tree) are not titles
+      (and (re-matches #"[\p{Lu}][\p{Lu}\s\-]{2,40}" s)
+           (re-find #"\p{Lu}{3,}" s))
       {:depth 1 :title s})))
 
 (def ^:private minor-words #{"a" "an" "and" "as" "at" "by" "for" "in" "of" "on" "or" "the" "to"})
@@ -83,6 +90,79 @@
                  (conj out (cond-> (dissoc b :chapter-marker)
                              (= :heading (:kind b)) (update :title title-case)))))))))
 
+(defn- chapter-number [title] (second (re-find #"^(\d+)\.\d" title)))
+
+(defn- title-line?
+  "A short line that reads like a title, not a sentence."
+  [{:keys [kind text]}]
+  (and (= :text kind) (<= 3 (count text) 80) (not (re-find #"[.!?:;,]$" text)) (re-find #"^\p{L}" text)))
+
+(defn- chapter-title
+  "The chapter title set just before a chapter's first section on `page`: the
+  title-like lines at the end of `out`, from the last one starting with a
+  capital (a part title above it is not the chapter's). Returns [title n]
+  (n: lines taken from `out`), or nil."
+  [out page]
+  (let [lines (->> (rseq out) (take-while #(and (title-line? %) (= page (:page %)))) (take 3) reverse vec)
+        start (last (keep-indexed (fn [i b] (when (re-find #"^\p{Lu}" (:text b)) i)) lines))]
+    (when start
+      [(str/join " " (map :text (subvec lines start))) (- (count lines) start)])))
+
+(defn- add-chapters
+  "Chapters for a book whose chapter openings were not recognised: before
+  the first section N.x of a chapter N that has no heading, a chapter
+  heading, titled from the lines just before it on that page (where books
+  set the chapter title), else \"Chapter N\"."
+  [blocks]
+  (loop [bs (seq blocks)
+         out []
+         seen (into #{} (keep #(when (= 1 (:depth %)) (second (re-find #"^(\d+)\s" (:title %))))) blocks)]
+    (if-let [[b & more] bs]
+      (let [n (when (and (= :heading (:kind b)) (< 1 (:depth b))) (chapter-number (:title b)))]
+        (if (and n (not (seen n)))
+          (let [[title taken] (chapter-title out (:page b))]
+            (recur more
+                   (conj (subvec out 0 (- (count out) (or taken 0)))
+                         {:kind :heading :depth 1 :page (:page b)
+                          :title (str n " " (or title (str "Chapter " n)))}
+                         b)
+                   (conj seen n)))
+          (recur more (conj out b) seen)))
+      out)))
+
+(def ^:private matter
+  "Headings in capitals that stand in a numbered book: front and back matter, appendices."
+  #"(?i)(abstract|public abstract|preface|foreword|introduction|contents|table of contents|acknowledge?ments|dedication|notation|glossary|bibliography|references|index|appendix.*|list of .*)")
+
+(defn- numbered-section? [b]
+  (and (= :heading (:kind b)) (< 1 (:depth b)) (chapter-number (:title b))))
+
+(defn- demote-capitals
+  "In a book structured by numbered sections, a line in capitals is a label
+  (a player or a node in a game tree, a table head), not a heading, unless it
+  is front or back matter."
+  [blocks]
+  (if (< (count (filter numbered-section? blocks)) 5)
+    blocks
+    (mapv (fn [{:keys [kind depth title] :as b}]
+            (if (and (= :heading kind) (= 1 depth)
+                     (not (re-find #"^\d" title))
+                     (not (re-matches matter title)))
+              {:kind :text :text title :page (:page b)}
+              b))
+          blocks)))
+
+(defn- split-at-headings
+  "A paragraph holding a numbered section heading among its lines (a chapter
+  opening set as one block: part title, chapter title, \"1.1. Games\") cut
+  into its lines, so the heading stands alone."
+  [para]
+  (let [lines (str/split-lines para)]
+    (if (and (< 1 (count lines))
+             (some #(and (re-find #"^\d+\.\d" (str/trim %)) (heading %)) lines))
+      (map str/trim lines)
+      [para])))
+
 (def ^:private fragment-chars 80)
 
 (defn- continues?
@@ -109,10 +189,42 @@
                 (conj out b))))
           [] blocks))
 
+(defn running-lines
+  "Lines on at least `share` of the pages (and on 3 at least): running headers
+  and footers, as the book's title or its author on every page."
+  ([pages] (running-lines pages 0.3))
+  ([pages share]
+   (let [per-page (for [[_ paras] pages]
+                    (into #{} (comp (mapcat #(str/split-lines %)) (map str/trim)
+                                    (filter #(<= 8 (count %) 100)))
+                          paras))]
+     (->> (frequencies (mapcat seq per-page))
+          (filter (fn [[_ n]] (>= n (max 3 (* share (count pages))))))
+          (map key)
+          set))))
+
+(defn contents-page?
+  "A table of contents: most of its lines end with a page number."
+  [paras]
+  (let [lines (->> paras (mapcat str/split-lines) (map str/trim) (remove str/blank?))]
+    (and (<= 5 (count lines))
+         (<= 0.5 (/ (count (filter #(re-find #"\p{L}.*[\s.]\d{1,4}$" %) lines)) (count lines))))))
+
+(defn- drop-lines
+  "Paragraphs with the lines in `lines` removed (blank ones dropped)."
+  [lines paras]
+  (if (empty? lines)
+    paras
+    (->> paras
+         (map (fn [p] (->> (str/split-lines p) (remove #(lines (str/trim %))) (str/join "\n"))))
+         (remove str/blank?))))
+
 (defn blocks
   "Turn per-page paragraph strings [[page [para ...]] ...] into blocks."
   [pages]
-  (->> pages
+  (->> (let [running (running-lines pages)]
+         (for [[page paras] pages :when (not (contents-page? paras))]
+           [page (drop-lines running paras)]))
        (reduce (fn [out [page paras]]
                  (reduce (fn [out para]
                            (let [h    (heading para)
@@ -125,9 +237,11 @@
                                (conj (pop out) (update prev :text str " " text))
                                :else (conj out {:kind :text :text text :page page}))))
                          out
-                         (remove page-number? paras)))
+                         (remove page-number? (mapcat split-at-headings paras))))
                [])
        merge-chapter-markers
+       demote-capitals
+       add-chapters
        merge-fragments
        (mapv #(dissoc % :fragments))))
 
