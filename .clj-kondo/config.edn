@@ -1,2 +1,4 @@
 {;; fun-map fnk binds locals from (namespaced) keyword args: (fnk [::db] db)
- :linters {:unresolved-symbol {:exclude [(robertluo.fun-map/fnk)]}}}
+ :linters {:unresolved-symbol {:exclude [(robertluo.fun-map/fnk)]}}
+ ;; (with-transaction [cn conn] ..) binds cn like let
+ :lint-as {datalevin.core/with-transaction clojure.core/let}}

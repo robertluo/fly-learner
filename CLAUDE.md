@@ -20,6 +20,13 @@ Web stack follows flybot.sg (github.com/flybot-sg/lasagna-pattern, `examples/fly
     model), `:nodes`, `:keywords`, `:search` (lookups)
   - `ask` — graph RAG over the whole store: `retrieve` (Datalevin full-text + spread to parents/links),
     `ask!` (answer with the `:common` model from numbered entries, store as `:ask/*`), `view` (cited subgraph)
+  - `concept` — concepts: ideas with an identity (`:concept/label`, `:concept/gloss`, `:concept/broader`), named by
+    keywords (`:concept/aliases`, unique: a keyword names one concept). Mentions are derived: node keyword = alias.
+    `resolve!` (model, add-only) assigns unresolved keywords in batches; curation fns (`merge!`, `split!`, `assign!`,
+    `rename!`, ...) are atomic multi-stage edits (Datalevin checks unique values against the pre-tx state, so an
+    alias must leave one concept before joining another, inside `with-transaction`). Every change is an `:edit/*`.
+  - `concept/graph` — pure over `load-graph`: `edges` (broader/narrower + NPMI co-occurrence, evidence = shared
+    nodes), `neighbourhood`, `path` (Dijkstra), `related`
   - `quiz`, `progress` (SM-2 reviews), `db` (Datalevin schema + queries; `copy!` rebuilds a db under the
     current schema, e.g. after marking an attribute `:db/fulltext` — Datalevin's `re-index` loses full-text entries)
 - `src/cljc/robertluo/fly_learner/ui/core/` — frontend logic, JVM-testable: `db` (pure state fns), `pull` (named pull specs),

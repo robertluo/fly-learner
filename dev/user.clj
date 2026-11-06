@@ -40,4 +40,13 @@
   (ingest/ingest-pdf! (sys/conn) client "data/sources/marmaduke-2024-c2.pdf"
                       {:models (get-in cfg [:anthropic :models])})
   @llm/usage
-  (llm/cost))
+  (llm/cost)
+
+  ;; concepts: resolve keywords no concept covers yet, then explore the graph
+  (require '[robertluo.fly-learner.concept :as concept]
+           '[robertluo.fly-learner.concept.graph :as graph]
+           '[datalevin.core :as d])
+  (concept/resolve! (sys/conn) (concept/llm-resolver client {:models (get-in cfg [:anthropic :models])})
+                    {:on-batch prn})
+  (def adj (graph/edges (graph/load-graph (d/db (sys/conn)))))
+  (concept/edits (d/db (sys/conn))))

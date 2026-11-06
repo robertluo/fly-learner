@@ -27,6 +27,25 @@
    :node/children   {:db/valueType :db.type/ref :db/cardinality :db.cardinality/many}
    :node/links      {:db/valueType :db.type/ref :db/cardinality :db.cardinality/many}
 
+   ;; concepts: ideas with an identity of their own, across sources
+   ;; (robertluo.fly-learner.concept). Node n mentions concept c when one of
+   ;; n's :node/keywords is an alias of c.
+   :concept/id      {:db/valueType :db.type/uuid :db/unique :db.unique/identity}
+   :concept/label   {:db/valueType :db.type/string}
+   ;; the keyword strings naming it; unique: a keyword names at most one concept
+   :concept/aliases {:db/valueType :db.type/string :db/cardinality :db.cardinality/many
+                     :db/unique :db.unique/value}
+   :concept/gloss   {:db/valueType :db.type/string} ; one sentence fixing its sense
+   :concept/broader {:db/valueType :db.type/ref :db/cardinality :db.cardinality/many} ; is-a / part-of
+   :concept/by      {:db/valueType :db.type/string} ; last asserted by: a model id or "human"
+   :ignored/keyword {:db/valueType :db.type/string :db/unique :db.unique/identity} ; names no concept
+
+   ;; edits: every change to concepts, by a model or a human, in order
+   :edit/op         {:db/valueType :db.type/keyword}
+   :edit/args       {}                               ; EDN: enough to replay the edit
+   :edit/by         {:db/valueType :db.type/string}
+   :edit/at         {:db/valueType :db.type/instant}
+
    ;; asks: questions to the knowledge base and their answers (robertluo.fly-learner.ask)
    :ask/id          {:db/valueType :db.type/uuid :db/unique :db.unique/identity}
    :ask/question    {:db/valueType :db.type/string}
