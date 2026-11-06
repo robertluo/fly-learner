@@ -91,4 +91,4 @@ Inside `devenv shell` (JDK, Clojure, Node, babashka, clojure-mcp-light):
  - `bb serve` builds the frontend and serves everything from http://localhost:8080
  - `bb test`, `bb lint`
  - Anthropic API key: `ANTHROPIC_API_KEY`, or the macOS keychain item named in `resources/config.edn`
- - Ingest a PDF from the REPL: see the `comment` block in `dev/user.clj`
+ - Ingest a PDF: put it in `data/sources/`, then `bb ingest data/sources/<file>.pdf` (several at once is fine). It folds the document with Claude, resolves its new keywords into concepts, and prints progress and the cost; then reload the app. With `bb dev` running it ingests through that REPL (the app's db; only one process may write it), otherwise in a new JVM. Ingesting the same file again replaces it; your ideas on it are re-attached. Step by step from the REPL: the `comment` block in `dev/user.clj`

@@ -31,7 +31,8 @@
       (= n "robertluo.fly-learner.ideas.store")       :ideas-store
       (= n "robertluo.fly-learner.ideas.knowledge")   :ideas-adapter
       (= n "robertluo.fly-learner.llm")               :infra
-      (or (str/starts-with? n "robertluo.fly-learner.server.")
+      (or (= n "robertluo.fly-learner.cli")
+          (str/starts-with? n "robertluo.fly-learner.server.")
           (str/starts-with? n "robertluo.fly-learner.ui"))      :app
       :else                                                     :knowledge)))
 

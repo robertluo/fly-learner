@@ -83,14 +83,19 @@
 ;; System
 ;;=============================================================================
 
+(defn connect
+  "Open the db at the config's :db-dir with every layer's schema (each layer
+  owns its own)."
+  [cfg]
+  (db/connect (:db-dir cfg) learning.store/schema quiz/schema ideas.store/schema))
+
 (defn make-system [cfg]
   (life-cycle-map
    {::cfg cfg
 
     ::db
     (fnk [::cfg]
-         ;; each layer owns its schema
-         (let [conn (db/connect (:db-dir cfg) learning.store/schema quiz/schema ideas.store/schema)]
+         (let [conn (connect cfg)]
            ;; closeable wraps in a map, so fun-map won't auto-deref the conn inside
            (closeable {:conn conn} #(db/close conn))))
 

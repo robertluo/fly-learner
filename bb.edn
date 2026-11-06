@@ -1,4 +1,5 @@
-{:tasks
+{:paths ["bb"]
+ :tasks
  {:requires ([babashka.fs :as fs])
 
   vendor
@@ -21,6 +22,13 @@
    ;; shadow's runs first and handles the cljs REPL itself
    :task (clojure "-M:dev:cljs -m nrepl.cmdline --middleware"
                   "[shadow.cljs.devtools.server.nrepl/middleware,cider.nrepl/cider-middleware,cider.piggieback/wrap-cljs-repl]")}
+
+  ingest
+  {:doc "Ingest PDFs: bb ingest data/sources/<file>.pdf ... Folds each with Claude, then
+         resolves new keywords into concepts. Runs inside the dev REPL when one is up
+         (the running app's db; only one process may write it), else in a new JVM"
+   :requires ([ingest-task])
+   :task (ingest-task/run *command-line-args*)}
 
   watch
   {:doc "shadow-cljs watch without a REPL (http://localhost:3000)"

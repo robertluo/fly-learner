@@ -76,6 +76,7 @@ Each layer knows the one below as little as possible, so any part can be reimple
   - ideas and learning know nothing of each other
 - **app** (`server.*`, `ui.*`; the UI knows item ids `[:concept id]` / `[:relation a b]` for the heat map) composes: `server.system` merges schemas and picks the model (mastery + decay)
   and the curriculum
+- `cli` — command-line tasks (app layer): `ingest!`; `server.system/connect` opens the db with every layer's schema
 - `dev/user.clj` — `(start!)` / `(stop!)` / `(cljs!)`, ingest snippet
 - Tests: Kaocha runs `test/clj` plus Rich Comment Tests (`^:rct/test` comment blocks in `src/`)
 
@@ -84,6 +85,10 @@ Each layer knows the one below as little as possible, so any part can be reimple
 - `bb dev` — nREPL (backend + shadow-cljs middleware); then `(user/cljs!)`: starts the backend (:8080) if needed and the frontend watch (:3000, proxies pages and `/api` to :8080). `(user/start!)` alone runs just the backend
 - `bb watch` — shadow-cljs without a REPL; `bb serve` — release build served by the backend on :8080
 - `bb test`, `bb lint`; `bb install` / `bb vendor` copy pdf.js into `resources/public/vendor/pdfjs`
+- `bb ingest data/sources/<file>.pdf ...` — `cli/ingest!` (ingest + fold, then `concept/resolve!`; prints the cost).
+  `bb/ingest_task.clj` evaluates it over nREPL in the running `bb dev` REPL when `.nrepl-port` answers (Datalevin
+  must have one writer: the app's), else runs `clojure -M:ingest`. Paths are stored relative to the project
+  (`cli/source-path`), so any spelling of a file re-ingests the same source
 - `devenv up` — runs `bb dev`
 
 Every JVM alias needs the Datalevin `--add-opens` flags; keep them when adding aliases.

@@ -42,6 +42,12 @@
                    "--enable-native-access=ALL-UNNAMED"]
         :main-opts ["-m" "robertluo.fly-learner.server.system"]}
 
+  ;; bb ingest, when no dev REPL is running
+  :ingest {:jvm-opts ["--add-opens=java.base/java.nio=ALL-UNNAMED"
+                      "--add-opens=java.base/sun.nio.ch=ALL-UNNAMED"
+                      "--enable-native-access=ALL-UNNAMED"]
+           :main-opts ["-m" "robertluo.fly-learner.cli"]}
+
   ;; frontend build (shadow-cljs.edn :deps)
   :cljs {:extra-paths ["src/cljs"]
          :extra-deps {thheller/shadow-cljs {:mvn/version "3.5.11"}
