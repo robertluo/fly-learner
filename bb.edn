@@ -15,10 +15,12 @@
 
   dev
   {:doc "nREPL for backend + frontend (writes .nrepl-port). In the REPL:
-         (user/start!) for the backend on :8080, (user/cljs!) for shadow-cljs on :3000"
+         (user/cljs!) starts the backend on :8080 and shadow-cljs on :3000"
    :depends [install]
+   ;; piggieback's middleware is listed because shadow's and cider's declare it;
+   ;; shadow's runs first and handles the cljs REPL itself
    :task (clojure "-M:dev:cljs -m nrepl.cmdline --middleware"
-                  "[shadow.cljs.devtools.server.nrepl/middleware,cider.nrepl/cider-middleware]")}
+                  "[shadow.cljs.devtools.server.nrepl/middleware,cider.nrepl/cider-middleware,cider.piggieback/wrap-cljs-repl]")}
 
   watch
   {:doc "shadow-cljs watch without a REPL (http://localhost:3000)"

@@ -76,7 +76,7 @@ To do:
 
 Inside `devenv shell` (JDK, Clojure, Node, babashka, clojure-mcp-light):
 
- - `bb dev` starts an nREPL; in it `(user/start!)` runs the backend (http://localhost:8080) and `(user/cljs!)` the frontend watch (http://localhost:3000)
+ - `bb dev` starts an nREPL; in it `(user/cljs!)` starts the backend (http://localhost:8080) and the frontend watch, then open http://localhost:3000
  - `bb serve` builds the frontend and serves everything from http://localhost:8080
  - `bb test`, `bb lint`
  - Anthropic API key: `ANTHROPIC_API_KEY`, or the macOS keychain item named in `resources/config.edn`

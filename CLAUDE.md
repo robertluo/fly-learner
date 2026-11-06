@@ -32,7 +32,7 @@ Web stack follows flybot.sg (github.com/flybot-sg/lasagna-pattern, `examples/fly
 
 ## Commands (inside `devenv shell`)
 
-- `bb dev` — nREPL (backend + shadow-cljs middleware); then `(user/start!)` (:8080) and `(user/cljs!)` (:3000, proxies to :8080)
+- `bb dev` — nREPL (backend + shadow-cljs middleware); then `(user/cljs!)`: starts the backend (:8080) if needed and the frontend watch (:3000, proxies pages and `/api` to :8080). `(user/start!)` alone runs just the backend
 - `bb watch` — shadow-cljs without a REPL; `bb serve` — release build served by the backend on :8080
 - `bb test`, `bb lint`; `bb install` / `bb vendor` copy pdf.js into `resources/public/vendor/pdfjs`
 - `devenv up` — runs `bb dev`
