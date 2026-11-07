@@ -23,6 +23,7 @@
                 concepts (or finds they are concepts after all)
     ->tx        a judgement as tx data: :prereq/* claims, hidden concepts,
                 each judged concept marked :concept/prereqs-by
+    audit       the model checks each claim's direction; reports, stores nothing
     claim! unclaim!  human corrections, logged as :edit/*
     dag         the claims as an acyclic graph: mutual claims drop out (the
                 two are learned together), a cycle loses the edge the
@@ -365,6 +366,74 @@ Concept index:
          :judged     (vec ids)
          :claims     (into [] (comp (mapcat :claims) (distinct)) rs)
          :background (into [] (mapcat :background) rs)})
+      (finally (.shutdown pool)))))
+
+;;-----------------------------------------------------------------------------
+;; auditing
+
+(def ^:private audit-instructions
+  "You check claims of a learning map built from documents. Each claim says a
+learner must understand concept A before concept B, with the reason a model
+gave. Judge each:
+
+- ok: B's definition or explanation really builds on A, so A comes first.
+  A component of B, or a property that defines B, comes first: ok
+  (\"transitivity\" before \"equivalence relation\", \"information set\" before
+  \"extensive-form game\").
+- reversed: A is defined in terms of B, or A is a kind, instance, use or
+  result of B, so B must come first (\"equivalence relation\" before
+  \"transitivity\"; \"natural numbers\" before \"inductive data\"). Check your
+  note: if it says A comes first, the verdict is ok, not reversed.
+- unrelated: neither needs the other; they are only discussed together.
+- mutual: they are defined together, neither can come first.
+
+Judge by what the concepts mean (their glosses), not by wording alone. Most
+claims are ok; say otherwise only when you are confident. Give a short note
+for anything not ok.")
+
+(def ^:private audit-schema
+  {:type "object"
+   :properties {:verdicts {:type  "array"
+                           :items {:type "object"
+                                   :properties {:claim   {:type "integer"}
+                                                :verdict {:type "string" :enum ["ok" "reversed" "unrelated" "mutual"]}
+                                                :note    {:type "string"}}
+                                   :required ["claim" "verdict" "note"]
+                                   :additionalProperties false}}}
+   :required ["verdicts"]
+   :additionalProperties false})
+
+(defn audit
+  "Check every claim's direction with the model, `batch` claims per call,
+  `threads` at a time; stores nothing. Returns the claims not judged ok,
+  [{:of :needs :why :by :verdict :note}] (verdict :reversed, :unrelated or
+  :mutual), to correct with `unclaim!` / `claim!`. opts: :models, :tier
+  (:common), :batch (40), :threads (4), :claims (these only, e.g. those
+  another tier flagged: a second opinion)."
+  [db client {:keys [models tier batch threads] :or {tier :common batch 40 threads 4} :as opts}]
+  (let [{:keys [concepts]} (graph/load-graph db)
+        line  (fn [id] (let [{:concept/keys [label gloss]} (concepts id)] (str label (when gloss (str " (" gloss ")")))))
+        model (llm/model-for models tier)
+        pool  (java.util.concurrent.Executors/newFixedThreadPool threads)
+        run   (fn [chunk]
+                (let [{:keys [verdicts]}
+                      (llm/complete-json client
+                                         {:system     audit-instructions
+                                          :prompt     (str/join "\n\n" (map-indexed (fn [i {:keys [of needs why]}]
+                                                                                       (str "Claim " (inc i) "\nA: " (line needs) "\nB: " (line of)
+                                                                                            "\nReason: " why))
+                                                                                     chunk))
+                                          :model      model
+                                          :max-tokens 8000
+                                          :schema     audit-schema})]
+                  (for [{:keys [claim verdict note]} verdicts
+                        :let [c (get chunk (dec claim))]
+                        :when (and c (not= "ok" verdict))]
+                    (assoc c :verdict (keyword verdict) :note note))))]
+    (try
+      (->> (partition-all batch (or (:claims opts) (claims db)))
+           (mapv (fn [chunk] (.submit pool ^Callable (fn [] (vec (run (vec chunk)))))))
+           (into [] (mapcat #(.get ^java.util.concurrent.Future %))))
       (finally (.shutdown pool)))))
 
 ;;-----------------------------------------------------------------------------
