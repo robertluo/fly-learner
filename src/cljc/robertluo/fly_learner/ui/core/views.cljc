@@ -33,15 +33,29 @@
 (def ^:private icons
   {:plus  "M8 3v10M3 8h10"
    :minus "M3 8h10"
-   :whole "M2 6V2h4M10 2h4v4M14 10v4h-4M6 14H2v-4"
+   :whole "M2 5V2h3M11 2h3v3M14 11v3h-3M5 14H2v-3M6 6h4v4H6z"
+   :fullscreen "M2 6V2h4M2 2l4 4M10 2h4v4M14 2l-4 4M14 10v4h-4M14 14l-4-4M6 14H2v-4M2 14l4-4"
+   :exit-fullscreen "M2 6h4V2M6 6 2 2M10 2v4h4M10 6l4-4M14 10h-4v4M10 10l4 4M6 14v-4H2M6 10l-4 4"
    :width "M2 8h12M5 5 2 8l3 3M11 5l3 3-3 3"})
+
+(defn- fullscreen-button
+  "Full screen: the browser, showing only this pane; or back."
+  #?(:cljs [db dispatch!] :clj [db _dispatch!])
+  (if (:fullscreen? db)
+    [:exit-fullscreen "Leave full screen (Esc)"
+     #?(:cljs #(zoom/fullscreen! false (fn [] (dispatch! {:db (fn [d] (db/fullscreen d false))})))
+        :clj  (fn [_]))]
+    [:fullscreen "Full screen"
+     #?(:cljs #(zoom/fullscreen! true (fn [] (dispatch! {:db (fn [d] (db/fullscreen d true))})))
+        :clj  (fn [_]))]))
 
 (defn- zoom-controls
   "Icon buttons floating at the bottom right of a pane: [[icon title
-  on-click disabled?] ..]; the title is the tooltip (and the accessible name)."
+  on-click disabled?] ..] (nil: none); the title is the tooltip (and the
+  accessible name)."
   [buttons]
   [:div.zoom-controls
-   (for [[k title on-click disabled?] buttons]
+   (for [[k title on-click disabled?] (remove nil? buttons)]
      [:button {:replicant/key (name k) :title title :aria-label title
                :disabled (boolean disabled?) :on {:click on-click}}
       (icon (icons k))])])
@@ -405,11 +419,12 @@
               :clj  {}))))
 
 (defn- pane-zoom-controls
-  "Zoom in, out, and the whole drawing, for pane `k`."
-  [k dispatch! whole-title]
+  "Zoom in, out, the whole drawing, and full screen, for pane `k`."
+  [db k dispatch! whole-title]
   (zoom-controls [[:plus "Zoom in" #(dispatch! {:db (fn [d] (db/pane-zoomed d k 1.4))})]
                   [:minus "Zoom out" #(dispatch! {:db (fn [d] (db/pane-zoomed d k (/ 1 1.4)))})]
-                  [:whole whole-title #(dispatch! {:db (fn [d] (db/pane-whole d k))})]]))
+                  [:whole whole-title #(dispatch! {:db (fn [d] (db/pane-whole d k))})]
+                  (fullscreen-button db dispatch!)]))
 
 (defn- knowledge-map [db dispatch!]
   (let [{:keys [bubbles links]} (db/map-scene db)]
@@ -463,7 +478,7 @@
        [:span.hint "Click a topic to open it."]]
       (knowledge-map db dispatch!)
       (when (seq (get-in db [:universe :clusters]))
-        (pane-zoom-controls :map dispatch! "The whole map"))]]))
+        (pane-zoom-controls db :map dispatch! "The whole map"))]]))
 
 (defn- node-article [db node dispatch!]
   (let [{:node/keys [id title summary text keywords concepts children links ancestors kind source]} node
@@ -618,14 +633,14 @@
                                       :history (if following? :push :replace)}))
         ;; pages are drawn to fit the pane's width: an attribute that changes with it
         ;; re-runs the drawing hooks when the pane widens or narrows
-        mode   (if (:source-only? db) "wide" "split")
+        mode   (if (db/wide? db) "wide" "split")
         zoom   (db/pdf-zoom db)
         layout {:data-layout (str mode "@" zoom)}
         sheet  {:sid sid :url url :aspect (db/pdf-aspect db sid) :hl-page (second key)
                 :found found :layout layout
                 ;; the pane's width x zoom; full width, no wider than reads well
                 :size {:width (str (* 100 zoom) "%")
-                       :max-width (when (:source-only? db) (str (* 1000 zoom) "px"))}
+                       :max-width (when (db/wide? db) (str (* 1000 zoom) "px"))}
                 :on-doc (fn [pages aspect]
                           (when (or (not= pages n) (nil? (db/pdf-aspect db sid)))
                             (dispatch! {:db #(db/pdf-loaded % sid pages aspect)})))}
@@ -649,7 +664,8 @@
                       #(dispatch! {:db (fn [d] (db/pdf-zoom-step d 1))}) (>= zoom (peek db/pdf-zooms))]
                      [:minus (str "Zoom out (" (Math/round (* 100 zoom)) "%)")
                       #(dispatch! {:db (fn [d] (db/pdf-zoom-step d -1))}) (<= zoom (first db/pdf-zooms))]
-                     [:width "Fit the width" #(dispatch! {:db (fn [d] (db/pdf-zoomed d 1))}) (== zoom 1)]])]))
+                     [:width "Fit the width" #(dispatch! {:db (fn [d] (db/pdf-zoomed d 1))}) (== zoom 1)]
+                     (fullscreen-button db dispatch!)])]))
 
 (defn- node-view [db dispatch!]
   (if-let [node (db/current-node db)]
@@ -943,7 +959,7 @@
             [:title (str (stance-label stance) (when text (str ": " text)))]
             [:rect {:x -4.5 :y -4.5 :width 9 :height 9 :transform "rotate(45)"}]])]]
        [:p.muted.graph-empty "Loading the concept graph…"])
-     (when (seq nodes) (pane-zoom-controls :graph dispatch! "The whole graph"))
+     (when (seq nodes) (pane-zoom-controls db :graph dispatch! "The whole graph"))
      [:p.graph-hint (if (get-in db [:graph :scope])
                       "The topic's concepts. Click one to open it. Filled: how well you know it."
                       (list "Click a concept to open and expand it, click it again to collapse. "
@@ -1017,7 +1033,7 @@
        :else [:p.muted "No concepts yet. Resolve keywords from the REPL (see dev/user.clj)."])]))
 
 (defn app-view [db dispatch!]
-  [:div.app
+  [:div.app {:class (when (:fullscreen? db) "fullscreen")}
    (header db dispatch!)
    (error-banner db dispatch!)
    (selection-popover db dispatch!)

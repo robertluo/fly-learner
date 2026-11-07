@@ -5,7 +5,8 @@
     watch-size!  (on-size w h) when the element's size changes (and at first)
     pan-zoom!    dragging and trackpad scrolling pan, pinching (ctrl/⌘ +
                  wheel) zooms at the pointer; a drag swallows its click
-    pinch!       only pinching (ctrl/⌘ + wheel): for panes that scroll")
+    pinch!       only pinching (ctrl/⌘ + wheel): for panes that scroll
+    fullscreen!  the browser full screen, or back")
 
 (defn watch-size! [^js el on-size]
   (when-not (.-sizeWatched el)
@@ -90,3 +91,19 @@
            (when-not @t
              (vreset! t (js/setTimeout (fn [] (vreset! t nil) (on-zoom @f) (vreset! f 1)) 120)))))
        #js {:passive false}))))
+
+(defn fullscreen!
+  "Put the browser full screen (`on?`) or back. The whole page goes full
+  screen (what shows of it is up to the app: popovers keep working); the
+  app learns of the change from `fullscreenchange`. Where full screen is
+  not available (a phone), (fallback) is called instead."
+  [on? fallback]
+  (let [doc js/document]
+    (cond
+      (and on? (.-fullscreenEnabled doc))
+      (-> (.requestFullscreen (.-documentElement doc)) (.catch (fn [_] (fallback))))
+
+      (and (not on?) (.-fullscreenElement doc))
+      (.exitFullscreen doc)
+
+      :else (fallback))))

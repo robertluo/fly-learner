@@ -86,6 +86,16 @@ main.split.source-only > .source { border-left: 0; }
 /* full width: a page wider than this is harder to read, not easier */
 
 
+/* full screen (the browser's too): only the pane, the whole screen */
+.app.fullscreen .top,
+.app.fullscreen main.split > .content,
+.app.fullscreen .map-side,
+.app.fullscreen .width-toggle { display: none; }
+.app.fullscreen main.split,
+.app.fullscreen main.map-home { grid-template-columns: minmax(0, 1fr); min-height: 100vh; }
+.app.fullscreen .source,
+.app.fullscreen .map-pane { position: sticky; top: 0; height: 100vh; border: 0; }
+
 @media (max-width: 900px) {
   main.split { grid-template-columns: 1fr; }
   /* below the text: the column of pages scrolls in a pane of its own */

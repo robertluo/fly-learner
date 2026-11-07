@@ -59,6 +59,7 @@
                      :zoom      1.0   ; page width / the pane's
                      :placed    {}}   ; quotes key (pdf-quotes-key) -> {idea-id [{:x :y :w :h}]}
    :source-only?    false  ; split views: the left pane hidden, the source (PDF, graph) full width
+   :fullscreen?     false  ; the browser is full screen, showing only the pane (map, graph, PDF)
    :map-view        {}     ; the map's pan and zoom (robertluo.fly-learner.ui.core.viewport)
    :loading?        false
    :error           nil})  ; {:code :reason} or nil
@@ -860,6 +861,16 @@
 
 (defn source-only-toggle [db] (source-only db (not (:source-only? db))))
 
+(defn fullscreen
+  "The browser went full screen (`on?`) or back: only the pane is shown."
+  [db on?]
+  (assoc db :fullscreen? (boolean on?)))
+
+(defn wide?
+  "Whether the source pane has the whole width (left pane hidden, or full screen)."
+  [db]
+  (boolean (or (:source-only? db) (:fullscreen? db))))
+
 (defn highlight-texts
   "Source text of `node` to mark on its PDF page: a paragraph's text, a
   passage's paragraphs, a section's heading."
@@ -937,6 +948,8 @@
   (:source-only? (source-only-toggle initial-state)) ;=> true
   (:source-only? (-> initial-state source-only-toggle source-only-toggle)) ;=> false
   (:source-only? (source-only initial-state "yes")) ;=> true
+  (wide? (fullscreen initial-state true)) ;=> true
+  (wide? initial-state) ;=> false
   (node-page {:node/children [{:node/page 3}]}) ;=> 3
   (node-page {}) ;=> 1
 

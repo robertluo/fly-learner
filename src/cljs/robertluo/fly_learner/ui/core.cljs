@@ -148,6 +148,18 @@
                                (dispatch! {:db db/selection-cleared})))
                           0)))))
 
+;; full screen follows the browser's: leaving it (Esc, the browser's own
+;; controls) leaves the app's too
+(defonce _fullscreen
+  (do (.addEventListener js/document "fullscreenchange"
+                         #(dispatch! {:db (fn [d] (db/fullscreen d (some? (.-fullscreenElement js/document))))}))
+      ;; where the browser could not go full screen, Esc still leaves
+      (.addEventListener js/document "keydown"
+                         (fn [^js e]
+                           (when (and (= "Escape" (.-key e)) (:fullscreen? @app-db)
+                                      (not (.-fullscreenElement js/document)))
+                             (dispatch! {:db #(db/fullscreen % false)}))))))
+
 (defonce _popstate
   (.addEventListener js/window "popstate" (partial history/on-popstate! go-to-route!)))
 
