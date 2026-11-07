@@ -6,6 +6,7 @@
             [robertluo.fly-learner.ui.core.db :as db]
             [robertluo.fly-learner.explore :as explore]
             [robertluo.fly-learner.ui.core.explore :as explore-view]
+            [robertluo.fly-learner.ui.core.highlight :as hl]
             [robertluo.fly-learner.ui.core.history :as history]
             #?(:cljs [robertluo.fly-learner.ui.pdf :as pdf])
             #?(:cljs [robertluo.fly-learner.ui.select :as select])
@@ -703,12 +704,15 @@
   [db sid url p dispatch!]
   (let [kps    (db/page-keypoints db sid p)
         {:keys [found left] :as placed} (db/keypoint-rects db url p kps)
-        margin (max 0.03 (- (or left 0.1) 0.012))]
+        margin (max 0.03 (- (or left 0.1) 0.012))
+        found  (sort-by (comp :y first second) found)
+        ;; labels close together stack rather than overlap
+        tops   (hl/stack-labels (for [[{:keys [label]} rects] found] {:y (:y (first rects)) :label label})
+                                (- margin 0.008) (or (db/pdf-aspect db sid) 0.75))]
     [:div.pdf-key-marks (key-marks-attrs url p kps (some? placed) dispatch!)
-     (for [[i [{:keys [label quote]} rects]] (map-indexed vector found)
-           :let [{:keys [y]} (first rects)]]
+     (for [[i [{:keys [label quote]} rects] top] (map vector (range) found tops)]
        [:div {:replicant/key (str i quote)}
-        [:div.key-label {:title label :style {:top (pct y) :width (pct (- margin 0.008))}} label]
+        [:div.key-label {:title label :style {:top (pct top) :width (pct (- margin 0.008))}} label]
         (for [[j {:keys [x y w h]}] (map-indexed vector rects)]
           [:div.key-mark {:replicant/key j :style {:left (pct x) :top (pct y) :width (pct w) :height (pct h)}}])])]))
 

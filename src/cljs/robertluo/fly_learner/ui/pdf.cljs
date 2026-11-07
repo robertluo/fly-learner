@@ -173,13 +173,12 @@
                                             hl/text-left)
                                 :rects
                                (mapv (fn [t]
-                                       (not-empty
-                                        (vec (mapcat (fn [run]
-                                                       (hl/merge-rects
-                                                        (keep (fn [{:keys [item from to]}]
-                                                                (span-rect vp (aget items item) from to))
-                                                              run)))
-                                                     (take 1 (hl/find-spans strs [t]))))))
+                                       (when-let [run (hl/best-run strs t)]
+                                         (not-empty
+                                          (hl/merge-rects
+                                           (keep (fn [{:keys [item from to]}]
+                                                   (span-rect vp (aget items item) from to))
+                                                 run)))))
                                      texts)})))))))
           (.catch (fn [e] (js/console.error "pdf.js key sentences:" e)))
           (.finally #(swap! finding disj k))))))

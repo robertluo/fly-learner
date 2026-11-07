@@ -134,6 +134,18 @@
                               [_ off' n] (last os)]
                           {:item item :from off :to (+ off' n)}))))))))
 
+(defn best-run
+  "The run of `find-spans` where `text` (one sentence, say) is on the page:
+  the one covering most of it, and only when that is at least half of it.
+  A page may hold an echo of its first words elsewhere (a definition
+  restated, \"A strategy for a player in ... is a\" above \"A strategy for a
+  player in ... is a list of choices\"): the first run found is not always
+  the sentence. nil when it is not on the page."
+  [strs text]
+  (let [covered (fn [run] (reduce + (map (fn [{:keys [item from to]}] (count (fold (subs (strs item) from to)))) run)))
+        best    (reduce (fn [b r] (if (or (nil? b) (> (covered r) (covered b))) r b)) nil (find-spans strs [text]))]
+    (when (and best (>= (* 2 (covered best)) (count (fold text)))) best)))
+
 ;;=============================================================================
 ;; Geometry
 ;;=============================================================================
@@ -182,6 +194,17 @@
                                  "rules of substitution this matches the previous right-hand side.")]))
   ;=> 1
 
+  ;; a sentence whose first words are echoed higher up: the full one, not the echo
+  (def page ["A strategy for a player in a perfect-information game is a complete plan."
+             "Some text in between, long enough to keep these apart from each other."
+             "Definition 2.4. A strategy for a player in a perfect-information game is a "
+             "list of choices, one for each decision node of that player."])
+  (mapv :item (best-run page "A strategy for a player in a perfect-information game is a list of choices, one for each decision node of that player."))
+  ;=> [2 3]
+  ;; a sentence mostly not on the page is not on it
+  (best-run page "A strategy for a player in a perfect-information game is what we study on later pages at great length, with examples.")
+  ;=> nil
+
   ;; far apart matches stay separate runs
   (find-ranges (str "aaaaaaaaaaaaaaaaaaaaaaaa" (apply str (repeat 200 "z")) "bbbbbbbbbbbbbbbbbbbbbbbb")
                "aaaaaaaaaaaaaaaaaaaaaaaabbbbbbbbbbbbbbbbbbbbbbbb")
@@ -223,4 +246,37 @@
   ;; nothing aligned: the leftmost
   (text-left [0.3 0.1 0.6]) ;=> 0.1
   (text-left []) ;=> nil
+  )
+
+(def ^:private label-font
+  "A key label's font size as a fraction of the page width (style.css: 1.35cqw)."
+  0.0135)
+
+(defn stack-labels
+  "Tops (fractions of the page height) for margin labels [{:y :label} ..]
+  sorted by y, each at its line unless the label above would still be
+  there: then just below it. Heights are estimated from the label's length
+  in a margin `width` wide (fractions of the page width; 3 lines at most,
+  as style.css clamps them) on a page `aspect` (width / height)."
+  [labels width aspect]
+  (let [line  (* 1.2 label-font aspect)                   ; a line, in page heights
+        per   (max 1 (quot width (* 0.55 label-font)))   ; chars per line
+        lines #(min 3 (max 1 (long (Math/ceil (/ (count %) per)))))]
+    (:tops (reduce (fn [{:keys [below] :as acc} {:keys [y label]}]
+                     (let [top (max y below)]
+                       (-> acc
+                           (update :tops conj top)
+                           (assoc :below (+ top (* line (lines label)) 0.003)))))
+                   {:tops [] :below 0}
+                   labels))))
+
+^:rct/test
+(comment
+  ;; two labels a line apart: the second goes below the first (two lines of it)
+  (mapv #(/ (Math/round (* 1000 %)) 1000.0)
+        (stack-labels [{:y 0.2 :label "Strategies must plan for every contingency"}
+                       {:y 0.21 :label "Definition"}
+                       {:y 0.5 :label "Far below"}]
+                      0.17 0.7))
+  ;=> [0.2 0.226 0.5]
   )
