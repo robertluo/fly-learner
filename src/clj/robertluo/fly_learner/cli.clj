@@ -10,6 +10,7 @@
             [clojure.string :as str]
             [robertluo.fly-learner.concept :as concept]
             [robertluo.fly-learner.concept.cluster :as cluster]
+            [robertluo.fly-learner.concept.prereq :as prereq]
             [robertluo.fly-learner.db :as db]
             [robertluo.fly-learner.explore.knowledge :as explore]
             [robertluo.fly-learner.ingest :as ingest]
@@ -43,7 +44,7 @@
   "Ingest the PDFs at `paths`: extract, fold with Claude and store each
   (replacing an earlier ingest of the same file), then resolve the keywords
   no concept covers yet into concepts and cluster them into topics again,
-  then find the key sentences of new passages and judge which could become
+  judge what new concepts need first (concept.prereq), then find the key sentences of new passages and judge which could become
   explorations. Uses the running system's db when
   there is one, else opens it and closes it after. Prints progress and the
   cost. Returns {:sources [..] :concepts totals}."
@@ -78,6 +79,10 @@
             (println (format "  %d clusters: %d kept, %d new (named), %d gone" clusters kept named dropped))
             (when (seq moved)
               (println (format "  %d topic(s) you were learning regrouped: now learning their successors" (count moved)))))
+          (println "Judging what new concepts need first")
+          (let [{:keys [judged claims hidden]} (prereq/judge! conn client nil {:models models})]
+            (println (format "  %d concepts judged: %d prerequisites, %d hidden concepts (background the sources assume)"
+                             judged claims hidden)))
           (println "Finding the key sentences of new passages")
           (let [{:keys [passages keypoints]} (keypoints/extract! conn client {:models models})]
             (println (format "  %d passages, %d key sentences" passages keypoints)))

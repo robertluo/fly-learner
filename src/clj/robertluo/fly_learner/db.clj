@@ -42,6 +42,15 @@
    :concept/broader {:db/valueType :db.type/ref :db/cardinality :db.cardinality/many} ; is-a / part-of
    :concept/by      {:db/valueType :db.type/string} ; last asserted by: a model id or "human"
    :ignored/keyword {:db/valueType :db.type/string :db/unique :db.unique/identity} ; names no concept
+   ;; :inferred: background the sources assume, named by a model (robertluo.fly-learner.concept.prereq)
+   :concept/origin     {:db/valueType :db.type/keyword}
+   :concept/prereqs-by {:db/valueType :db.type/string} ; its prerequisites were judged, by this model
+
+   ;; prerequisites: a claim that a concept is best grasped before another
+   :prereq/of       {:db/valueType :db.type/ref}     ; the concept that needs ..
+   :prereq/needs    {:db/valueType :db.type/ref}     ; .. this one first
+   :prereq/why      {:db/valueType :db.type/string}
+   :prereq/by       {:db/valueType :db.type/string}  ; a model id or "human"
 
    ;; edits: every change to concepts, by a model or a human, in order
    :edit/op         {:db/valueType :db.type/keyword}

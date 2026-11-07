@@ -25,6 +25,15 @@
   (let [{:keys [title about]} (learning/material c item)]
     {:item item :title title :about about :score (get scores item 0)}))
 
+(defn- next-refs
+  "What to study next in `scope` (part of curriculum `c`). An item outside
+  the scope is a prerequisite items in it rest on: :prerequisite? true."
+  [c scope scores]
+  (let [in? (learning/items scope)]
+    (vec (for [[item p] (learning/next-items scope scores next-limit)]
+           (cond-> (assoc (item-ref c scores item) :priority p)
+             (not (contains? in? item)) (assoc :prerequisite? true))))))
+
 (defn cluster-scope [id] [:cluster id])
 
 (defn- goal-clusters
@@ -43,7 +52,8 @@
 
 (defn overview
   "What the learner knows now: {:overall :scores {item score} (only items
-  above 0) :next [{:item :title :about :score :priority} ..] :answers n
+  above 0) :next [{:item :title :about :score :priority :prerequisite?} ..]
+  (:prerequisite? when outside the clusters, see `next-refs`) :answers n
   :goals [cluster-id ..]}. :next comes from the clusters being learned, if
   any; :overall is always the whole graph's."
   [db learning]
@@ -51,8 +61,7 @@
         goals      (goal-clusters db)]
     {:overall (learning/overall c scores)
      :scores  (into {} (filter (comp pos? val)) scores)
-     :next    (vec (for [[item p] (learning/next-items (focus db c goals) scores next-limit)]
-                     (assoc (item-ref c scores item) :priority p)))
+     :next    (next-refs c (focus db c goals) scores)
      :answers (count (filter #(= :answer (:kind %)) (store/evidence db)))
      :goals   goals}))
 
@@ -82,8 +91,7 @@
   (when (some #(= id (:cluster/id %)) (cluster/stored db))
     (let [[c scores] (scored db learning (now))]
       {:cluster/id id
-       :next       (vec (for [[item p] (learning/next-items (focus db c [id]) scores next-limit)]
-                          (assoc (item-ref c scores item) :priority p)))})))
+       :next       (next-refs c (focus db c [id]) scores)})))
 
 (defn learn!
   "Learn cluster `id` now (`on?`), or stop. Returns the overview."

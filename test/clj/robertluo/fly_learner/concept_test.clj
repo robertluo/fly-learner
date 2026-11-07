@@ -122,3 +122,13 @@
     (is (= [(id "untyped equality") (id "equality type")]
            (mapv :concept (graph/path adj (id "untyped equality") (id "equality type")))))
     (is (nil? (graph/path adj (id "equality type") (id "intersection type"))))))
+
+(deftest retag
+  (let [nid (d/q '[:find ?id . :where [?n :node/title "Intersections"] [?n :node/id ?id]] (d/db *conn*))]
+    (concept/retag! *conn* [nid (random-uuid)] "intersection types" "Intersection Type")
+    (is (= #{"dependent intersection" "intersection type"}
+           (set (:node/keywords (d/pull (d/db *conn*) [:node/keywords] [:node/id nid])))))
+    (is (= :retag (:edit/op (last (concept/edits (d/db *conn*))))))
+    (concept/retag! *conn* [nid] "no such keyword" "x")
+    (is (not (contains? (set (:node/keywords (d/pull (d/db *conn*) [:node/keywords] [:node/id nid]))) "x"))
+        "a node without the keyword is left alone")))

@@ -9,9 +9,16 @@
                         a broader link (weight 2), or concepts related by
                         passages they share (weight = shared passages, two
                         at least; rarer pairs are noise)
-  Prerequisites: a concept's broader concepts; a relation's two concepts."
-  (:require [datalevin.core :as d]
+  Prerequisites: a concept's prerequisites as judged
+  (robertluo.fly-learner.concept.prereq, the acyclic `dag`), or its broader
+  concepts when it was not judged (a parent no passage mentions, a concept
+  not judged yet); a relation's two concepts. Hidden concepts (background
+  the sources assume) have no passages: their material is their gloss and
+  what needs them."
+  (:require [clojure.string :as str]
+            [datalevin.core :as d]
             [robertluo.fly-learner.concept.graph :as graph]
+            [robertluo.fly-learner.concept.prereq :as prereq]
             [robertluo.fly-learner.concept.view :as view]
             [robertluo.fly-learner.db :as db]
             [robertluo.fly-learner.learning :as learning]))
@@ -62,6 +69,13 @@
         adj      (graph/edges g)
         concepts (:concepts g)
         label    #(get-in concepts [% :concept/label])
+        needs    (prereq/dag (prereq/claims db) (prereq/first-pages db))
+        why      (into {} (map (juxt (juxt :of :needs) :why)) (prereq/claims db))
+        before   (into {} (for [[id c] concepts]
+                            [id (mapv concept-item (sort-by str (if (:concept/prereqs-by c)
+                                                                  (needs id)
+                                                                  (:concept/broader c))))]))
+        needed   (reduce-kv (fn [m b as] (reduce #(update %1 %2 (fnil conj []) b) m as)) {} needs)
         rels     (->> (:edges (view/graph db))
                       (keep (fn [{:keys [from to kind shared]}]
                               (cond
@@ -77,7 +91,7 @@
 
       (prerequisites [_ [kind a b]]
         (case kind
-          :concept  (mapv concept-item (get-in concepts [a :concept/broader]))
+          :concept  (get before a [])
           :relation [(concept-item a) (concept-item b)]
           []))
 
@@ -90,7 +104,13 @@
                            (when gloss (str ": " gloss))
                            (when-let [others (seq (disj aliases (label a)))]
                              (str " (also written " (apply str (interpose ", " (sort others))) ")")))
-             :sources (passages db (get-in g [:mentions a]))})
+             :sources (if-let [ms (seq (get-in g [:mentions a]))]
+                        (passages db ms)
+                        ;; hidden background: no passage teaches it
+                        [{:title (str (label a) " (background the sources assume)")
+                          :text  (str (or gloss (label a)) "\nStandard background knowledge; the sources rely on it for:\n"
+                                      (str/join "\n" (for [b (take 8 (sort-by label (needed a)))]
+                                                       (str "- " (label b) ": " (why [b a])))))}])})
 
           :relation
           (let [{:keys [narrower broader]} (rels [kind a b])

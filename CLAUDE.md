@@ -37,10 +37,17 @@ Web stack follows flybot.sg (github.com/flybot-sg/lasagna-pattern, `examples/fly
   - `concept` — concepts: ideas with an identity (`:concept/label`, `:concept/gloss`, `:concept/broader`), named by
     keywords (`:concept/aliases`, unique: a keyword names one concept). Mentions are derived: node keyword = alias.
     `resolve!` (model, add-only) assigns unresolved keywords in batches; curation fns (`merge!`, `split!`, `assign!`,
-    `rename!`, ...) are atomic multi-stage edits (Datalevin checks unique values against the pre-tx state, so an
+    `rename!`, `retag!`: a homonym, one keyword naming different ideas in different nodes, gets a keyword per sense
+    on chosen nodes; `merge!` moves prerequisite claims too, ...) are atomic multi-stage edits (Datalevin checks unique values against the pre-tx state, so an
     alias must leave one concept before joining another, inside `with-transaction`). Every change is an `:edit/*`.
   - `concept/graph` — pure over `load-graph`: `edges` (broader/narrower + NPMI co-occurrence, evidence = shared
     nodes), `neighbourhood`, `path` (Dijkstra), `related`
+  - `concept/prereq` — prerequisites (directed: a before b; no path = independent). `judge` (`:common` model, 8
+    concepts a call against the whole index tagged with sources, cached) names each concept's direct needs and the
+    background it assumes; `consolidate` merges background into hidden concepts (`:concept/origin :inferred`, no
+    mentions; the label is an alias, so a later source teaching it gives it mentions); stored as `:prereq/*` claims,
+    judged concepts marked `:concept/prereqs-by`. `dag` derived on read: mutual claims drop (learned together), a
+    cycle loses the edge the sources' page order contradicts most; `before` = what to learn first, in order
   - `concept/view` — `index`, `concept` (hierarchy, related with shared-passage counts, mentions with paths) and
     `graph` (every concept + broader/related edges; the API's lazy `:concept-graph`) for the API
   - `concept/cluster` — topics: `communities` (Louvain local moving over broader + co-occurrence weights; fragments
@@ -89,13 +96,17 @@ Each layer knows the one below as little as possible, so any part can be reimple
   log (`{:item :kind :at :grade :source}`; kinds open: `:answer`, `:seen`). States what it needs as protocols:
   `Curriculum` (items + weights, prerequisites, material `{:title :about :sources}`) and `Model`
   (`init`/`observe`/`score`; `mastery` is the basic one). `overall` = weighted score, the learner's target;
-  `next-items` = weight × room to grow × readiness of prerequisites.
+  `next-items` = value × room to grow × readiness of prerequisites; value = weight + half of what the item unlocks
+  (items needing it, not known yet, split among their prerequisites), so foundations come early; prerequisites outside
+  a restricted curriculum are offered too (study marks them `:prerequisite?`).
   - `learning.decay` — forgetting as a `Model` wrapping any `Model` (FSRS-style stability); learning knows nothing of it
   - `restricted` — a `Curriculum` limited to some items: a learner focusing on part of it (its own `overall`,
     `next-items`; prerequisites outside still count for readiness)
   - `learning.store` — the evidence log in Datalevin (own schema), and goals: scopes the learner chose to learn now
     (opaque ids)
-  - `learning.concepts` — the only bridge: the concept graph as a `Curriculum` (`[:concept id]`, `[:relation a b]`);
+  - `learning.concepts` — the only bridge: the concept graph as a `Curriculum` (`[:concept id]`, `[:relation a b]`;
+    prerequisites = `concept.prereq/dag` for judged concepts, broader otherwise; a hidden concept's material is its
+    gloss and what needs it);
     `concepts-items` = the items a set of concepts (a cluster) covers
 - **features** (`quiz`: generate questions from an item's material, grade free text into `:answer` evidence) —
   depend on learning only, never on knowledge
@@ -135,7 +146,7 @@ Each layer knows the one below as little as possible, so any part can be reimple
 - `bb watch` — shadow-cljs without a REPL; `bb serve` — release build served by the backend on :8080
 - `bb test`, `bb lint`; `bb install` / `bb vendor` copy pdf.js into `resources/public/vendor/pdfjs`
 - `bb ingest data/sources/<file>.pdf ...` — `cli/ingest!` (ingest + fold, then `concept/resolve!`, clusters,
-  `keypoints/extract!` and `explore.knowledge/propose!` for new passages; prints the cost).
+  `concept.prereq/judge!` for new concepts, `keypoints/extract!` and `explore.knowledge/propose!` for new passages; prints the cost).
   `bb/ingest_task.clj` evaluates it over nREPL in the running `bb dev` REPL when `.nrepl-port` answers (Datalevin
   must have one writer: the app's), else runs `clojure -M:ingest`. Paths are stored relative to the project
   (`cli/source-path`), so any spelling of a file re-ingests the same source

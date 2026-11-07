@@ -24,7 +24,9 @@
                 adds: existing concepts gain aliases and broader links, and
                 their label and gloss stay as they are.
     curation    `rename!` `set-gloss!` `merge!` `split!` `assign!` `ignore!`
-                `unignore!` `add-broader!` `remove-broader!`: human corrections.
+                `unignore!` `add-broader!` `remove-broader!` `retag!` (a
+                homonym: one keyword, different ideas in different nodes):
+                human corrections.
                 Each is one atomic change.
   Either writer can be wrong, so every change is logged as an :edit/* entity
   (op, args, by, at). That is the audit trail, and the args are enough to
@@ -43,7 +45,8 @@
   "All concepts, aliases as a set and broader as a set of :concept/id."
   [db]
   (->> (d/q '[:find [(pull ?c [:db/id :concept/id :concept/label :concept/gloss :concept/aliases
-                               :concept/by {:concept/broader [:concept/id]}]) ...]
+                               :concept/by :concept/origin :concept/prereqs-by
+                               {:concept/broader [:concept/id]}]) ...]
               :where [?c :concept/id]]
             db)
        (mapv #(-> %
@@ -340,6 +343,10 @@ Assign every new keyword to exactly one concept, or ignore it.
           [:db/add into-e :concept/broader p])
         (for [{c :db/id} (:concept/_broader from) :when (not= c into-e)]
           [:db/add c :concept/broader into-e])
+        ;; prerequisite claims (concept.prereq) of and on from are into's
+        (for [attr [:prereq/of :prereq/needs]
+              p    (d/q '[:find [?p ...] :in $ ?a ?c :where [?p ?a ?c]] db attr from-e)]
+          [:db/add p attr into-e])
         [[:db/add into-e :concept/by human]])])
 
     :split
@@ -386,7 +393,15 @@ Assign every new keyword to exactly one concept, or ignore it.
 
     :remove-broader
     (let [[id parent-id] args]
-      [[[:db/retract (eid! db id) :concept/broader (eid! db parent-id)]]])))
+      [[[:db/retract (eid! db id) :concept/broader (eid! db parent-id)]]])
+
+    :retag
+    (let [[node-ids from to] args, from (norm from), to (norm to)]
+      [(vec (for [nid node-ids
+                  :let [e (d/entid db [:node/id nid])]
+                  :when (and e (some #{from} (:node/keywords (d/pull db [:node/keywords] e))))
+                  tx [[:db/retract e :node/keywords from] [:db/add e :node/keywords to]]]
+              tx))])))
 
 (defn curate!
   "Apply curation `op` with `args` (see the fns below) atomically, logged as
@@ -405,6 +420,23 @@ Assign every new keyword to exactly one concept, or ignore it.
   [conn alias]                         (curate! conn human :unignore alias))
 (defn add-broader!    [conn id parent] (curate! conn human :add-broader id parent))
 (defn remove-broader! [conn id parent] (curate! conn human :remove-broader id parent))
+
+(defn retag!
+  "On the nodes `node-ids`, keyword `from` becomes `to`. For a homonym, one
+  keyword naming different ideas in different places (\"type\" of a player
+  in a game, of a term in type theory): retag the nodes of one sense with a
+  keyword naming it, which an existing concept has as alias, or the next
+  `resolve!` gives one. See `keyword-nodes`."
+  [conn node-ids from to]              (curate! conn human :retag (vec node-ids) from to))
+
+(defn keyword-nodes
+  "Ids of the nodes with keyword `kw`, of source `source-id` (any when nil)."
+  [db kw source-id]
+  (->> (d/q '[:find ?nid ?sid :in $ ?k :where [?n :node/keywords ?k] [?n :node/id ?nid]
+              [?n :node/source ?s] [?s :source/id ?sid]]
+            db (norm kw))
+       (filter #(or (nil? source-id) (= source-id (second %))))
+       (mapv first)))
 
 (defn split!
   "Move `aliases` of concept `id` to a new concept (another sense of it), which

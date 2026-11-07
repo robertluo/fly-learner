@@ -57,5 +57,6 @@
           (let [scores (learning/scores model toy (learning/states model (store/evidence (d/db *conn*)))
                                         (System/currentTimeMillis))]
             (is (pos? (learning/overall toy scores)))
-            ;; :x was worth 2 (weight 2, unknown); half known, it is worth about half
-            (is (< 1.0 (get (into {} (learning/next-items toy scores 3)) :x) 1.2))))))))
+            ;; :x was worth 2.25 (weight 2, and half of [:x :y]'s 1 split between its two
+            ;; prerequisites); half known, it is worth about half
+            (is (< 1.1 (get (into {} (learning/next-items toy scores 3)) :x) 1.35))))))))
