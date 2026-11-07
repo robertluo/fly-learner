@@ -58,7 +58,8 @@ Web stack follows flybot.sg (github.com/flybot-sg/lasagna-pattern, `examples/fly
     current schema, e.g. after marking an attribute `:db/fulltext` — Datalevin's `re-index` loses full-text entries)
 - `src/cljc/robertluo/fly_learner/ui/core/` — frontend logic, JVM-testable: `db` (pure state fns), `pull` (named pull specs),
   `history` (URL <-> state; `/` the map, `/g/<id>` a cluster, `/x/<id>` an exploration), `views` (Replicant hiccup: one flow, map ->
-  cluster -> concept -> passage; the header holds the map and the clusters being learned), `highlight` (find a node's text among pdf.js text items), `viewport` (pan/zoom of a drawing: automatic
+  cluster -> concept -> passage; the header holds the map and the clusters being learned; a quiz started anywhere docks at the top of the left
+  pane of split views, `quiz-dock`, and stays across pages), `highlight` (find a node's text among pdf.js text items), `viewport` (pan/zoom of a drawing: automatic
   until the learner pans or zooms: whole if readable, else readable names around a focus; names below `readable-px`
   are not drawn; `db/pane-*` for `:map` and `:graph`, which goes automatic again on another graph),
   `explore` (draws an exploration's resolved elements; `diagram-layout`: layered, children under their parents;

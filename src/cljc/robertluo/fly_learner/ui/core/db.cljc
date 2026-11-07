@@ -328,10 +328,16 @@
   (assoc db :view :study :asking nil :loading? (nil? (:learning db))))
 
 (defn quiz-start
-  "Ask a question on `item` (nil: what to study next), on the study page."
+  "Ask a question on `item` (nil: what to study next), where the learner is:
+  the study page shows it in place, other pages dock it at the top of the
+  left pane, where it stays while the learner reads on to answer it."
   [db item]
-  (-> (open-study db)
-      (assoc :quiz {:status :asking :item item :question nil :response "" :result nil})))
+  (assoc db :quiz {:status :asking :item item :question nil :response "" :result nil :folded? false}))
+
+(defn quiz-fold
+  "Fold the docked quiz to one line (`folded?`), or open it again."
+  [db folded?]
+  (assoc-in db [:quiz :folded?] (boolean folded?)))
 
 (defn question-created [db question]
   (if (= :asking (get-in db [:quiz :status]))
@@ -1320,7 +1326,9 @@
 
   ;; a quiz: ask, answer, grade; new scores come with the grading
   (def asked (quiz-start initial-state [:concept :t]))
-  [(:view asked) (get-in asked [:quiz :status])] ;=> [:study :asking]
+  ;; asked where the learner is: no page change
+  [(:view asked) (get-in asked [:quiz :status])] ;=> [:home :asking]
+  (get-in (quiz-fold asked true) [:quiz :folded?]) ;=> true
   (def answering (question-created asked {:question/id 1 :question/item [:concept :t] :question/prompt "Why?"}))
   (get-in answering [:quiz :status]) ;=> :answering
   (def graded (-> answering (quiz-typed "Because.") quiz-submitted

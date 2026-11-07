@@ -119,9 +119,9 @@
          (or (seq children) [label])))
 
 (defn- quiz-effects
-  "Quiz on `item` (nil: what to study next)."
+  "Quiz on `item` (nil: what to study next), where the learner is."
   [item]
-  {:db #(db/quiz-start % item) :pull [:question-create :learning] :history :push})
+  {:db #(db/quiz-start % item) :pull [:question-create :learning]})
 
 (defn percent
   "A score as a percentage: whole numbers, one decimal below 10%."
@@ -702,12 +702,15 @@
                          :on {:click #(dispatch! {:db db/source-only-toggle})}}
    (if source-only? (str "⇥ Show " what) "⇤ Full width")])
 
+(declare quiz-dock)
+
 (defn- split
   "Two panes side by side (stacked on a small screen); the left one hidden
-  when the source should have the whole width."
-  [db left right]
+  when the source should have the whole width. A quiz under way is docked at
+  the top of the left one."
+  [db dispatch! left right]
   [:main.split {:class (when (:source-only? db) "source-only")}
-   [:section.content left]
+   [:section.content (quiz-dock db dispatch!) left]
    right])
 
 (defn- open-bar-attrs
@@ -830,7 +833,7 @@
 
 (defn- node-view [db dispatch!]
   (if-let [node (db/current-node db)]
-    (split db (node-article db node dispatch!) (source-pane db node dispatch!))
+    (split db dispatch! (node-article db node dispatch!) (source-pane db node dispatch!))
     [:main.single [:p.muted (if (:loading? db) "Loading…" "Not found.")]]))
 
 (defn- keyword-view [{:keys [keyword keyword-results loading?]} dispatch!]
@@ -995,6 +998,25 @@
 
        nil)]))
 
+(defn- quiz-dock
+  "The quiz docked at the top of the left pane: it stays there while the
+  learner reads on (the source beside it) to answer it; folds to one line."
+  [{{:keys [status question folded?]} :quiz :as db} dispatch!]
+  (when status
+    [:aside.quiz-dock {:class (when folded? "folded")}
+     [:div.dock-head
+      [:button.dock-title {:title (if folded? "Open the quiz" "Fold the quiz away")
+                           :on {:click #(dispatch! {:db (fn [d] (db/quiz-fold d (not folded?)))})}}
+       [:span.chev (if folded? "▸" "▾")]
+       [:span "Quiz"]
+       [:span.muted (case status
+                      :asking  " · writing a question…"
+                      :grading " · grading…"
+                      :graded  (str " · " (:title question) ": graded")
+                      (some->> (:title question) (str " · ")))]]
+      [:button.btn.quiet {:title "Close the quiz" :on {:click #(dispatch! {:db db/quiz-close})}} "×"]]
+     (when-not folded? (quiz-panel db dispatch!))]))
+
 (defn- study-view [{:keys [learning quiz loading?] :as db} dispatch!]
   (let [{:keys [overall answers next]} learning]
     [:main.single.study
@@ -1158,14 +1180,14 @@
         [:p.muted "Loading…"])]]))
 
 (defn- cluster-view [db dispatch!]
-  (split db
+  (split db dispatch!
          (if-let [c (db/current-cluster db)]
            (cluster-article db c dispatch!)
            [:p.muted (if (or (:loading? db) (nil? (:universe db))) "Loading…" "Not found.")])
          (concept-graph db dispatch!)))
 
 (defn- concept-view [db dispatch!]
-  (split db
+  (split db dispatch!
          (if-let [c (db/current-concept db)]
            (concept-article db c (db/item-score db (db/concept-item (:concept/id c))) dispatch!)
            [:p.muted (if (:loading? db) "Loading…" "Not found.")])

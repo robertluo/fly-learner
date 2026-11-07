@@ -923,3 +923,20 @@ details.paragraphs .cards { margin-top: .6rem; }
 .bookmark-link { display: inline-flex; gap: .4rem; align-items: baseline; font-weight: 600; }
 .bookmark-link .icon { color: #c2410c; flex: none; transform: translateY(2px); }
 .bookmarks .meta { padding-left: 1.4rem; }
+
+/* the quiz docked at the top of the left pane, beside the source */
+.quiz-dock {
+  position: sticky; top: 52px; z-index: 1;
+  margin: -1.75rem -2rem 1.5rem; padding: .5rem 2rem .25rem;
+  background: var(--panel); border-bottom: 2px solid var(--accent); box-shadow: 0 4px 12px rgba(0, 0, 0, .06);
+  max-height: 65vh; overflow-y: auto;
+}
+.quiz-dock.folded { padding-bottom: .5rem; }
+.quiz-dock .dock-head { display: flex; align-items: center; justify-content: space-between; gap: .5rem; }
+.quiz-dock .dock-title {
+  display: inline-flex; gap: .4rem; align-items: baseline; background: none; border: 0; padding: .2rem 0;
+  font: 600 .92rem var(--font); color: var(--accent); cursor: pointer; text-align: left; min-width: 0;
+}
+.quiz-dock .dock-title .muted { font-weight: 400; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.quiz-dock .quiz { border: 0; box-shadow: none; padding: .25rem 0 .75rem; margin: 0; background: none; }
+.quiz-dock .quiz .prompt { font-size: 1.05rem; margin: .2rem 0 .75rem; }
