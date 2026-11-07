@@ -17,16 +17,21 @@
   between two concepts, each step with its evidence), `related` (strongest
   neighbours)."
   (:require [datalevin.core :as d]
-            [robertluo.fly-learner.concept :as concept]))
+            [robertluo.fly-learner.concept :as concept]
+            [robertluo.fly-learner.db :as db]))
 
-(defn load-graph [db]
-  {:concepts (into {} (map (juxt :concept/id identity)) (concept/concepts db))
-   :mentions (reduce (fn [m [c n]] (update m c (fnil conj #{}) n))
-                     {}
-                     (d/q '[:find ?cid ?nid
-                            :where [?c :concept/aliases ?a] [?n :node/keywords ?a]
-                            [?c :concept/id ?cid] [?n :node/id ?nid]]
-                          db))})
+(def load-graph
+  "{:concepts {id concept} :mentions {id #{node-id}}} of a db, read once per
+  db version (db/per-version): most pages need it, often at once."
+  (db/per-version
+   (fn [db]
+     {:concepts (into {} (map (juxt :concept/id identity)) (concept/concepts db))
+      :mentions (reduce (fn [m [c n]] (update m c (fnil conj #{}) n))
+                        {}
+                        (d/q '[:find ?cid ?nid
+                               :where [?c :concept/aliases ?a] [?n :node/keywords ?a]
+                               [?c :concept/id ?cid] [?n :node/id ?nid]]
+                             db))})))
 
 ;;=============================================================================
 ;; Edges

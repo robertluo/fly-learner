@@ -6,6 +6,7 @@
   --border: #e4e1da;
   --accent: #2f6f5e;
   --accent-soft: #e6f0ec;
+  --prereq: #b0672a;
   --quote: #f4f2ed;
   --shadow: 0 1px 2px rgba(0, 0, 0, .05);
   --font: -apple-system, BlinkMacSystemFont, "Segoe UI", Inter, Roboto, sans-serif;
@@ -21,6 +22,7 @@
     --border: #2d3136;
     --accent: #7cc4ad;
     --accent-soft: #23302c;
+    --prereq: #e0a060;
     --quote: #22262a;
   }
 }
@@ -381,6 +383,9 @@ input.filter:focus { outline: 2px solid var(--accent-soft); border-color: var(--
 .cgraph .edge.broader { stroke: var(--muted); stroke-opacity: .8; }
 .cgraph .edge.related { stroke: var(--accent); stroke-dasharray: 4 4; }
 .cgraph .edge.known { stroke: var(--accent); stroke-dasharray: none; }
+.cgraph .edge.requires { stroke: var(--prereq); stroke-opacity: .75; fill: none; }
+.cgraph #prereq-arrow path { fill: var(--prereq); }
+.legend .key.requires { border-top: 2px solid var(--prereq); }
 
 .cnode { cursor: pointer; }
 .cnode .dot { fill: var(--panel); stroke: var(--accent); stroke-width: 2; }
@@ -960,3 +965,17 @@ details.paragraphs .cards { margin-top: .6rem; }
 .quiz-dock .dock-title .muted { font-weight: 400; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .quiz-dock .quiz { border: 0; box-shadow: none; padding: .25rem 0 .75rem; margin: 0; background: none; }
 .quiz-dock .quiz .prompt { font-size: 1.05rem; margin: .2rem 0 .75rem; }
+
+/* prerequisites ------------------------------------------------------ */
+.tag { display: inline-block; margin-left: .45rem; padding: 0 .4rem; border-radius: 999px; font-size: .72rem;
+  font-weight: 500; line-height: 1.5; vertical-align: .1em; border: 1px solid currentColor; }
+.tag.prereq, .tag.hidden { color: var(--prereq); }
+.learn-first .start { margin: .5rem 0 .6rem; }
+.prereq-path { list-style: none; padding: 0; margin: 0; display: grid; gap: .3rem; }
+.prereq-path li { display: flex; flex-wrap: wrap; align-items: center; gap: .2rem .45rem; }
+.prereq-path li .tag { margin-left: 0; }
+.prereq-path .score-bar { width: 60px; flex: none; }
+.prereq-path .direct-mark { width: 1rem; flex: none; color: var(--prereq); font-weight: 700; }
+.prereq-path .why { flex-basis: 100%; padding-left: 1.45rem; font-size: .82rem; line-height: 1.3; }
+.known-prereqs { margin: .7rem 0 0; display: flex; flex-wrap: wrap; gap: .35rem; align-items: center; font-size: .9rem; }
+.leads-to h3 { font-size: .95rem; margin: 1rem 0 .4rem; }

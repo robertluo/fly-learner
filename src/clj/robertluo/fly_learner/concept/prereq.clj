@@ -33,6 +33,7 @@
   (:require [clojure.string :as str]
             [datalevin.core :as d]
             [robertluo.fly-learner.concept.graph :as graph]
+            [robertluo.fly-learner.db :as db]
             [robertluo.fly-learner.llm :as llm]))
 
 (defn- norm [s] (-> s str/trim str/lower-case (str/replace #"\s+" " ")))
@@ -133,6 +134,20 @@
   (before g :c #{:a} str) ;=> [:b]
   (before g :a) ;=> []
   )
+
+;;=============================================================================
+;; Derived once per db version
+;;=============================================================================
+
+(def derived
+  "{:claims :pages :dag :why {[of needs] why}} for a db: `claims`,
+  `first-pages`, the `dag` and each claim's reason. Every page scoring the
+  learner needs them: computed once per db version (db/per-version)."
+  (db/per-version
+   (fn [db]
+     (let [cs (claims db), pages (first-pages db)]
+       {:claims cs :pages pages :dag (dag cs pages)
+        :why (into {} (map (juxt (juxt :of :needs) :why)) cs)}))))
 
 ;;=============================================================================
 ;; Judging (model-written)

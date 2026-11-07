@@ -88,6 +88,24 @@
 (defn close [conn]
   (d/close conn))
 
+(defn per-version
+  "`f` of a db, computed once per db version (its store and last tx) and
+  kept until the next, under a lock: for heavy reads that pages share.
+  The lock matters too: Datalevin 1.2.10 can fail a heavy query
+  (\"Comparison method violates its general contract\", in its tuple
+  sort) when two threads run it at once."
+  [f]
+  (let [cache (atom nil), lock (Object.)]
+    (fn [db]
+      (let [store (:store db), tx (:max-tx db)
+            hit   #(let [c @cache] (when (and c (identical? store (:store c)) (= tx (:tx c))) [(:value c)]))]
+        (first (or (hit)
+                   (locking lock
+                     (or (hit)
+                         (let [v (f db)]
+                           (reset! cache {:store store :tx tx :value v})
+                           [v])))))))))
+
 (defn copy!
   "Copy every datom of the database at `from` into a new database at `to`
   under the current schema, so attributes newly marked :db/fulltext get

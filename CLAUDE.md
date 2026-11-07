@@ -47,9 +47,11 @@ Web stack follows flybot.sg (github.com/flybot-sg/lasagna-pattern, `examples/fly
     background it assumes; `consolidate` merges background into hidden concepts (`:concept/origin :inferred`, no
     mentions; the label is an alias, so a later source teaching it gives it mentions); stored as `:prereq/*` claims,
     judged concepts marked `:concept/prereqs-by`. `dag` derived on read: mutual claims drop (learned together), a
-    cycle loses the edge the sources' page order contradicts most; `before` = what to learn first, in order
-  - `concept/view` — `index`, `concept` (hierarchy, related with shared-passage counts, mentions with paths) and
-    `graph` (every concept + broader/related edges; the API's lazy `:concept-graph`) for the API
+    cycle loses the edge the sources' page order contradicts most; `before` = what to learn first, in order;
+    `derived` (claims, pages, dag, reasons) once per db version
+  - `concept/view` — `index`, `concept` (hierarchy, related with shared-passage counts, prerequisites: `:concept/needs`
+    with why, `:concept/before` in order, `:concept/needed-by`; mentions with paths) and `graph` (every concept +
+    broader/related/requires edges; the API's lazy `:concept-graph`) for the API
   - `concept/cluster` — topics: `communities` (Louvain local moving over broader + co-occurrence weights; fragments
     under 6 join their most connected neighbour; `:keep` existing clusters fixed), `refresh!` (after an ingest:
     stored clusters stay as they are, new concepts join them or make new ones named by `llm-namer`, so a new source
@@ -61,17 +63,22 @@ Web stack follows flybot.sg (github.com/flybot-sg/lasagna-pattern, `examples/fly
     1-3 sentences per passage verbatim with a 2-6 word label (the passage's hidden headings); `locate` keeps a quote
     only when found in its paragraph, as the paragraph's own text. Stored on the passage as `:node/keypoints`
     (`[]` for none; a re-ingest drops them with the node). `for-source` -> the `:keypoints` lookup
-  - `db` (Datalevin knowledge schema + queries; `connect` merges other layers' schemas; `copy!` rebuilds a db under the
+  - `db` (Datalevin knowledge schema + queries; `per-version`: a heavy read computed once per db version under a lock,
+    e.g. `graph/load-graph` (Datalevin 1.2.10 can fail heavy queries run concurrently: "Comparison method violates its
+    general contract"); `connect` merges other layers' schemas; `copy!` rebuilds a db under the
     current schema, e.g. after marking an attribute `:db/fulltext` — Datalevin's `re-index` loses full-text entries)
 - `src/cljc/robertluo/fly_learner/ui/core/` — frontend logic, JVM-testable: `db` (pure state fns), `pull` (named pull specs),
   `history` (URL <-> state; `/` the map, `/g/<id>` a cluster, `/x/<id>` an exploration), `views` (Replicant hiccup: one flow, map ->
-  cluster -> concept -> passage; the header holds the map and the clusters being learned; a quiz started anywhere docks at the top of the left
+  cluster -> concept -> passage; a concept page's "Learn first": its prerequisite path not yet known, foundations
+  first, hidden ones badged "background", and what it leads to; study-next cards mark prerequisites outside the topic; the header holds the map and the clusters being learned; a quiz started anywhere docks at the top of the left
   pane of split views, `quiz-dock`, and stays across pages), `highlight` (find a node's text among pdf.js text items), `viewport` (pan/zoom of a drawing: automatic
   until the learner pans or zooms: whole if readable, else readable names around a focus; names below `readable-px`
   are not drawn; `db/pane-*` for `:map` and `:graph`, which goes automatic again on another graph),
   `explore` (draws an exploration's resolved elements; `diagram-layout`: layered, children under their parents;
-  `ticks`), `graph` (concept graph: visible = focus + neighbours of expanded concepts, outline-style), `layout`
-  (incremental force layout on primitive arrays: broader-above is a constraint, label boxes never overlap;
+  `ticks`), `graph` (concept graph: visible = focus + neighbours of expanded concepts, outline-style; neighbours include what
+  a concept needs and some of what needs it; prerequisite edges drawn with an arrow halfway), `layout`
+  (incremental force layout on primitive arrays: broader-above and prerequisite-above are constraints (`above-edges`
+  drops one that would close a loop), label boxes never overlap;
   unconnected parts laid out apart and packed in rows below the largest, else repulsion strands them far away; tween)
 - `src/cljs/robertluo/fly_learner/ui/` — `core` (dispatch-of effects `:db`/`:pull`/`:history`/`:animate`, transit fetch, render,
   mouseup -> text selection), `pdf` (pdf.js: render a page, its selectable text layer, highlight boxes; the source as one scrolling column of

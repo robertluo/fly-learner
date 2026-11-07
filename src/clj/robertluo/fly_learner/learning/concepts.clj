@@ -69,8 +69,7 @@
         adj      (graph/edges g)
         concepts (:concepts g)
         label    #(get-in concepts [% :concept/label])
-        needs    (prereq/dag (prereq/claims db) (prereq/first-pages db))
-        why      (into {} (map (juxt (juxt :of :needs) :why)) (prereq/claims db))
+        {needs :dag why :why} (prereq/derived db)
         before   (into {} (for [[id c] concepts]
                             [id (mapv concept-item (sort-by str (if (:concept/prereqs-by c)
                                                                   (needs id)
@@ -80,7 +79,7 @@
                       (keep (fn [{:keys [from to kind shared]}]
                               (cond
                                 (= :broader kind) [(relation-item from to) {:weight 2 :narrower from :broader to}]
-                                (<= 2 shared)     [(relation-item from to) {:weight shared}])))
+                                (and (= :related kind) (<= 2 shared)) [(relation-item from to) {:weight shared}])))
                       (into {}))
         weights  (into (into {} (for [id (keys concepts)]
                                   [(concept-item id) (max 1 (count (get-in g [:mentions id])))]))

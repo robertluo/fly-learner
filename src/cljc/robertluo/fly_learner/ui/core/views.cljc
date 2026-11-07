@@ -1071,6 +1071,20 @@
       [:button.btn.quiet {:title "Close the quiz" :on {:click #(dispatch! {:db db/quiz-close})}} "×"]]
      (when-not folded? (quiz-panel db dispatch!))]))
 
+(defn- next-cards
+  "What to study next: [{:item :title :about :score :prerequisite?} ..]."
+  [dispatch! next]
+  [:ul.cards.compact.next
+   (for [{:keys [item title about score prerequisite?]} next]
+     [:li.card {:replicant/key (str item)}
+      [:div.next-head
+       [:span.card-title title
+        (when prerequisite?
+          [:span.tag.prereq {:title "Not in this topic: concepts in it build on this one"} "prerequisite"])]
+       (score-bar score)
+       [:button.btn.primary {:on {:click #(dispatch! (quiz-effects item))}} "Quiz me"]]
+      [:p.preview about]])])
+
 (defn- study-view [{:keys [learning quiz loading?] :as db} dispatch!]
   (let [{:keys [overall answers next]} learning]
     [:main.single.study
@@ -1088,14 +1102,7 @@
        [:section
         [:h2 "Study next"]
         [:p.hint.muted "What raises your score most: important, not yet known, and built on what you already know."]
-        [:ul.cards.compact.next
-         (for [{:keys [item title about score]} next]
-           [:li.card {:replicant/key (str item)}
-            [:div.next-head
-             [:span.card-title title]
-             (score-bar score)
-             [:button.btn.primary {:on {:click #(dispatch! (quiz-effects item))}} "Quiz me"]]
-            [:p.preview about]])]])]))
+        (next-cards dispatch! next)])]))
 
 ;;=============================================================================
 ;; Concepts
@@ -1105,12 +1112,61 @@
   (cond (= "human" by) "Curated"
         by             (str "Drafted by " by)))
 
+(def known-at
+  "A score from which a prerequisite counts as known on a concept page."
+  0.6)
+
+(defn- background-tag []
+  [:span.tag.hidden {:title "No passage teaches it: background the sources take for granted"} "background"])
+
+(defn- learn-first
+  "What to learn before the concept: the prerequisites not known yet, each
+  after what it needs (direct ones with why), the known ones folded; and
+  what the concept leads to."
+  [db dispatch! {:concept/keys [label needs before needed-by needed-by-count]}]
+  (let [why     (into {} (map (juxt :concept/id :why)) needs)
+        score   #(db/item-score db (db/concept-item (:concept/id %)))
+        [known todo] ((juxt filter remove) #(<= known-at (score %)) before)]
+    [:section.learn-first
+     [:h2 "Learn first"]
+     (cond
+       (empty? before) [:p.muted "Nothing: " label " builds on no other concept here. You can start with it."]
+       (empty? todo)   [:p.muted "You know everything " label " builds on."]
+       :else
+       (list
+        [:p.hint.muted {:replicant/key "h"}
+         (count todo) (if (= 1 (count todo)) " concept" " concepts") " to know before " label
+         ", foundations first" (when (seq needs) "; marked → when it builds on one directly") "."]
+        (let [first-c (first todo)]
+          [:div.start {:replicant/key "s"}
+           [:button.btn.primary {:on {:click #(dispatch! (quiz-effects (db/concept-item (:concept/id first-c))))}}
+            "Start with " (:concept/label first-c)]])
+        [:ol.prereq-path {:replicant/key "p"}
+         (for [{:concept/keys [id origin] :as c} todo]
+           [:li {:replicant/key (str id) :class (when (why id) "direct")}
+            [:span.direct-mark (when (why id) {:title "Built on directly"}) (when (why id) "→")]
+            (concept-chip dispatch! c)
+            (when (= :inferred origin) (background-tag))
+            (score-bar (score c))
+            (when-let [w (why id)] [:span.why.muted w])])]))
+     (when (seq known)
+       [:p.known-prereqs [:span.muted "Already known: "]
+        (for [c known] (concept-chip dispatch! c))])
+     (when (seq needed-by)
+       [:div.leads-to
+        [:h3 "Leads to"]
+        [:div.chips (for [c needed-by] (concept-chip dispatch! c))
+         (when (> needed-by-count (count needed-by))
+           [:span.muted (str "and " (- needed-by-count (count needed-by)) " more")])]])]))
+
 (defn- concept-article
-  [db {:concept/keys [id label gloss aliases by mentions]} score dispatch!]
+  [db {:concept/keys [id label gloss aliases by mentions origin] :as concept} score dispatch!]
   [:article.concept
    [:nav.crumbs (link dispatch! map-effects "/" {} "Map") " › "
     (when-let [c (db/concept-cluster db id)] (list (cluster-link dispatch! c {:replicant/key "c"}) " ›"))]
-   [:span.meta "Concept · " (count mentions) (if (= 1 (count mentions)) " passage" " passages")
+   [:span.meta "Concept · " (if (= :inferred origin)
+                                "background the sources assume, no passage teaches it"
+                                (str (count mentions) (if (= 1 (count mentions)) " passage" " passages")))
     (when-let [p (provenance by)] (str " · " p))]
    [:h1 label]
    (when gloss [:p.summary gloss])
@@ -1118,6 +1174,7 @@
    [:div.known
     [:span.muted "You know this"] (score-bar score) [:span.pct (percent score)]
     [:button.btn.primary {:on {:click #(dispatch! (quiz-effects (db/concept-item id)))}} "Quiz me on this"]]
+   (learn-first db dispatch! concept)
    (ideas-panel db dispatch! (db/concept-anchor id) (db/ideas-about-concept db id))
    (when (seq mentions)
      [:section
@@ -1152,15 +1209,30 @@
       [:circle {:r 8}]
       [:text {:dy "0.35em" :text-anchor "middle"} (if expanded? "−" "+")]])])
 
-(defn- graph-edge [{:keys [from to kind weight shared x1 y1 x2 y2 score]}]
-  [:line {:replicant/key (str from "-" to)
-          :class (cond-> ["edge" (name kind)] (pos? score) (conj "known"))
-          :x1 x1 :y1 y1 :x2 x2 :y2 y2
-          :style (if (pos? score)
-                   {:stroke-width (+ 2 (* 4 score)) :stroke-opacity (+ 0.4 (* 0.6 score))}
-                   (when (= :related kind) {:stroke-opacity (+ 0.25 (min 0.6 (* 1.5 (or weight 0))))}))}
-   [:title (str (if (= :broader kind) "is a kind or part of" (str shared " shared passages"))
-                "; you know " (percent score))]])
+(defn- graph-edge [{:keys [from to kind weight shared why x1 y1 x2 y2 score]}]
+  (if (= :requires kind)
+    ;; from the prerequisite (to) to what needs it (from), the arrow halfway
+    [:polyline {:replicant/key (str from "-" to "-r")
+                :class ["edge" "requires"]
+                :points (str x2 "," y2 " " (/ (+ x1 x2) 2) "," (/ (+ y1 y2) 2) " " x1 "," y1)
+                :marker-mid "url(#prereq-arrow)"}
+     [:title (str "learn first" (when why (str ": " why)))]]
+    [:line {:replicant/key (str from "-" to)
+            :class (cond-> ["edge" (name kind)] (pos? score) (conj "known"))
+            :x1 x1 :y1 y1 :x2 x2 :y2 y2
+            :style (if (pos? score)
+                     {:stroke-width (+ 2 (* 4 score)) :stroke-opacity (+ 0.4 (* 0.6 score))}
+                     (when (= :related kind) {:stroke-opacity (+ 0.25 (min 0.6 (* 1.5 (or weight 0))))}))}
+     [:title (str (if (= :broader kind) "is a kind or part of" (str shared " shared passages"))
+                  "; you know " (percent score))]]))
+
+(defn- prereq-arrow
+  "The arrowhead of a prerequisite edge, sized to stay readable as labels do."
+  [scale]
+  [:defs
+   [:marker {:id "prereq-arrow" :viewBox "0 0 10 10" :refX 5 :refY 5 :orient "auto"
+             :markerUnits "userSpaceOnUse" :markerWidth (* 9 scale) :markerHeight (* 9 scale)}
+    [:path {:d "M0,0 L10,5 L0,10 z"}]]])
 
 (defn- concept-graph [db dispatch!]
   (let [{:keys [nodes edges scale] {idea-dots :ideas idea-links :links} :ideas} (db/graph-scene db)
@@ -1170,7 +1242,7 @@
       (width-toggle db dispatch! (if (= :cluster (:view db)) "topic" "concept"))
       [:span (count nodes) (if (= 1 (count nodes)) " concept" " concepts")]
       [:span.legend
-       [:span.key.broader] "broader above" [:span.key.related] "related"
+       [:span.key.broader] "broader above" [:span.key.requires] "learn first, above" [:span.key.related] "related"
        [:span.key.heat] "known"]
       (when-let [o (:overall (:learning db))]
         [:span.overall {:title "Of the whole graph, weighted by importance"} "You know " (percent o)])
@@ -1185,6 +1257,7 @@
          "Reset"])]
      (if (seq nodes)
        [:svg.cgraph (pane-attrs db :graph dispatch!)
+        (prereq-arrow scale)
         [:g.edges (map graph-edge edges)]
         [:g.nodes (for [n nodes] (graph-node dispatch! scale n))]
         [:g.ideas
@@ -1217,14 +1290,7 @@
      (when-let [next (seq (:next detail))]
        [:section
         [:h2 "Study next in this topic"]
-        [:ul.cards.compact.next
-         (for [{:keys [item title about score]} next]
-           [:li.card {:replicant/key (str item)}
-            [:div.next-head
-             [:span.card-title title]
-             (score-bar score)
-             [:button.btn.primary {:on {:click #(dispatch! (quiz-effects item))}} "Quiz me"]]
-            [:p.preview about]])]])
+        (next-cards dispatch! next)])
      [:section
       [:h2 "Concepts"]
       (if ix

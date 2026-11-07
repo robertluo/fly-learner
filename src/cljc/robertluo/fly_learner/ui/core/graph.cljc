@@ -9,12 +9,17 @@
 
   so collapsing a concept hides what only it revealed, and expanding it
   again brings back the subtree as it was. A concept's neighbours: its
-  broader and narrower concepts, then its strongest related ones.
+  broader and narrower concepts, what it needs first, some of what needs
+  it, then its strongest related ones.
 
   Positions: robertluo.fly-learner.ui.core.layout.")
 
 (def related-per-concept
   "Related concepts revealed by expanding one (strongest first)."
+  6)
+
+(def needed-by-per-concept
+  "Concepts needing one revealed by expanding it (a foundation has many)."
   6)
 
 (defn index
@@ -24,6 +29,9 @@
   ([{:keys [concepts edges]} k]
    (let [broader  (filter #(= :broader (:kind %)) edges)
          related  (filter #(= :related (:kind %)) edges)
+         requires (filter #(= :requires (:kind %)) edges)
+         needs    (reduce (fn [m {:keys [from to]}] (update m from (fnil conj #{}) to)) {} requires)
+         needers  (reduce (fn [m {:keys [from to]}] (update m to (fnil conj #{}) from)) {} requires)
          parents  (reduce (fn [m {:keys [from to]}] (update m from (fnil conj #{}) to)) {} broader)
          children (reduce (fn [m {:keys [from to]}] (update m to (fnil conj #{}) from)) {} broader)
          strongest (->> related
@@ -38,9 +46,10 @@
       :edges    (vec edges)
       :nbrs     (into {}
                       (for [{:concept/keys [id]} concepts]
-                        (let [hier (concat (by-label (parents id)) (by-label (children id)))]
-                          [id (vec (distinct (concat hier
-                                                     (take k (remove (set hier) (strongest id))))))])))})))
+                        (let [near (distinct (concat (by-label (parents id)) (by-label (children id))
+                                                     (by-label (needs id))
+                                                     (take needed-by-per-concept (by-label (needers id)))))]
+                          [id (vec (concat near (take k (remove (set near) (strongest id)))))])))})))
 
 (defn neighbours [ix id] (get-in ix [:nbrs id] []))
 
@@ -63,12 +72,13 @@
   (some (fn [e] (when (and (vis e) (some #{id} (neighbours ix e))) e)) (sort-by str expanded)))
 
 (defn edges
-  "Edges among `vis`: every broader link, and related links where one end
-  lists the other among its neighbours (so not every weak co-occurrence)."
+  "Edges among `vis`: every broader and prerequisite link, and related links
+  where one end lists the other among its neighbours (so not every weak
+  co-occurrence)."
   [ix vis]
   (filterv (fn [{:keys [from to kind]}]
              (and (vis from) (vis to)
-                  (or (= :broader kind)
+                  (or (#{:broader :requires} kind)
                       (some #{to} (neighbours ix from))
                       (some #{from} (neighbours ix to)))))
            (:edges ix)))
@@ -89,11 +99,15 @@
                      {:from :b :to :t :kind :related :weight 0.5}
                      {:from :c :to :t :kind :related :weight 0.1}
                      {:from :a :to :d :kind :related :weight 0.4}
-                     {:from :b :to :c :kind :related :weight 0.3}]})
+                     {:from :b :to :c :kind :related :weight 0.3}
+                     {:from :d :to :c :kind :requires}]})
   (def ix (index data 2))
 
   ;; hierarchy first, then the 2 strongest related
   (neighbours ix :t) ;=> [:p :a :b]
+  ;; what it needs and what needs it come before related ones
+  (neighbours ix :c) ;=> [:d :b :t]
+  (neighbours ix :d) ;=> [:c :a]
 
   (visible ix :t #{}) ;=> #{:t}
   (visible ix :t #{:t}) ;=> #{:t :p :a :b}

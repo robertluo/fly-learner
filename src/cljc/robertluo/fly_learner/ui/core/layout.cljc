@@ -5,7 +5,9 @@
   Incremental: concepts already on screen start where they are and move
   less, a new concept starts beside the concept that revealed it, and the
   result is shifted so that, on average, old concepts stay put. A broader
-  concept is pushed above its narrower ones.
+  concept is pushed above its narrower ones, a prerequisite above the
+  concepts needing it (:requires runs from the one needing to the one
+  needed, as :broader runs narrower -> broader).
 
   Parts with no edge between them are laid out each on its own and packed in
   rows: repulsion alone would push them ever further apart (only the weak
@@ -110,6 +112,37 @@
              prev
              (merge defaults opts))))))
 
+(defn- reaches?
+  "Whether `to` is reachable from `from` in `up` {i #{j ..}}."
+  [up from to]
+  (loop [seen #{} todo [from]]
+    (if-let [i (peek todo)]
+      (cond (= i to)  true
+            (seen i)  (recur seen (pop todo))
+            :else     (recur (conj seen i) (into (pop todo) (up i))))
+      false)))
+
+(defn above-edges
+  "[[i j above?] ..] for edges [i j kind]: above? when j is to be drawn
+  above i, a broader concept or a prerequisite, unless that closes a loop
+  with the ones taken before (broader ones first): constraints in a loop
+  would push each other down without end. Such an edge is drawn, just
+  not as a constraint."
+  [edges]
+  (first (reduce (fn [[out up] [i j kind]]
+                   (if (and (#{:broader :requires} kind) (not (reaches? up j i)))
+                     [(conj out [i j true]) (update up i (fnil conj #{}) j)]
+                     [(conj out [i j false]) up]))
+                 [[] {}]
+                 (sort-by (fn [[_ _ kind]] (case kind :broader 0 :requires 1 2)) edges))))
+
+^:rct/test
+(comment
+  ;; 1 is a kind of 0, and 0 would need 1 first: the broader link wins
+  (above-edges [[0 1 :requires] [1 0 :broader] [2 0 :related]])
+  ;=> [[1 0 true] [0 1 false] [2 0 false]]
+  )
+
 (defn- settle
   "The force layout of one connected part (see `layout`)."
   [ids edges prev seeds opts]
@@ -128,10 +161,10 @@
                       ;; seeds before the concepts they seed
                       (sort-by (fn [[_ id]] (if (prev id) 0 (if (prev (seeds id)) 1 2)))
                                (map-indexed vector ids)))
-        es   (vec (keep (fn [{:keys [from to kind]}]
-                          (when-let [i (idx from)]
-                            (when-let [j (idx to)] [i j (= :broader kind)])))
-                        edges))
+        es   (above-edges (keep (fn [{:keys [from to kind]}]
+                                  (when-let [i (idx from)]
+                                    (when-let [j (idx to)] [i j kind])))
+                                edges))
         l2   (* length length)]
     (dotimes [i n]
       (let [[x y] (start (ids i))]
@@ -153,10 +186,10 @@
                 (aset dxs j (- (aget dxs j) (* dx f))) (aset dys j (- (aget dys j) (* dy f))))
               (recur (inc j)))))
         ;; edges attract
-        (doseq [[i j broader?] es]
+        (doseq [[i j above?] es]
           (let [dx (- (aget xs i) (aget xs j)), dy (- (aget ys i) (aget ys j))
                 d  (max 1.0 (Math/sqrt (+ (* dx dx) (* dy dy))))
-                f  (* (if broader? 1.0 0.7) (/ d length))]
+                f  (* (if above? 1.0 0.7) (/ d length))]
             (aset dxs i (- (aget dxs i) (* dx f))) (aset dys i (- (aget dys i) (* dy f)))
             (aset dxs j (+ (aget dxs j) (* dx f))) (aset dys j (+ (aget dys j) (* dy f)))))
         ;; a little gravity keeps the picture together
@@ -172,7 +205,7 @@
         ;; a constraint, not a force (a hub's many children would outvote
         ;; it): a broader concept is at least `gap` above each narrower one;
         ;; whoever is freer to move does more of the moving
-        (doseq [[i j broader?] es :when broader?]
+        (doseq [[i j above?] es :when above?]
           (let [over (- (aget ys j) (- (aget ys i) (* 0.6 length)))]
             (when (pos? over)
               (let [mi (aget mob i), mj (aget mob j), total (+ mi mj)]
@@ -192,7 +225,7 @@
                     (aset ys low (+ (aget ys low) (- height (abs dy)) 0.5))
                     (vreset! moved true))))
               (recur (inc j)))))
-        (doseq [[i j broader?] es :when broader?]
+        (doseq [[i j above?] es :when above?]
           (let [over (- (aget ys j) (- (aget ys i) (* 0.6 length)))]
             (when (pos? over)
               (aset ys i (+ (aget ys i) over))
