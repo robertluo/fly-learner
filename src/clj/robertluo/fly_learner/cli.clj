@@ -13,6 +13,7 @@
             [robertluo.fly-learner.db :as db]
             [robertluo.fly-learner.ingest :as ingest]
             [robertluo.fly-learner.llm :as llm]
+            [robertluo.fly-learner.server.study :as study]
             [robertluo.fly-learner.server.system :as sys]))
 
 (defn source-path
@@ -67,9 +68,12 @@
                                                       (println (format "  batch: %d new concepts, %d keywords to existing ones, %d ignored"
                                                                        (or new 0) (or attached 0) (or ignored 0))))})]
           (println "Clustering concepts into topics")
-          (let [{:keys [clusters kept named dropped]}
-                (cluster/refresh! conn (cluster/llm-namer client {:models models}))]
-            (println (format "  %d clusters: %d kept, %d new (named), %d gone" clusters kept named dropped)))
+          (let [{:keys [clusters kept named dropped successors]}
+                (cluster/refresh! conn (cluster/llm-namer client {:models models}))
+                moved (study/clusters-replaced! conn successors)]
+            (println (format "  %d clusters: %d kept, %d new (named), %d gone" clusters kept named dropped))
+            (when (seq moved)
+              (println (format "  %d topic(s) you were learning regrouped: now learning their successors" (count moved)))))
           (println (format "Done: %d source(s); %d new concepts, %d keywords joined existing ones, %d ignored%s. Cost: $%.2f"
                            (count sources) (:new concepts) (:attached concepts) (:ignored concepts)
                            (if (seq (:missing concepts))

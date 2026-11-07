@@ -6,10 +6,14 @@
                  and co-occurrence weights), then fragments too small to be a
                  topic join the cluster they are most connected to. Pure and
                  deterministic.
-    refresh!     clusters again after the graph changed (an ingest). A new
-                 cluster that is mostly an old one keeps its id and name (so
-                 what the learner chose to learn carries over); the others
-                 are named by the model.
+    refresh!     clusters again after the graph changed (an ingest): concepts
+                 in a cluster stay in it, new ones join a cluster or make new
+                 ones, so knowledge the change does not touch keeps its
+                 topics (or :fresh? true: cluster from scratch). A new cluster that is mostly an old
+                 one keeps its id and name (so what the learner chose to
+                 learn carries over); the others are named by the model. An
+                 old cluster that is gone has a successor: the new cluster
+                 holding most of its concepts.
     universe     the stored clusters for display: members, the source most of
                  their passages come from, links between clusters."
   (:require [clojure.string :as str]
@@ -58,7 +62,9 @@
   looked at again)."
   [adj groups min-size]
   (loop [groups (vec (sort-by (juxt count #(str (first (sort-by str %)))) groups))]
-    (let [i (first (keep-indexed (fn [i g] (when (and (< (count g) min-size) (not (::alone (meta g)))) i))
+    (let [i (first (keep-indexed (fn [i g] (when (and (< (count g) min-size)
+                                                      (not (::alone (meta g))) (not (::kept (meta g))))
+                                             i))
                                  groups))
           g (when i (groups i))
           pull (when g
@@ -78,9 +84,14 @@
 
 (defn communities
   "Topic clusters of the concepts `ids` linked by `edges`: [#{id ..} ..],
-  largest first. Concepts without edges form no cluster."
+  largest first. Concepts without edges form no cluster. `:keep` {id key}:
+  clusters there are (concepts with the same key are one): they stay as
+  they are, and only the other concepts move, into them or into new
+  clusters. So a graph that changed in one place keeps its clusters
+  elsewhere; Louvain from scratch may settle anywhere, as the order it meets
+  concepts in changes."
   ([ids edges] (communities ids edges {}))
-  ([ids edges {:keys [sweeps min-size] :or {sweeps 8 min-size 6}}]
+  ([ids edges {:keys [sweeps min-size] stay :keep :or {sweeps 8 min-size 6}}]
    (let [in    (set ids)
          adj   (adjacency (filter #(and (in (:from %)) (in (:to %))) edges))
          order (sort-by str (keys adj))
@@ -88,9 +99,14 @@
          m2    (reduce + (vals deg))]
      (if (zero? m2)
        []
-       (let [comm   (nth (iterate (partial local-moving adj deg m2 order) (zipmap order order)) sweeps)
-             groups (map set (vals (group-by comm order)))]
-         (->> (absorb-small adj groups min-size)
+       (let [start  (into {} (for [n order] [n (if-let [k (get stay n)] [:keep k] n)]))
+             movers (remove #(contains? stay %) order)
+             comm   (nth (iterate (partial local-moving adj deg m2 movers) start) sweeps)
+             groups (map set (vals (group-by comm order)))
+             kept?  (fn [g] (some #(contains? stay %) g))
+             ;; clusters kept are kept, whatever their size
+             [old new] [(filter kept? groups) (remove kept? groups)]]
+         (->> (absorb-small adj (concat (map #(with-meta % {::kept true}) old) new) min-size)
               ;; a fragment connected to nothing is not a topic
               (remove #(and (::alone (meta %)) (< (count %) min-size)))
               (sort-by (juxt (comp - count) #(str (first (sort-by str %)))))
@@ -115,6 +131,14 @@
   ;=> [#{:a :b :c :p :q} #{:x :y :z}]
   (communities [:a :b :c :u :v] (conj es {:from :u :to :v :kind :related :weight 1.0}) {:min-size 3})
   ;=> [#{:a :b :c}]
+
+  ;; keeping the clusters there are: a new concept joins one, the rest stay,
+  ;; even where clustering from scratch would now group them otherwise
+  (communities [:a :b :c :x :y :z :p :n] (conj es {:from :n :to :x :kind :related :weight 1.0})
+               {:min-size 2 :keep {:a 1 :b 1 :c 1 :p 1 :x 2 :y 2 :z 2}})
+  ;=> [#{:a :b :c :p} #{:x :y :z :n}]
+  (communities [:a :b :c :x :y :z] es {:min-size 2 :keep {:a 1 :b 1 :c 2 :x 2 :y 2 :z 2}})
+  ;=> [#{:c :x :y :z} #{:a :b}]
   )
 
 ;;=============================================================================
@@ -176,41 +200,77 @@
        (mapv (fn [id] (let [{:concept/keys [label gloss]} (get-in g [:concepts id])]
                         {:label label :gloss gloss})))))
 
+(defn successors
+  "For each of the `old` clusters ({:cluster/id :members}) not `kept` (a set
+  of ids), the new cluster holding most of its members: {old-id new-id}.
+  `new` is [{:cluster/id :members}]; an old cluster none of whose members
+  is in a new one has none."
+  [old kept new]
+  (into {} (for [{:cluster/keys [id] :keys [members]} old
+                 :when (not (kept id))
+                 :let [[best n] (->> new
+                                     (map (fn [c] [(:cluster/id c) (count (filter (:members c) members))]))
+                                     (sort-by (fn [[cid n]] [(- n) (str cid)]))
+                                     first)]
+                 :when (and best (pos? n))]
+             [id best])))
+
+^:rct/test
+(comment
+  (successors [{:cluster/id :a :members #{1 2 3}} {:cluster/id :b :members #{4}} {:cluster/id :c :members #{9}}]
+              #{:b}
+              [{:cluster/id :x :members #{1 4}} {:cluster/id :y :members #{2 3 5}}])
+  ;=> {:a :y}
+  )
+
 (defn refresh!
-  "Cluster the concept graph in `conn` again and store the clusters. A new
-  cluster that is mostly an old one keeps its id and name; `namer` names the
-  rest: it gets {:clusters [[{:label :gloss} ..] ..] :named [label ..]} and
+  "Cluster the concept graph in `conn` again and store the clusters: the
+  stored ones stay, new concepts join them or make new ones (see
+  `communities` :keep), unless `:fresh?`. A new cluster
+  that is mostly an old one keeps its id and name; `namer` names the rest:
+  it gets {:clusters [[{:label :gloss} ..] ..] :named [label ..]} and
   returns {:names [{:label :gloss} ..] (one per cluster, in order) :by who}.
-  Returns {:clusters n :kept n :named n :dropped n}."
-  [conn namer]
-  (let [db     (d/db conn)
-        g      (graph/load-graph db)
-        {:keys [edges]} (view/graph db)
-        groups (communities (keys (:concepts g)) edges)
-        old    (stored db)
-        kept   (match groups old)
-        fresh  (vec (remove kept (range (count groups))))
-        names  (when (seq fresh)
-                 (namer {:clusters (mapv #(describe-group g (groups %)) fresh)
-                         :named    (vec (keep #(:cluster/label (some (fn [o] (when (= (kept %) (:cluster/id o)) o)) old))
-                                              (keys kept)))}))
-        by     (:by names "unknown")
-        named  (zipmap fresh (:names names))
-        now    (java.util.Date.)
-        tx     (vec (for [[i grp] (map-indexed vector groups)]
-                      (if-let [id (kept i)]
-                        {:cluster/id id :cluster/concepts (vec (sort-by str grp)) :cluster/at now}
-                        (let [{:keys [label gloss]} (named i)]
-                          (cond-> {:cluster/id       (random-uuid)
-                                   :cluster/label    (or (not-empty label)
-                                                         (str/join " · " (map :label (take 2 (describe-group g grp)))))
-                                   :cluster/concepts (vec (sort-by str grp))
-                                   :cluster/by       by
-                                   :cluster/at       now}
-                            (seq gloss) (assoc :cluster/gloss gloss))))))
-        gone   (remove (set (vals kept)) (map :cluster/id old))]
-    (d/transact! conn (into tx (for [id gone] [:db/retractEntity [:cluster/id id]])))
-    {:clusters (count groups) :kept (count kept) :named (count fresh) :dropped (count gone)}))
+  Returns {:clusters n :kept n :named n :dropped n :successors {old-id
+  new-id}} (see `successors`: for what referred to a dropped cluster)."
+  ([conn namer] (refresh! conn namer {}))
+  ([conn namer {:keys [fresh?]}]
+   (let [db     (d/db conn)
+         g      (graph/load-graph db)
+         {:keys [edges]} (view/graph db)
+         old    (stored db)
+         home   (into {} (for [{:cluster/keys [id] :keys [members]} old
+                               c members :when (get-in g [:concepts c])]
+                           [c id]))
+         groups (communities (keys (:concepts g)) edges (if fresh? {} {:keep home}))
+         ;; kept clusters are themselves, however much they grew; from scratch,
+         ;; a cluster that is mostly an old one is that one
+         kept   (if fresh?
+                  (match groups old)
+                  (into {} (keep-indexed (fn [i grp] (some->> (some home grp) (vector i)))) groups))
+         fresh  (vec (remove kept (range (count groups))))
+         names  (when (seq fresh)
+                  (namer {:clusters (mapv #(describe-group g (groups %)) fresh)
+                          :named    (vec (keep #(:cluster/label (some (fn [o] (when (= (kept %) (:cluster/id o)) o)) old))
+                                               (keys kept)))}))
+         by     (:by names "unknown")
+         named  (zipmap fresh (:names names))
+         now    (java.util.Date.)
+         tx     (vec (for [[i grp] (map-indexed vector groups)]
+                       (if-let [id (kept i)]
+                         {:cluster/id id :cluster/concepts (vec (sort-by str grp)) :cluster/at now}
+                         (let [{:keys [label gloss]} (named i)]
+                           (cond-> {:cluster/id       (random-uuid)
+                                    :cluster/label    (or (not-empty label)
+                                                          (str/join " · " (map :label (take 2 (describe-group g grp)))))
+                                    :cluster/concepts (vec (sort-by str grp))
+                                    :cluster/by       by
+                                    :cluster/at       now}
+                             (seq gloss) (assoc :cluster/gloss gloss))))))
+         gone   (remove (set (vals kept)) (map :cluster/id old))]
+     (d/transact! conn (into tx (for [id gone] [:db/retractEntity [:cluster/id id]])))
+     {:clusters   (count groups) :kept (count kept) :named (count fresh) :dropped (count gone)
+      :successors (successors old (set (vals kept))
+                              (for [e tx] {:cluster/id (:cluster/id e) :members (set (:cluster/concepts e))}))})))
 
 ;;=============================================================================
 ;; The model names clusters

@@ -42,9 +42,12 @@ Web stack follows flybot.sg (github.com/flybot-sg/lasagna-pattern, `examples/fly
   - `concept/view` — `index`, `concept` (hierarchy, related with shared-passage counts, mentions with paths) and
     `graph` (every concept + broader/related edges; the API's lazy `:concept-graph`) for the API
   - `concept/cluster` — topics: `communities` (Louvain local moving over broader + co-occurrence weights; fragments
-    under 6 join their most connected neighbour), `refresh!` (re-cluster after an ingest; a cluster mostly the same
-    as an old one, by Jaccard, keeps its id and name; new ones named by `llm-namer`), `universe` (clusters with
-    members, dominant source, links). Stored as `:cluster/*`; `bb ingest` refreshes them
+    under 6 join their most connected neighbour; `:keep` existing clusters fixed), `refresh!` (after an ingest:
+    stored clusters stay as they are, new concepts join them or make new ones named by `llm-namer`, so a new source
+    never reshuffles other topics; `{:fresh? true}` clusters from scratch, a cluster mostly an old one, by Jaccard,
+    keeping its id and name; returns `:successors` {gone-id new-id}), `universe` (clusters with members, dominant
+    source, links). Stored as `:cluster/*`; `bb ingest` refreshes them and moves goals on a gone cluster to its
+    successor (`study/clusters-replaced!`)
   - `db` (Datalevin knowledge schema + queries; `connect` merges other layers' schemas; `copy!` rebuilds a db under the
     current schema, e.g. after marking an attribute `:db/fulltext` — Datalevin's `re-index` loses full-text entries)
 - `src/cljc/robertluo/fly_learner/ui/core/` — frontend logic, JVM-testable: `db` (pure state fns), `pull` (named pull specs),

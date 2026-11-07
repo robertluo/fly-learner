@@ -91,6 +91,15 @@
   (store/goal! conn (cluster-scope id) on?)
   (overview (d/db conn) learning))
 
+(defn clusters-replaced!
+  "After clustering again: learning a cluster that is gone becomes learning
+  its successor ({old-id new-id}, from cluster/refresh!). Returns the ids
+  of the clusters whose goals moved."
+  [conn successors]
+  (vec (for [[old new] successors
+             :when (store/move-goal! conn (cluster-scope old) (cluster-scope new))]
+         old)))
+
 (defn- public-question
   "A question as the learner sees it before answering: no model answer."
   [c scores q]

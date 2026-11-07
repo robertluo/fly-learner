@@ -57,3 +57,15 @@
                         [[:db/retractEntity [:goal/key (pr-str scope)]]]
                         [])))
   nil)
+
+(defn move-goal!
+  "The learner's goal `from` (if any) becomes `to`, chosen when `from` was;
+  when `to` is a goal already, `from` just goes. Returns true if moved."
+  [conn from to]
+  (let [db (d/db conn)]
+    (when-let [g (d/entid db [:goal/key (pr-str from)])]
+      (let [at (:goal/at (d/pull db [:goal/at] g))]
+        (d/transact! conn (cond-> [[:db/retractEntity g]]
+                            (not (d/entid db [:goal/key (pr-str to)]))
+                            (conj {:goal/key (pr-str to) :goal/scope to :goal/at at})))
+        true))))
