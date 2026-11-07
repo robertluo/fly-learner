@@ -5,6 +5,8 @@
   Effects are declared in views as effect maps and executed by dispatch!
   (robertluo.fly-learner.ui.core)."
   (:require [clojure.string :as str]
+            [robertluo.fly-learner.explore :as explore]
+            [robertluo.fly-learner.explore.examples :as examples]
             [robertluo.fly-learner.ideas :as ideas]
             [robertluo.fly-learner.ui.core.graph :as graph]
             [robertluo.fly-learner.ui.core.layout :as layout]
@@ -15,7 +17,7 @@
 ;;=============================================================================
 
 (def initial-state
-  {:view            :home  ; :home (the map) | :cluster | :node | :keyword | :ask | :concept | :concepts | :study
+  {:view            :home  ; :home (the map) | :cluster | :node | :keyword | :ask | :concept | :concepts | :study | :explore
    :universe        nil    ; every cluster (server.study/universe) and the map's layout, once fetched
    :cluster-id      nil    ; cluster shown in :cluster view
    :clusters        {}     ; cluster-id -> detail (server.study/cluster): next items in it
@@ -46,6 +48,12 @@
                                       ; reaction or a question; :ask {:question :status :answer} once asked
                      :draft     nil   ; {:anchors [..] :text "" :links #{}}: a note being written
                      :layer?    true} ; show my ideas on the concept graph
+   :exploration-id  nil    ; exploration shown in :explore view (nil: the list): a uuid (kept) or an example's name
+   :explore-states  {}     ; exploration-id -> its state (robertluo.fly-learner.explore/act)
+   :explorations    {}     ; uuid -> exploration (robertluo.fly-learner.explore.knowledge/exploration)
+   :exploration-list nil   ; [exploration without spec], newest first, once fetched
+   :exploring       nil    ; an exploration being made: {:node id} or {:previous id :feedback str}
+   :explore-feedback ""    ; what the learner asks to change in the one shown
    :ask-id          nil    ; answer shown in :ask view
    :asking          nil    ; question waiting for its answer (:ask view, no :ask-id yet)
    :asks            {}     ; ask-id -> ask (see robertluo.fly-learner.ask/view)
@@ -79,6 +87,7 @@
              :error (if (map? error) error {:code :unknown :reason (str error)}))
       ;; a failed model call: back to where the learner can try again
       (update-in [:quiz :status] {:asking nil :grading :answering})
+      (assoc :exploring nil)
       (cond-> (= :asking (get-in db [:ideas :selection :ask :status]))
         (update-in [:ideas :selection] dissoc :ask))))
 
@@ -157,6 +166,78 @@
 (defn current-ask [db]
   (get-in db [:asks (:ask-id db)]))
 
+(defn open-explore
+  "Show exploration `id` (nil: the list of them)."
+  [db id]
+  (assoc db :view :explore :exploration-id id :asking nil :node-id nil :keyword nil
+         :explore-feedback ""
+         :loading? (and (uuid? id) (not (contains? (:explorations db) id)))))
+
+(def example-specs
+  "name -> spec (normalized) of the examples written by hand."
+  (update-vals examples/all explore/normalize))
+
+(defn exploration-spec
+  "The spec of exploration `id`: a kept one (once fetched) or an example."
+  [db id]
+  (if (uuid? id)
+    (get-in db [:explorations id :exploration/spec])
+    (get example-specs id)))
+
+(defn current-exploration [db]
+  (let [id (:exploration-id db)] (when (uuid? id) (get-in db [:explorations id]))))
+
+(defn exploration-fetched [db x]
+  (if x
+    (-> db (assoc-in [:explorations (:exploration/id x)] x) (assoc :loading? false))
+    (set-error db {:code :not-found :reason "Exploration not found"})))
+
+(defn exploration-list-fetched [db xs] (assoc db :exploration-list (vec xs)))
+
+(defn explore-node
+  "Make an exploration of node `node-id` (its proposal's pitch)."
+  [db node-id]
+  (assoc db :exploring {:node node-id} :error nil))
+
+(defn explore-feedback [db s] (assoc db :explore-feedback s))
+
+(defn explore-remake
+  "Make exploration `id` again, as the learner asks in the feedback."
+  [db id]
+  (assoc db :exploring {:previous id :feedback (str/trim (:explore-feedback db))} :error nil))
+
+(defn exploration-made
+  "A new exploration arrived: keep it, show it; the node it is about and the
+  list are fetched again (they now include it)."
+  [db x]
+  (let [node (get-in x [:exploration/node :node/id])]
+    (-> db
+        (assoc :exploring nil :explore-feedback "" :exploration-list nil)
+        (update :nodes dissoc node)
+        (assoc-in [:explorations (:exploration/id x)] x)
+        (open-explore (:exploration/id x)))))
+
+(defn exploration-deleted [db id]
+  (let [node (get-in db [:explorations id :exploration/node :node/id])]
+    (-> db
+        (update :explorations dissoc id)
+        (update :nodes dissoc node)
+        (assoc :exploration-list nil)
+        (open-explore nil))))
+
+(defn exploration-state
+  "The state exploration `id` is in: where the learner left it, else its start."
+  [db id]
+  (or (get-in db [:explore-states id])
+      (some-> (exploration-spec db id) explore/init-state)))
+
+(defn explored
+  "The learner did `action` (robertluo.fly-learner.explore/act) in exploration `id`."
+  [db id action]
+  (if-let [spec (exploration-spec db id)]
+    (assoc-in db [:explore-states id] (explore/act spec (exploration-state db id) action))
+    db))
+
 (defn apply-route
   "Apply a parsed URL ({:view .. :id .. :keyword .. :page ..}, see history) to db."
   [db {:keys [view id keyword page]}]
@@ -168,6 +249,7 @@
     :cluster  (open-cluster db id)
     :concepts (open-concepts db)
     :study    (open-study db)
+    :explore  (open-explore db id)
     (go-home db)))
 
 ;;=============================================================================

@@ -11,6 +11,7 @@
             [robertluo.fly-learner.concept :as concept]
             [robertluo.fly-learner.concept.cluster :as cluster]
             [robertluo.fly-learner.db :as db]
+            [robertluo.fly-learner.explore.knowledge :as explore]
             [robertluo.fly-learner.ingest :as ingest]
             [robertluo.fly-learner.llm :as llm]
             [robertluo.fly-learner.server.study :as study]
@@ -40,7 +41,8 @@
 (defn ingest!
   "Ingest the PDFs at `paths`: extract, fold with Claude and store each
   (replacing an earlier ingest of the same file), then resolve the keywords
-  no concept covers yet into concepts and cluster them into topics again. Uses the running system's db when
+  no concept covers yet into concepts and cluster them into topics again,
+  then judge which new passages could become explorations. Uses the running system's db when
   there is one, else opens it and closes it after. Prints progress and the
   cost. Returns {:sources [..] :concepts totals}."
   [& paths]
@@ -74,6 +76,9 @@
             (println (format "  %d clusters: %d kept, %d new (named), %d gone" clusters kept named dropped))
             (when (seq moved)
               (println (format "  %d topic(s) you were learning regrouped: now learning their successors" (count moved)))))
+          (println "Finding passages to explore")
+          (let [{:keys [judged proposed]} (explore/propose! conn client {:models models})]
+            (println (format "  %d passages judged, %d can be explored" judged proposed)))
           (println (format "Done: %d source(s); %d new concepts, %d keywords joined existing ones, %d ignored%s. Cost: $%.2f"
                            (count sources) (:new concepts) (:attached concepts) (:ignored concepts)
                            (if (seq (:missing concepts))

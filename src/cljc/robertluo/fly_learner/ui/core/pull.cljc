@@ -55,6 +55,33 @@
         {:pattern {:nodes {{:node/id id} '?node}}
          :then    (fn [r] {:db #(db/node-fetched % (get r 'node))})}))
 
+    :exploration
+    (let [id (:exploration-id db)]
+      (when (and (uuid? id) (not (contains? (:explorations db) id)))
+        {:pattern {:explorations {{:exploration/id id} '?x}}
+         :then    (fn [r] {:db #(db/exploration-fetched % (get r 'x))})}))
+
+    :explorations
+    (when-not (:exploration-list db)
+      {:pattern '{:explorations ?all}
+       :then    (fn [r] {:db #(db/exploration-list-fetched % (get r 'all))})})
+
+    ;; make an exploration (a create: runs the model, about half a minute)
+    :exploration-create
+    (when-let [{:keys [node previous feedback]} (:exploring db)]
+      {:pattern {:explorations {nil (cond-> {}
+                                      node     (assoc :exploration/node node)
+                                      previous (assoc :exploration/previous previous)
+                                      (seq feedback) (assoc :exploration/feedback feedback))}}
+       :then    (fn [r] {:db #(db/exploration-made % (get r 'explorations)) :history :push})})
+
+    ;; remove the exploration shown
+    :exploration-delete
+    (let [id (:exploration-id db)]
+      (when (uuid? id)
+        {:pattern {:explorations {{:exploration/id id} nil}}
+         :then    (fn [_] {:db #(db/exploration-deleted % id) :history :push})}))
+
     :concept
     (let [id (:concept-id db)]
       (when (and id (not (contains? (:concepts db) id)))
@@ -121,6 +148,7 @@
     :concept  [:universe :concept :concept-graph :learning :ideas]
     :concepts :concept-index
     :study    :learning
+    :explore  [:exploration :explorations]
     nil))
 
 ^:rct/test

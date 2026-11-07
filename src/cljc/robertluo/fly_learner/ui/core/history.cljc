@@ -8,6 +8,7 @@
     /c           every concept
     /c/<uuid>    a concept
     /q           study: what you know, quizzes
+    /x           explorations; /x/<uuid> one kept, /x/<name> an example
   The server serves index.html for these paths (robertluo.fly-learner.server.system)."
   (:require [clojure.string :as str]))
 
@@ -23,13 +24,14 @@
 
 (defn state->path
   "URL for db; nil while a question waits for its answer (no URL yet)."
-  [{:keys [view node-id keyword ask-id concept-id cluster-id pdf]}]
+  [{:keys [view node-id keyword ask-id concept-id cluster-id pdf exploration-id]}]
   (case view
     :cluster  (str "/g/" cluster-id)
     :node     (str "/n/" node-id (when-let [p (:page pdf)] (str "?page=" p)))
     :concept  (str "/c/" concept-id)
     :concepts "/c"
     :study    "/q"
+    :explore  (if exploration-id (str "/x/" (url-encode (str exploration-id))) "/x")
     :keyword (str "/k/" (url-encode keyword))
     :ask     (when ask-id (str "/a/" ask-id))
     "/"))
@@ -46,6 +48,11 @@
         {:view :concept :id (parse-uuid id)})
       (when (re-matches #"/c/?" path) {:view :concepts})
       (when (re-matches #"/q/?" path) {:view :study})
+      (when (re-matches #"/x/?" path) {:view :explore})
+      (when-let [[_ id] (re-matches #"/x/([0-9a-f-]{36})/?" path)]
+        {:view :explore :id (parse-uuid id)})
+      (when-let [[_ id] (re-matches #"/x/([^/?]+)/?" path)]
+        {:view :explore :id (url-decode id)})
       (when-let [[_ kw] (re-matches #"/k/(.+?)/?" path)]
         {:view :keyword :keyword (url-decode kw)})
       {:view :home}))
@@ -96,4 +103,9 @@
   (path->state "/c/") ;=> {:view :concepts}
   (path->state "/c/00000000-0000-0000-0000-000000000001")
   ;=> {:view :concept :id #uuid "00000000-0000-0000-0000-000000000001"}
+  (path->state (state->path {:view :explore :exploration-id "beta-reduction"}))
+  ;=> {:view :explore :id "beta-reduction"}
+  (state->path {:view :explore}) ;=> "/x"
+  (path->state "/x/00000000-0000-0000-0000-000000000001")
+  ;=> {:view :explore :id #uuid "00000000-0000-0000-0000-000000000001"}
   (path->state "/whatever")) ;=> {:view :home}

@@ -21,6 +21,11 @@
     '{:asks {{:ask/id #uuid \"..\"} ?ask}}         ; an answer with its cited subgraph
     {:asks {nil {:ask/question \"..\"}}}           ; ask: answer with Claude, store, return it
     {:asks {nil {:ask/question \"..\" :ask/anchor quote}}} ; ask about a selected passage (a quote anchor)
+    '{:explorations ?recent}                        ; explorations kept, newest first
+    '{:explorations {{:exploration/id #uuid \"..\"} ?x}} ; one: its spec, node and cited nodes
+    {:explorations {nil {:exploration/node id}}}   ; make one of a node with Claude (its proposal's pitch)
+    {:explorations {nil {:exploration/previous id :exploration/feedback \"..\"}}} ; remake one
+  A node (:nodes) carries :node/explore: its proposal, if any, and its explorations.
 
   Personal app: no roles."
   (:require [clojure.string :as str]
@@ -28,6 +33,8 @@
             [robertluo.fly-learner.ask :as ask]
             [robertluo.fly-learner.concept.view :as concept-view]
             [robertluo.fly-learner.db :as db]
+            [robertluo.fly-learner.explore.knowledge :as explore]
+            [robertluo.fly-learner.explore.store :as explore.store]
             [robertluo.fly-learner.server.ideas :as ideas]
             [robertluo.fly-learner.server.study :as study]
             [sg.flybot.pullable.collection :as coll]))
@@ -73,6 +80,31 @@
     (when-let [eid (and (uuid? id) (d/entid (d/db conn) [:ask/id id]))]
       (d/transact! conn [[:db/retractEntity eid]])
       true)))
+
+(defrecord ExplorationsDataSource [conn client opts]
+  coll/DataSource
+  (fetch [_ {:exploration/keys [id]}] (when (uuid? id) (explore/exploration (d/db conn) id)))
+  (list-all [_] (explore/all (d/db conn)))
+  (create! [_ {:exploration/keys [node previous feedback]}]
+    (let [db   (d/db conn)
+          prev (when (uuid? previous) (explore/exploration db previous))
+          node (or node (get-in prev [:exploration/node :node/id]))]
+      (cond
+        (and previous (not prev)) {:error {:type :not-found :message "No such exploration"}}
+        (not (and (uuid? node) (d/entid db [:node/id node])))
+        {:error {:type :invalid :message "Explore which passage?"}}
+        (and feedback (or (not (string? feedback)) (> (count feedback) 2000)))
+        {:error {:type :invalid :message "Ask in up to 2000 characters"}}
+        :else
+        (try
+          (let [r (explore/make! conn @client node (assoc opts :previous (when prev previous) :feedback feedback))]
+            (if-let [id (:exploration/id r)]
+              (explore/exploration (d/db conn) id)
+              {:error {:type :llm-error :message (:error r)}}))
+          (catch Exception e (ask-error e))))))
+  (update! [_ _ _] {:error {:type :forbidden}})
+  (delete! [_ {:exploration/keys [id]}]
+    (boolean (and (uuid? id) (explore.store/delete! conn id)))))
 
 (defn- query-lookup
   "Non-enumerable, map-keyed, read-only resource: (get it query) -> (f query)."
@@ -157,9 +189,13 @@
         questions (coll/collection (->QuestionsDataSource conn client learning ask-opts) {:id-key :question/id})
         answers   (coll/collection (->AnswersDataSource conn client learning ask-opts) {:id-key :question/id})
         idea-coll (coll/collection (->IdeasDataSource conn) {:id-key :idea/id})
+        explorations (coll/collection (->ExplorationsDataSource conn client ask-opts) {:id-key :exploration/id})
         goals     (coll/collection (->GoalsDataSource conn learning) {:id-key :cluster/id})
         clusters  (coll/read-only (coll/collection (->ClustersDataSource conn learning) {:id-key :cluster/id}))
-        nodes   (query-lookup (fn [{:node/keys [id]}] (when (uuid? id) (db/node (d/db conn) id))))
+        nodes   (query-lookup (fn [{:node/keys [id]}]
+                                (when (uuid? id)
+                                  (let [db (d/db conn)]
+                                    (some-> (db/node db id) (assoc :node/explore (explore/for-node db id)))))))
         kws     (query-lookup (fn [{:keys [keyword]}] (when (string? keyword)
                                                         (db/nodes-with-keyword (d/db conn) keyword))))]
     (fn [_request]
@@ -171,6 +207,7 @@
                 :goals goals
                 :clusters clusters
                 :questions questions :answers answers
-                :ideas idea-coll}
+                :ideas idea-coll
+                :explorations explorations}
        :errors {:detect :error
                 :codes  {:forbidden 403 :not-found 404 :invalid 400 :refused 422 :llm-error 502}}})))

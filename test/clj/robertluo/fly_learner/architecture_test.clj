@@ -12,6 +12,8 @@
     features   quiz and the like: learning only, never knowledge
     ideas      the learner's own voice; the core depends on nothing,
                ideas.knowledge is the one namespace where it meets knowledge
+    explore    interactive views as data; the core depends on nothing,
+               explore.knowledge is the one namespace where it meets knowledge
     app        server and UI compose everything"
   (:require [clojure.java.io :as io]
             [clojure.string :as str]
@@ -31,6 +33,10 @@
       (= n "robertluo.fly-learner.ideas.store")       :ideas-store
       (= n "robertluo.fly-learner.ideas.knowledge")   :ideas-adapter
       (= n "robertluo.fly-learner.llm")               :infra
+      (or (= n "robertluo.fly-learner.explore")
+          (= n "robertluo.fly-learner.explore.examples")) :explore
+      (= n "robertluo.fly-learner.explore.store")     :explore-store
+      (= n "robertluo.fly-learner.explore.knowledge") :explore-adapter
       (or (= n "robertluo.fly-learner.cli")
           (str/starts-with? n "robertluo.fly-learner.server.")
           (str/starts-with? n "robertluo.fly-learner.ui"))      :app
@@ -48,8 +54,11 @@
    :ideas          #{}
    :ideas-store    #{:ideas}
    :ideas-adapter  #{:ideas :knowledge}
+   :explore        #{}
+   :explore-store  #{:explore}
+   :explore-adapter #{:explore :explore-store :knowledge :infra}
    :app            #{:knowledge :learning :decay :learning-store :adapter :features :infra
-                     :ideas :ideas-store :ideas-adapter}})
+                     :ideas :ideas-store :ideas-adapter :explore :explore-store :explore-adapter}})
 
 (defn- ns-form
   "The ns form of `file`, reader conditionals of both platforms kept."
@@ -94,6 +103,9 @@
   (testing "a feature reaching into knowledge would be caught"
     (is (not (contains? (allowed (layer 'robertluo.fly-learner.quiz))
                         (layer 'robertluo.fly-learner.concept.graph)))))
+  (testing "the explore core would be caught reaching into knowledge"
+    (is (not (contains? (allowed (layer 'robertluo.fly-learner.explore))
+                        (layer 'robertluo.fly-learner.db)))))
   (testing "ideas and learning know nothing of each other"
     (is (not (contains? (allowed :ideas) :learning)))
     (is (not (contains? (allowed :learning) :ideas))))

@@ -20,7 +20,9 @@ Web stack follows flybot.sg (github.com/flybot-sg/lasagna-pattern, `examples/fly
     model), `:concepts` (read-only collection), `:nodes` (with `:node/concepts`; `:node/keywords` keeps only
     keywords naming no concept), `:keywords`, `:search` (lookups), `:learning` (lazy overview), `:universe` (lazy:
     every cluster with its score), `:clusters` (read-only: a cluster's next items), `:goals` (create/delete: learn a
-    cluster), `:questions` / `:answers` (creates: write a question, grade an answer)
+    cluster), `:questions` / `:answers` (creates: write a question, grade an answer), `:explorations` (create:
+    make one of a node or remake one with feedback, runs the model; a node carries `:node/explore`: its proposal and
+    explorations)
   - `server/ideas` — ideas resolved for the API (`:idea/targets`, `:idea/within` = ancestor nodes); `focus`: a
     selected passage (quote anchor) -> the nodes it is in, for asking about it (`{:asks {nil {.. :ask/anchor a}}}`)
   - `server/study` — app-layer composition of learning + store + quiz + clusters for the API: `overview` (overall,
@@ -51,11 +53,12 @@ Web stack follows flybot.sg (github.com/flybot-sg/lasagna-pattern, `examples/fly
   - `db` (Datalevin knowledge schema + queries; `connect` merges other layers' schemas; `copy!` rebuilds a db under the
     current schema, e.g. after marking an attribute `:db/fulltext` — Datalevin's `re-index` loses full-text entries)
 - `src/cljc/robertluo/fly_learner/ui/core/` — frontend logic, JVM-testable: `db` (pure state fns), `pull` (named pull specs),
-  `history` (URL <-> state; `/` the map, `/g/<id>` a cluster), `views` (Replicant hiccup: one flow, map ->
+  `history` (URL <-> state; `/` the map, `/g/<id>` a cluster, `/x/<id>` an exploration), `views` (Replicant hiccup: one flow, map ->
   cluster -> concept -> passage; the header holds the map and the clusters being learned), `highlight` (find a node's text among pdf.js text items), `viewport` (pan/zoom of a drawing: automatic
   until the learner pans or zooms: whole if readable, else readable names around a focus; names below `readable-px`
   are not drawn; `db/pane-*` for `:map` and `:graph`, which goes automatic again on another graph),
-  `graph` (concept graph: visible = focus + neighbours of expanded concepts, outline-style), `layout`
+  `explore` (draws an exploration's resolved elements; `diagram-layout`: layered, children under their parents;
+  `ticks`), `graph` (concept graph: visible = focus + neighbours of expanded concepts, outline-style), `layout`
   (incremental force layout on primitive arrays: broader-above is a constraint, label boxes never overlap;
   unconnected parts laid out apart and packed in rows below the largest, else repulsion strands them far away; tween)
 - `src/cljs/robertluo/fly_learner/ui/` — `core` (dispatch-of effects `:db`/`:pull`/`:history`/`:animate`, transit fetch, render,
@@ -97,6 +100,20 @@ Each layer knows the one below as little as possible, so any part can be reimple
     title after re-ingest) and quotes in node text/summary or the PDF (re-found by text; a PDF quote no
     paragraph contains stays on its page)
   - ideas and learning know nothing of each other
+- **explore** (`explore.cljc`, depends on nothing) — explorations: an interactive view of some knowledge as data
+  (`:vars`, `:derive`, `:view` of elements: text, formula, slider, choice, toggle, button, table, plot, diagram,
+  steps, predict). Expressions are s-expressions in strings, evaluated by a whitelist interpreter with fuel/depth/
+  length bounds (any spec ends); templates put them in braces. `view` (elements with values), `act` (state after an
+  action), `check` (shape, every expression readable, a dry run from the start and each state one action away: what
+  a model must fix before a spec is kept). `explore.examples`: four specs written by hand (game theory, λ-calculus)
+  - `explore.store` — Datalevin, own schema: `:exploration/*` (spec as EDN string, anchor, cites, pitch, feedback,
+    previous = the version it remakes; `all` hides remade versions) and `:proposal/*` (one per node judged; kind
+    `:none` when not worth it, so a node is judged once)
+  - `explore.knowledge` — the only bridge: `propose!` (`:common` model, batches of 30 sections/groups by summary
+    -> kind + pitch), `make!` (`:strong` model writes a spec from the node and the text under it as numbered entries
+    it cites [n]; a plain JSON reply, since structured outputs reject a schema this size (24 optional params, grammar
+    size); `tidy`, `check`, one repair round with the problems, kept only when sound). Anchors `{:node/id
+    :source/path :node/title}`: re-found by title after a re-ingest
 - **app** (`server.*`, `ui.*`; the UI knows item ids `[:concept id]` / `[:relation a b]` for the heat map) composes: `server.system` merges schemas and picks the model (mastery + decay)
   and the curriculum
 - `cli` — command-line tasks (app layer): `ingest!`; `server.system/connect` opens the db with every layer's schema
@@ -108,7 +125,8 @@ Each layer knows the one below as little as possible, so any part can be reimple
 - `bb dev` — nREPL (backend + shadow-cljs middleware); then `(user/cljs!)`: starts the backend (:8080) if needed and the frontend watch (:3000, proxies pages and `/api` to :8080). `(user/start!)` alone runs just the backend
 - `bb watch` — shadow-cljs without a REPL; `bb serve` — release build served by the backend on :8080
 - `bb test`, `bb lint`; `bb install` / `bb vendor` copy pdf.js into `resources/public/vendor/pdfjs`
-- `bb ingest data/sources/<file>.pdf ...` — `cli/ingest!` (ingest + fold, then `concept/resolve!`; prints the cost).
+- `bb ingest data/sources/<file>.pdf ...` — `cli/ingest!` (ingest + fold, then `concept/resolve!`, clusters,
+  `explore.knowledge/propose!` for new passages; prints the cost).
   `bb/ingest_task.clj` evaluates it over nREPL in the running `bb dev` REPL when `.nrepl-port` answers (Datalevin
   must have one writer: the app's), else runs `clojure -M:ingest`. Paths are stored relative to the project
   (`cli/source-path`), so any spelling of a file re-ingests the same source

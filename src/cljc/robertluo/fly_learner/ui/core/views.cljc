@@ -4,6 +4,8 @@
   (:require [clojure.string :as str]
             [robertluo.fly-learner.ideas :as ideas]
             [robertluo.fly-learner.ui.core.db :as db]
+            [robertluo.fly-learner.explore :as explore]
+            [robertluo.fly-learner.ui.core.explore :as explore-view]
             [robertluo.fly-learner.ui.core.history :as history]
             #?(:cljs [robertluo.fly-learner.ui.pdf :as pdf])
             #?(:cljs [robertluo.fly-learner.ui.select :as select])
@@ -480,6 +482,8 @@
       (when (seq (get-in db [:universe :clusters]))
         (pane-zoom-controls db :map dispatch! "The whole map"))]]))
 
+(declare node-explore)
+
 (defn- node-article [db node dispatch!]
   (let [{:node/keys [id title summary text keywords concepts children links ancestors kind source]} node
         leaves? (every? #(= :paragraph (:node/kind %)) children)
@@ -497,6 +501,7 @@
        [:div.keywords
         (for [c concepts] (concept-chip dispatch! c))
         (for [kw keywords] [:span {:replicant/key kw} (keyword-link dispatch! kw)])])
+     (node-explore db node dispatch!)
      (when (seq children)
        [:section
         [:h2 (if leaves? "Source text" "Drill down")]
@@ -1032,6 +1037,121 @@
        (seq concept-index) [:p.muted "No concept matches."]
        :else [:p.muted "No concepts yet. Resolve keywords from the REPL (see dev/user.clj)."])]))
 
+;;=============================================================================
+;; Explorations
+;;=============================================================================
+
+(defn- explore-link [dispatch! id attrs & children]
+  (apply link dispatch! {:db #(db/open-explore % id) :pull [:exploration :explorations] :history :push}
+         (history/state->path {:view :explore :exploration-id id}) attrs children))
+
+(defn- making-note [what]
+  [:p.making [:span.spinner] what " Writing and checking it takes about half a minute."])
+
+(defn- node-explore
+  "What a node offers to explore: the explorations made of it, and making
+  one (when the knowledge can make it: a proposal)."
+  [{:keys [exploring]} {:node/keys [id explore]} dispatch!]
+  (let [{:keys [proposal explorations]} explore
+        making? (= id (:node exploring))]
+    (when (or proposal (seq explorations))
+      [:section.explore-offer
+       [:h2 "Try it out"]
+       (when (seq explorations)
+         [:ul.plain
+          (for [{:exploration/keys [id title]} explorations]
+            [:li {:replicant/key (str id)} (explore-link dispatch! id {} "▶ " title)])])
+       (cond
+         making? (making-note "Building an exploration of this passage.")
+         proposal [:div.offer
+                   [:p (:pitch proposal)]
+                   [:button.btn.primary {:disabled (some? exploring)
+                                         :on {:click #(dispatch! {:db (fn [d] (db/explore-node d id))
+                                                                  :pull :exploration-create})}}
+                    (if (seq explorations) "Make another" "Explore it")]])])))
+
+(defn- exploration-cite [dispatch! cites]
+  (fn [n]
+    (if-let [node (get cites (dec n))]
+      (node-link dispatch! node {:class "cite" :title (:node/title node)} (str n))
+      [:span.cite.gone {:title "Not in the knowledge base"} (str n)])))
+
+(defn- kept-exploration [{:keys [exploring explore-feedback] :as db} {:exploration/keys [id node cites feedback] :as x} dispatch!]
+  (let [spec (:exploration/spec x)]
+    [:main.single.explore
+     [:nav.crumbs (explore-link dispatch! nil {} "Explorations") " › "
+      (when node [:span (node-link dispatch! node) " › "])]
+     [:span.meta "Exploration"
+      (when-let [prev (:exploration/previous x)]
+        [:span " · remade from " (explore-link dispatch! prev {} "an earlier version")
+         (when feedback (str ": “" feedback "”"))])]
+     [:h1 (:title spec)]
+     (explore-view/exploration spec (db/exploration-state db id)
+                               (fn [action] (dispatch! {:db #(db/explored % id action)}))
+                               {:cite (exploration-cite dispatch! cites)})
+     [:section.x-sources
+      [:h2 "Sources"]
+      (let [nums (filter #(get cites (dec %)) (explore/cited-numbers spec))]
+        (when (seq nums)
+          [:ol
+           (for [i nums :let [n (get cites (dec i))]]
+             [:li {:replicant/key i :value i} (node-link dispatch! n) (meta-line n)])]))
+      [:p.hint.muted "Made by a model from " (if node (node-link dispatch! node) "a passage")
+       " and checked by running it, not for truth: compare it with the text."]]
+     [:section.x-remake
+      [:h2 "Not right?"]
+      (if (= id (:previous exploring))
+        (making-note "Making it again.")
+        [:form {:on {:submit (fn [e] (.preventDefault e)
+                               (dispatch! {:db #(db/explore-remake % id) :pull :exploration-create}))}}
+         [:textarea {:rows 2 :placeholder "What to change, e.g. \"use the example on p. 12\", \"a 3×3 game\" (optional)"
+                     :value explore-feedback
+                     :on {:input #(dispatch! {:db (fn [d] (db/explore-feedback d (.. % -target -value)))})}}]
+         [:div.actions
+          [:button.btn.primary {:type "submit" :disabled (some? exploring)} "Make it again"]
+          [:button.btn.quiet {:type "button"
+                              :on {:click #(when #?(:cljs (js/confirm "Delete this exploration?") :clj true)
+                                             (dispatch! {:pull :exploration-delete}))}}
+           "Delete"]]])]]))
+
+(defn- explore-view [{:keys [exploration-id exploration-list loading?] :as db} dispatch!]
+  (cond
+    (db/current-exploration db)
+    (kept-exploration db (db/current-exploration db) dispatch!)
+
+    (and (string? exploration-id) (db/exploration-spec db exploration-id))
+    (let [spec (db/exploration-spec db exploration-id)]
+      [:main.single.explore
+       [:nav.crumbs (explore-link dispatch! nil {} "Explorations") " › "]
+       [:span.meta "Example, written by hand"]
+       [:h1 (:title spec)]
+       (explore-view/exploration spec (db/exploration-state db exploration-id)
+                                 (fn [action] (dispatch! {:db #(db/explored % exploration-id action)})))])
+
+    (uuid? exploration-id)
+    [:main.single.explore (when loading? [:p.muted "Loading…"])]
+
+    :else
+    [:main.single.explore
+     [:span.meta "Explorations"]
+     [:h1 "Try it out"]
+     [:p.muted "Passages that are better understood by doing offer “Explore it” on their page: "
+      "a model builds a small interactive page from the passage, checked by running it, and it is kept here."]
+     (when exploration-id [:p.muted "No exploration " (pr-str exploration-id) "."])
+     (when (seq exploration-list)
+       [:ul.cards.compact
+        (for [{:exploration/keys [id title node pitch]} exploration-list]
+          [:li.card {:replicant/key (str id)}
+           (explore-link dispatch! id {:class "card-title"} title)
+           (when node [:span.meta (:node/title node) (when-let [p (:node/page node)] (str " · p. " p))])
+           (when pitch [:p.preview pitch])])])
+     [:h2 "Examples"]
+     [:ul.cards.compact
+      (for [[id spec] (sort-by (comp :title val) db/example-specs)]
+        [:li.card {:replicant/key id}
+         (explore-link dispatch! id {:class "card-title"} (:title spec))
+         [:p.preview (:intro spec)]])]]))
+
 (defn app-view [db dispatch!]
   [:div.app {:class (when (:fullscreen? db) "fullscreen")}
    (header db dispatch!)
@@ -1045,6 +1165,7 @@
      :cluster  (cluster-view db dispatch!)
      :concepts (concepts-view db dispatch!)
      :study    (study-view db dispatch!)
+     :explore  (explore-view db dispatch!)
      (home-view db dispatch!))])
 
 ^:rct/test

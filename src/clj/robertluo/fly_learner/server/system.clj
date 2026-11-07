@@ -11,6 +11,7 @@
             [datalevin.core :as d]
             [robertluo.fly-learner.db :as db]
             [robertluo.fly-learner.ideas.store :as ideas.store]
+            [robertluo.fly-learner.explore.store :as explore.store]
             [robertluo.fly-learner.learning :as learning]
             [robertluo.fly-learner.learning.concepts :as learning.concepts]
             [robertluo.fly-learner.learning.decay :as decay]
@@ -53,7 +54,7 @@
 (defn- spa-route?
   "Client-side routes served by index.html (see robertluo.fly-learner.ui.core.history)."
   [uri]
-  (or (#{"/" "/c" "/q"} uri) (some #(str/starts-with? uri %) ["/n/" "/k/" "/a/" "/c/" "/g/"])))
+  (or (#{"/" "/c" "/q" "/x"} uri) (some #(str/starts-with? uri %) ["/n/" "/k/" "/a/" "/c/" "/g/" "/x/"])))
 
 (defn- source-file
   "GET /files/sources/<uuid> -> the source's original file (only paths stored
@@ -87,7 +88,7 @@
   "Open the db at the config's :db-dir with every layer's schema (each layer
   owns its own)."
   [cfg]
-  (db/connect (:db-dir cfg) learning.store/schema quiz/schema ideas.store/schema))
+  (db/connect (:db-dir cfg) learning.store/schema quiz/schema ideas.store/schema explore.store/schema))
 
 (defn make-system [cfg]
   (life-cycle-map
