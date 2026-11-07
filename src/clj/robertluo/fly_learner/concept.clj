@@ -347,6 +347,9 @@ Assign every new keyword to exactly one concept, or ignore it.
         (for [attr [:prereq/of :prereq/needs]
               p    (d/q '[:find [?p ...] :in $ ?a ?c :where [?p ?a ?c]] db attr from-e)]
           [:db/add p attr into-e])
+        ;; so are the exercises testing from (robertluo.fly-learner.exercises)
+        (for [x (d/q '[:find [?x ...] :in $ ?c :where [?x :exercise/concepts ?c]] db from-e)]
+          [:db/add x :exercise/concepts into-e])
         [[:db/add into-e :concept/by human]])])
 
     :split

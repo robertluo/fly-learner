@@ -120,9 +120,11 @@
          (or (seq children) [label])))
 
 (defn- quiz-effects
-  "Quiz on `item` (nil: what to study next), where the learner is."
-  [item]
-  {:db #(db/quiz-start % item) :pull [:question-create :learning]})
+  "Quiz on `item` (nil: what to study next), where the learner is; on its
+  book exercise `exercise` (an id) when given."
+  ([item] (quiz-effects item nil))
+  ([item exercise]
+   {:db #(db/quiz-start % item exercise) :pull [:question-create :learning]}))
 
 (defn percent
   "A score as a percentage: whole numbers, one decimal below 10%."
@@ -1003,17 +1005,37 @@
 (defn- submit-answer [dispatch!]
   (dispatch! {:db db/quiz-submitted :pull :answer-create}))
 
+(defn- question-meta
+  "What the question is on; a book exercise says so, counts more and links
+  to where it is in the book (its tables read best there)."
+  [dispatch! {:keys [title] :question/keys [by anchor weight] :as question}]
+  (if (= :author by)
+    [:span.meta {:replicant/key "m"}
+     [:span.tag.authored {:title "Written by the book's author, graded against their solution"} "from the book"]
+     " " (:question/title question) " · on " title
+     (when (and weight (< 1 weight)) (str " · counts " (if (== 2 weight) "double" (str weight "×"))))
+     (when-let [n (:node/id anchor)]
+       (list " · " (node-link dispatch! {:node/id n} {:title "Its tables and formulas read best in the book"
+                                                      :class "nowrap"}
+                              (str "read it on p. " (:page anchor)))))]
+    [:span.meta {:replicant/key "m"} "Question · " title]))
+
 (defn- quiz-panel [{{:keys [status question response result]} :quiz} dispatch!]
-  (let [{:keys [title] :question/keys [prompt]} question]
-    [:section.quiz
+  (let [{:question/keys [prompt by]} question
+        authored? (= :author by)]
+    [:section.quiz {:class (when authored? "authored")}
      (case status
        :asking
        [:p.muted.thinking "Writing a question"]
 
        (:answering :grading)
        (list
-        [:span.meta {:replicant/key "m"} "Question · " title]
-        [:p.prompt {:replicant/key "p"} prompt]
+        (question-meta dispatch! question)
+        [:p.prompt {:replicant/key "p" :class (when authored? "book")} prompt]
+        (when-let [ctx (:question/context question)]
+          [:details.builds-on {:replicant/key "b"}
+           [:summary "The exercise it builds on"]
+           [:p.source-text ctx]])
         [:textarea {:replicant/key "t"
                     :value response :rows 6 :placeholder "Answer in your own words…"
                     :disabled (= :grading status)
@@ -1034,18 +1056,19 @@
            [:button.btn.quiet {:on {:click #(dispatch! {:db db/quiz-close})}} "Skip"]]))
 
        :graded
-       (let [{:keys [grade feedback before after] :question/keys [answer points]} result]
+       (let [{:keys [grade feedback before after] :question/keys [answer points]} result
+             title (:title question)]
          (list
-          [:span.meta {:replicant/key "m"} "Question · " title]
-          [:p.prompt {:replicant/key "p"} prompt]
+          (question-meta dispatch! question)
+          [:p.prompt {:replicant/key "p" :class (when authored? "book")} prompt]
           [:div.graded {:replicant/key "g"}
            [:span.grade (percent grade)] (score-bar grade)]
           [:p.feedback {:replicant/key "f"} feedback]
           (when-not (str/blank? response)
             [:details {:replicant/key "y"} [:summary "Your answer"] [:p.source-text response]])
           [:details {:replicant/key "x" :open (< grade 0.8)}
-           [:summary "Model answer"]
-           [:p answer]
+           [:summary (if authored? "The author's solution" "Model answer")]
+           (if authored? [:p.source-text answer] [:p answer])
            [:ul.points (for [[i pt] (map-indexed vector points)] [:li {:replicant/key i} pt])]]
           [:p.change {:replicant/key "c"}
            title " " (percent (:item before)) " → " [:strong (percent (:item after))]
@@ -1070,8 +1093,8 @@
        [:span.muted (case status
                       :asking  " · writing a question…"
                       :grading " · grading…"
-                      :graded  (str " · " (:title question) ": graded")
-                      (some->> (:title question) (str " · ")))]]
+                      :graded  (str " · " (or (:question/title question) (:title question)) ": graded")
+                      (some->> (or (:question/title question) (:title question)) (str " · ")))]]
       [:button.btn.quiet {:title "Close the quiz" :on {:click #(dispatch! {:db db/quiz-close})}} "×"]]
      (when-not folded? (quiz-panel db dispatch!))]))
 
@@ -1163,8 +1186,31 @@
          (when (> needed-by-count (count needed-by))
            [:span.muted (str "and " (- needed-by-count (count needed-by)) " more")])]])]))
 
+(defn- book-exercises
+  "The exercises the book's author wrote testing the concept, each with the
+  learner's best grade so far and a way to try it."
+  [db dispatch! id exercises]
+  (when (seq exercises)
+    [:section.exercises
+     [:h2 "Exercises from the book"]
+     [:p.hint.muted "Written by the author and graded against their solution: each counts double."]
+     [:ul.exercise-list
+      (for [{:exercise/keys [label summary page] xid :exercise/id nid :node/id} exercises
+            :let [g (db/exercise-grade db xid)]]
+        [:li {:replicant/key (str xid) :class (when g "tried")}
+         [:span.label (if nid
+                        (node-link dispatch! {:node/id nid} {:title (str "Read it on p. " page)} (str "Exercise " label))
+                        (str "Exercise " label))]
+         [:span.summary summary]
+         (if g
+           [:span.best {:title "Your best answer so far"} (percent g)]
+           [:span.best.muted "p. " page])
+         [:button.btn {:class (when-not g "primary")
+                       :on {:click #(dispatch! (quiz-effects (db/concept-item id) xid))}}
+          (if g "Again" "Try it")]])]]))
+
 (defn- concept-article
-  [db {:concept/keys [id label gloss aliases by mentions origin] :as concept} score dispatch!]
+  [db {:concept/keys [id label gloss aliases by mentions origin exercises] :as concept} score dispatch!]
   [:article.concept
    [:nav.crumbs (link dispatch! map-effects "/" {} "Map") " › "
     (when-let [c (db/concept-cluster db id)] (list (cluster-link dispatch! c {:replicant/key "c"}) " ›"))]
@@ -1179,6 +1225,7 @@
     [:span.muted "You know this"] (score-bar score) [:span.pct (percent score)]
     [:button.btn.primary {:on {:click #(dispatch! (quiz-effects (db/concept-item id)))}} "Quiz me on this"]]
    (learn-first db dispatch! concept)
+   (book-exercises db dispatch! id exercises)
    (ideas-panel db dispatch! (db/concept-anchor id) (db/ideas-about-concept db id))
    (when (seq mentions)
      [:section

@@ -334,9 +334,17 @@
 (defn quiz-start
   "Ask a question on `item` (nil: what to study next), where the learner is:
   the study page shows it in place, other pages dock it at the top of the
-  left pane, where it stays while the learner reads on to answer it."
-  [db item]
-  (assoc db :quiz {:status :asking :item item :question nil :response "" :result nil :folded? false}))
+  left pane, where it stays while the learner reads on to answer it.
+  `exercise`: the id of one of the item's book exercises to answer."
+  ([db item] (quiz-start db item nil))
+  ([db item exercise]
+   (assoc db :quiz {:status :asking :item item :exercise exercise :question nil :response "" :result nil
+                    :folded? false})))
+
+(defn exercise-grade
+  "The best grade of the learner's answers to book exercise `id`, nil if none."
+  [db id]
+  (get-in db [:learning :exercises id]))
 
 (defn quiz-fold
   "Fold the docked quiz to one line (`folded?`), or open it again."

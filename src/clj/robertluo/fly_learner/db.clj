@@ -11,6 +11,7 @@
    :source/title    {:db/valueType :db.type/string}
    :source/path     {:db/valueType :db.type/string}
    :source/root     {:db/valueType :db.type/ref}     ; level-0 birdview node
+   :source/exercises-by {:db/valueType :db.type/string} ; its exercises were looked for, by this model
 
    ;; knowledge nodes ---------------------------------------------------
    :node/id         {:db/valueType :db.type/uuid :db/unique :db.unique/identity}
@@ -51,6 +52,20 @@
    :prereq/needs    {:db/valueType :db.type/ref}     ; .. this one first
    :prereq/why      {:db/valueType :db.type/string}
    :prereq/by       {:db/valueType :db.type/string}  ; a model id or "human"
+
+   ;; exercises the author wrote, with their solutions (robertluo.fly-learner.exercises)
+   :exercise/id       {:db/valueType :db.type/uuid :db/unique :db.unique/identity}
+   :exercise/source   {:db/valueType :db.type/ref}
+   :exercise/label    {:db/valueType :db.type/string} ; "1.5", as the book numbers it
+   :exercise/node     {:db/valueType :db.type/ref}    ; the paragraph it starts in
+   :exercise/page     {:db/valueType :db.type/long}
+   :exercise/text     {:db/valueType :db.type/string}
+   :exercise/solution {:db/valueType :db.type/string} ; the author's
+   :exercise/refers   {}                              ; [label ..] exercises it builds on
+   :exercise/summary  {:db/valueType :db.type/string} ; what it asks, in a line
+   :exercise/points   {}                              ; [key point ..] a full answer covers
+   :exercise/concepts {:db/valueType :db.type/ref :db/cardinality :db.cardinality/many} ; what it tests
+   :exercise/by       {:db/valueType :db.type/string} ; the model that linked it
 
    ;; edits: every change to concepts, by a model or a human, in order
    :edit/op         {:db/valueType :db.type/keyword}

@@ -31,15 +31,16 @@
     (str f)))
 
 (defn remove-source!
-  "Retract the source stored for `path` and all its nodes (if any)."
+  "Retract the source stored for `path`, all its nodes and its exercises (if any)."
   [conn path]
   (let [db  (d/db conn)
         src (d/q '[:find ?s . :in $ ?p :where [?s :source/path ?p]] db path)]
     (when src
-      (let [nodes (d/q '[:find [?n ...] :in $ ?s :where [?n :node/source ?s]] db src)]
+      (let [nodes (d/q '[:find [?n ...] :in $ ?s :where [?n :node/source ?s]] db src)
+            xs    (d/q '[:find [?x ...] :in $ ?s :where [?x :exercise/source ?s]] db src)]
         (d/transact! conn (into [[:db/retractEntity src]]
-                                (map (fn [n] [:db/retractEntity n]))
-                                nodes))
+                                (map (fn [e] [:db/retractEntity e]))
+                                (concat nodes xs)))
         (count nodes)))))
 
 (defn ingest-pdf!

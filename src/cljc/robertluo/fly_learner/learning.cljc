@@ -15,7 +15,9 @@
                 forgetting) without this namespace knowing.
 
   Evidence is the only input, a log of plain maps:
-    {:item id :kind kw :at epoch-ms :grade 0..1 (for graded kinds) :source any}
+    {:item id :kind kw :at epoch-ms :grade 0..1 (for graded kinds) :source any
+     :weight w (optional, default 1: how much it counts; an answer of weight 2
+                counts as two answers graded the same)}
   Kinds are open: a model scores the kinds it knows and ignores the rest.
     :answer  a graded answer about the item (e.g. a quiz)
     :seen    the learner met the item (read it, asked about it); exposure,
@@ -32,7 +34,11 @@
   (prerequisites [c item] "Items best known before `item` (may be empty).")
   (material [c item]
     "What teaching or testing `item` draws on:
-     {:title str :about str (what knowing it means) :sources [{:title str :text str} ..]}"))
+     {:title str :about str (what knowing it means) :sources [{:title str :text str} ..]
+      :exercises [{:id :title :prompt :answer :points [str ..] :context str :items [item ..] :anchor any} ..]}
+     :exercises (optional): questions the sources' authors wrote, with their answers, testing
+     `item` (and :items); :context is text a grader needs besides the prompt, :anchor where it
+     is (opaque here)."))
 
 (defprotocol Model
   (init [m] "State of an item without evidence.")
@@ -147,12 +153,14 @@
 (defrecord Mastery [rate seen-cap]
   Model
   (init [_] {:mastery 0.0 :answers 0 :seen? false})
-  (observe [_ state {:keys [kind grade]}]
+  (observe [_ state {:keys [kind grade weight] :or {weight 1}}]
     (case kind
-      ;; each answer moves mastery part of the way to its grade
-      :answer (-> state
-                  (update :mastery #(+ % (* rate (- grade %))))
-                  (update :answers inc))
+      ;; each answer moves mastery part of the way to its grade; one of weight w
+      ;; as far as w answers graded the same
+      :answer (let [r (- 1 (Math/pow (- 1 rate) weight))]
+                (-> state
+                    (update :mastery #(+ % (* r (- grade %))))
+                    (update :answers inc)))
       ;; exposure counts a little, never more than seen-cap
       :seen   (-> state (update :mastery max seen-cap) (assoc :seen? true))
       state))
@@ -160,7 +168,8 @@
 
 (defn mastery
   "Score = running mastery: each graded answer moves it `rate` of the way to
-  its grade; being seen lifts it to `seen-cap` at most."
+  its grade (an answer of weight w as far as w of them); being seen lifts it
+  to `seen-cap` at most."
   ([] (mastery {}))
   ([{:keys [rate seen-cap] :or {rate 0.5 seen-cap 0.1}}]
    (->Mastery rate seen-cap)))
@@ -204,6 +213,9 @@
                        (material [_ _] nil))
                      #{:x :y}))
   (next-items h {} 3) ;=> [[:h 2.0] [:x 0.4] [:y 0.4]]
+
+  ;; an answer of weight 2 counts as two
+  (:mastery (observe m (init m) {:kind :answer :grade 1.0 :weight 2})) ;=> 0.75
 
   ;; a wrong answer pulls mastery down
   (:mastery (observe m {:mastery 0.8 :answers 1} {:kind :answer :grade 0.0})) ;=> 0.4

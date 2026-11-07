@@ -28,12 +28,19 @@ Web stack follows flybot.sg (github.com/flybot-sg/lasagna-pattern, `examples/fly
   - `server/study` — app-layer composition of learning + store + quiz + clusters for the API: `overview` (overall,
     scores, next — from the clusters being learned, if any — and goals), `universe` (clusters with score and
     `:learning?`), `cluster` (next items within one), `learn!`, `new-question!` (sent without its model answer),
-    `answer!` (grading + scores before/after). A goal is the opaque scope `[:cluster id]`
+    `answer!` (grading + scores before/after). `new-question!` serves the item's first book exercise not answered yet
+    (or the one asked for, `:question/exercise`) before writing one; the overview's `:exercises` = best grades. A goal is the opaque scope `[:cluster id]`
   - `ask` — graph RAG over the whole store: `retrieve` (Datalevin full-text + spread to parents/links),
     `ask!` (answer with the `:common` model from numbered entries, store as `:ask/*`), `view` (cited subgraph).
     `:focus {:quote :nodes}`: a question about a passage the learner selected; its nodes and the other
     paragraphs on their page come first, the passage is quoted, and background the entries lack may be
     explained, marked as such (stored as `:ask/quote`, `:ask/focus`)
+  - `exercises` — the author's exercises and solutions: `segments` (pure, reading order: a line "Exercise 1.5." opens
+    one; after the chapter's "Solutions to exercises" the same label opens its solution), `pair`, `found`; `extract!`
+    (`:strong` model, a chapter's exercises 5 a call against the concepts the chapter mentions: 1-4 tested concepts,
+    a one-line summary, key points from the solution) for sources not looked at (`:source/exercises-by`). Stored as
+    `:exercise/*`, id from the source path + label (stable across re-ingests; `ingest/remove-source!` drops them);
+    `merge!` moves them. `of-concept`, `by-label`
   - `concept` — concepts: ideas with an identity (`:concept/label`, `:concept/gloss`, `:concept/broader`), named by
     keywords (`:concept/aliases`, unique: a keyword names one concept). Mentions are derived: node keyword = alias.
     `resolve!` (model, add-only) assigns unresolved keywords in batches; curation fns (`merge!`, `split!`, `assign!`,
@@ -51,7 +58,7 @@ Web stack follows flybot.sg (github.com/flybot-sg/lasagna-pattern, `examples/fly
     `derived` (claims, pages, dag, reasons) once per db version; `audit` (model checks each claim's direction, stores nothing; run :common, then
     `:tier :strong :claims` the flagged for a second opinion); `claim!` / `unclaim!`: human corrections (edit log)
   - `concept/view` — `index`, `concept` (hierarchy, related with shared-passage counts, prerequisites: `:concept/needs`
-    with why, `:concept/before` in order, `:concept/needed-by`; mentions with paths) and `graph` (every concept +
+    with why, `:concept/before` in order, `:concept/needed-by`; `:concept/exercises`; mentions with paths) and `graph` (every concept +
     broader/related/requires edges; the API's lazy `:concept-graph`) for the API
   - `concept/cluster` — topics: `communities` (Louvain local moving over broader + co-occurrence weights; fragments
     under 6 join their most connected neighbour; `:keep` existing clusters fixed), `refresh!` (after an ingest:
@@ -71,7 +78,8 @@ Web stack follows flybot.sg (github.com/flybot-sg/lasagna-pattern, `examples/fly
 - `src/cljc/robertluo/fly_learner/ui/core/` — frontend logic, JVM-testable: `db` (pure state fns), `pull` (named pull specs),
   `history` (URL <-> state; `/` the map, `/g/<id>` a cluster, `/x/<id>` an exploration), `views` (Replicant hiccup: one flow, map ->
   cluster -> concept -> passage; a concept page's "Learn first": its prerequisite path not yet known, foundations
-  first, hidden ones badged "background", and what it leads to; study-next cards mark prerequisites outside the topic; the header holds the map and the clusters being learned; a quiz started anywhere docks at the top of the left
+  first, hidden ones badged "background", and what it leads to; "Exercises from the book" (the quiz says it is from
+  the book, counts double, links to its page, shows the exercise it builds on, grades against the author's solution); study-next cards mark prerequisites outside the topic; the header holds the map and the clusters being learned; a quiz started anywhere docks at the top of the left
   pane of split views, `quiz-dock`, and stays across pages), `highlight` (find a node's text among pdf.js text items), `viewport` (pan/zoom of a drawing: automatic
   until the learner pans or zooms: whole if readable, else readable names around a focus; names below `readable-px`
   are not drawn; `db/pane-*` for `:map` and `:graph`, which goes automatic again on another graph),
@@ -106,7 +114,8 @@ Each layer knows the one below as little as possible, so any part can be reimple
   (`init`/`observe`/`score`; `mastery` is the basic one). `overall` = weighted score, the learner's target;
   `next-items` = value × room to grow × readiness of prerequisites; value = weight + half of what the item unlocks
   (items needing it, not known yet, split among their prerequisites), so foundations come early; prerequisites outside
-  a restricted curriculum are offered too (study marks them `:prerequisite?`).
+  a restricted curriculum are offered too (study marks them `:prerequisite?`). Evidence may carry `:weight` (an answer
+  of weight 2 moves mastery as far as two); material may carry `:exercises` (questions the sources' authors wrote).
   - `learning.decay` — forgetting as a `Model` wrapping any `Model` (FSRS-style stability); learning knows nothing of it
   - `restricted` — a `Curriculum` limited to some items: a learner focusing on part of it (its own `overall`,
     `next-items`; prerequisites outside still count for readiness)
@@ -114,9 +123,12 @@ Each layer knows the one below as little as possible, so any part can be reimple
     (opaque ids)
   - `learning.concepts` — the only bridge: the concept graph as a `Curriculum` (`[:concept id]`, `[:relation a b]`;
     prerequisites = `concept.prereq/dag` for judged concepts, broader otherwise; a hidden concept's material is its
-    gloss and what needs it);
+    gloss and what needs it; a concept's material carries its book exercises, every concept they test as `:items`,
+    the exercises they build on as `:context`);
     `concepts-items` = the items a set of concepts (a cluster) covers
-- **features** (`quiz`: generate questions from an item's material, grade free text into `:answer` evidence) —
+- **features** (`quiz`: generate questions from an item's material, or `authored`: the material's exercises, weight
+  `authored-weight` 2, graded against the author's solution; grade free text into `:answer` evidence, one per item
+  tested; `attempts`: best grade per authored question) —
   depend on learning only, never on knowledge
 - **ideas** (`ideas.cljc`, depends on nothing) — the learner's own voice: an idea takes a stance
   (`:agree`/`:disagree`), is a `:note`, or marks something: `:highlight`, `:bookmark` (a node anchor with the PDF
@@ -154,7 +166,7 @@ Each layer knows the one below as little as possible, so any part can be reimple
 - `bb watch` — shadow-cljs without a REPL; `bb serve` — release build served by the backend on :8080
 - `bb test`, `bb lint`; `bb install` / `bb vendor` copy pdf.js into `resources/public/vendor/pdfjs`
 - `bb ingest data/sources/<file>.pdf ...` — `cli/ingest!` (ingest + fold, then `concept/resolve!`, clusters,
-  `concept.prereq/judge!` for new concepts, `keypoints/extract!` and `explore.knowledge/propose!` for new passages; prints the cost).
+  `concept.prereq/judge!` for new concepts, `keypoints/extract!`, `exercises/extract!` for new sources and `explore.knowledge/propose!` for new passages; prints the cost).
   `bb/ingest_task.clj` evaluates it over nREPL in the running `bb dev` REPL when `.nrepl-port` answers (Datalevin
   must have one writer: the app's), else runs `clojure -M:ingest`. Paths are stored relative to the project
   (`cli/source-path`), so any spelling of a file re-ingests the same source

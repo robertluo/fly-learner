@@ -119,7 +119,8 @@
     ;; write a question on the quiz's item (a create: runs the model)
     :question-create
     (when (= :asking (get-in db [:quiz :status]))
-      {:pattern {:questions {nil {:question/item (get-in db [:quiz :item])}}}
+      {:pattern {:questions {nil (let [{:keys [item exercise]} (:quiz db)]
+                                   (cond-> {:question/item item} exercise (assoc :question/exercise exercise)))}}
        :then    (fn [r] {:db #(db/question-created % (get r 'questions))})})
 
     ;; grade the answer (a create: runs the model, records evidence)
@@ -214,6 +215,10 @@
   (for-route {:view :study}) ;=> :learning
   (:pattern (resolve-pull :question-create (db/quiz-start db/initial-state [:concept id])))
   ;=> {:questions {nil {:question/item [:concept #uuid "00000000-0000-0000-0000-000000000001"]}}}
+  ;; a book exercise of it
+  (get-in (:pattern (resolve-pull :question-create (db/quiz-start db/initial-state [:concept id] id)))
+          [:questions nil :question/exercise])
+  ;=> #uuid "00000000-0000-0000-0000-000000000001"
   (resolve-pull :answer-create db/initial-state) ;=> nil
   (= '{:concept-graph ?g} (:pattern (resolve-pull :concept-graph db/initial-state))) ;=> true
   (for-route {:view :home})) ;=> nil

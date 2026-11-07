@@ -3,7 +3,8 @@
   (:require [datalevin.core :as d]
             [robertluo.fly-learner.concept.graph :as graph]
             [robertluo.fly-learner.concept.prereq :as prereq]
-            [robertluo.fly-learner.db :as db]))
+            [robertluo.fly-learner.db :as db]
+            [robertluo.fly-learner.exercises :as exercises]))
 
 (defn- ref-of
   "A concept as referenced from elsewhere: id, label, gloss, mention count."
@@ -45,8 +46,10 @@
   to learn first (:concept/needs the direct ones, each with :why;
   :concept/before every one, each after what it needs), what it leads to
   (:concept/needed-by, by label, at most `needed-by-limit`, with
-  :concept/needed-by-count), and the passages mentioning it with their
-  paths, overview first. nil when not found."
+  :concept/needed-by-count), the exercises the author wrote testing it
+  (:concept/exercises: id, label, summary, page, :node/id, :source/id) and
+  the passages mentioning it with their paths, overview first. nil when
+  not found."
   [db id]
   (let [g                 (graph/load-graph db)
         {:keys [dag why]} (prereq/derived db)
@@ -74,6 +77,9 @@
                    :concept/before   (mapv #(ref-of g %) (prereq/before dag id (constantly false) label))
                    :concept/needed-by-count (count needed-by)
                    :concept/needed-by (refs g (take needed-by-limit (sort-by label needed-by)))
+                   :concept/exercises (mapv #(select-keys % [:exercise/id :exercise/label :exercise/summary
+                                                             :exercise/page :node/id :source/id])
+                                            (exercises/of-concept db id))
                    :concept/mentions mentions))))))
 
 (defn graph

@@ -54,7 +54,8 @@
   "What the learner knows now: {:overall :scores {item score} (only items
   above 0) :next [{:item :title :about :score :priority :prerequisite?} ..]
   (:prerequisite? when outside the clusters, see `next-refs`) :answers n
-  :goals [cluster-id ..]}. :next comes from the clusters being learned, if
+  :goals [cluster-id ..] :exercises {question-id best grade}} (the authors'
+  exercises answered). :next comes from the clusters being learned, if
   any; :overall is always the whole graph's."
   [db learning]
   (let [[c scores] (scored db learning (now))
@@ -62,8 +63,9 @@
     {:overall (learning/overall c scores)
      :scores  (into {} (filter (comp pos? val)) scores)
      :next    (next-refs c (focus db c goals) scores)
-     :answers (count (filter #(= :answer (:kind %)) (store/evidence db)))
-     :goals   goals}))
+     :answers   (count (distinct (keep #(when (= :answer (:kind %)) [(:source %) (:at %)]) (store/evidence db))))
+     :goals     goals
+     :exercises (quiz/attempts db)}))
 
 (defn universe
   "Every cluster with how well it is known and whether it is being learned:
@@ -111,21 +113,30 @@
 (defn- public-question
   "A question as the learner sees it before answering: no model answer."
   [c scores q]
-  (merge (select-keys q [:question/id :question/item :question/prompt])
+  (merge (select-keys q [:question/id :question/item :question/prompt :question/by :question/title
+                         :question/weight :question/anchor :question/context])
          (item-ref c scores (:question/item q))))
 
 (defn new-question!
-  "Write and save a question on `item`, or on the item to study next when
-  nil. Returns it without its answer, or {:error ..}."
-  [conn client learning item opts]
+  "A question on `item`, or on the item to study next when nil: `exercise`
+  (a question id) when one of its authored ones, else the first authored
+  one not answered yet, else one the model writes. Saved, and returned
+  without its answer, or {:error ..}."
+  [conn client learning {:keys [item exercise]} opts]
   (let [db (d/db conn)
         [c scores] (scored db learning (now))
         item (or item (ffirst (learning/next-items c scores 1)))]
     (if-not (contains? (learning/items c) item)
       {:error {:type :invalid :message "Nothing to study there"}}
-      (let [[q] (quiz/generate client c item opts)]
-        (quiz/save! conn [q])
-        (public-question c scores q)))))
+      (let [authored (quiz/authored c item)
+            chosen   (when exercise (first (filter #(= exercise (:question/id %)) authored)))]
+        (if (and exercise (not chosen))
+          {:error {:type :not-found :message "No such exercise on this"}}
+          (let [q (or chosen
+                      (first (remove #(contains? (quiz/attempts db) (:question/id %)) authored))
+                      (first (quiz/generate client c item opts)))]
+            (quiz/save! conn [q])
+            (public-question c scores q)))))))
 
 (defn answer!
   "Grade `response` to question `id`, record the evidence, and return the
@@ -139,7 +150,7 @@
           db     (d/db conn)
           [_ s1] (scored db learning (now))]
       (merge graded
-             (select-keys q [:question/id :question/answer :question/points])
+             (select-keys q [:question/id :question/answer :question/points :question/by :question/weight])
              {:before   {:item (get s0 item 0) :overall (learning/overall c s0)}
               :after    {:item (get s1 item 0) :overall (learning/overall c s1)}
               :overview (overview db learning)}))

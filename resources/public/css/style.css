@@ -477,6 +477,21 @@ input.filter:focus { outline: 2px solid var(--accent-soft); border-color: var(--
 .quiz summary { cursor: pointer; color: var(--muted); font-size: .9rem; }
 .quiz .points { margin: .25rem 0 0; color: var(--muted); }
 .quiz .change { font-size: .92rem; margin: 1rem 0 0; }
+.quiz .prompt.book { white-space: pre-wrap; font-size: 1.02rem; }
+.quiz details .source-text { max-height: 24rem; overflow: auto; }
+.quiz .nowrap { white-space: nowrap; }
+.quiz .builds-on { margin: -.4rem 0 .8rem; }
+.tag.authored { background: var(--accent-soft); color: var(--accent); }
+
+.exercise-list { list-style: none; padding: 0; margin: .5rem 0 0; }
+.exercise-list li {
+  display: grid; grid-template-columns: 7.5rem 1fr 3.5rem auto; align-items: center; gap: .7rem;
+  padding: .45rem 0; border-bottom: 1px solid var(--border);
+}
+.exercise-list .label { font-weight: 600; white-space: nowrap; }
+.exercise-list .summary { font: .95rem/1.4 var(--serif); }
+.exercise-list .best { text-align: right; font-size: .88rem; }
+.exercise-list li.tried .best { color: var(--accent); font-weight: 600; }
 
 .next .next-head { display: flex; align-items: center; gap: .8rem; }
 .next .next-head .card-title { flex: 1; margin: 0; }

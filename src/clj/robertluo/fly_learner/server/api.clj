@@ -14,7 +14,9 @@
     '{:clusters {{:cluster/id #uuid \"..\"} ?c}}   ; a cluster's page: what to study next in it
     '{:ideas ?all}                                 ; the learner's ideas, resolved to what they are about
     {:ideas {nil {:idea/stance :note ..}}}         ; add one; {:ideas {{:idea/id id} nil}} removes it
-    {:questions {nil {:question/item item}}}       ; write a question (item nil: what to study next)
+    {:questions {nil {:question/item item}}}       ; a question (item nil: what to study next): the
+                                                    ; author's exercise not answered yet, else written
+    {:questions {nil {:question/item item :question/exercise id}}} ; that exercise of the item
     {:answers {nil {:question/id .. :response \"..\"}}} ; grade an answer, record it, new scores
     '{:search {{:q \"function extensionality\"} ?hits}} ; full-text + graph ranking, no model
     '{:asks ?recent}                                ; recent questions
@@ -123,8 +125,8 @@
   coll/DataSource
   (fetch [_ _] nil)
   (list-all [_] [])
-  (create! [_ {:question/keys [item]}]
-    (try (study/new-question! conn @client learning item opts)
+  (create! [_ {:question/keys [item exercise]}]
+    (try (study/new-question! conn @client learning {:item item :exercise exercise} opts)
          (catch Exception e (ask-error e))))
   (update! [_ _ _] {:error {:type :forbidden}})
   (delete! [_ _] {:error {:type :forbidden}}))

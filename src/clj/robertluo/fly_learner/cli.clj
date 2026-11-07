@@ -14,6 +14,7 @@
             [robertluo.fly-learner.db :as db]
             [robertluo.fly-learner.explore.knowledge :as explore]
             [robertluo.fly-learner.ingest :as ingest]
+            [robertluo.fly-learner.exercises :as exercises]
             [robertluo.fly-learner.keypoints :as keypoints]
             [robertluo.fly-learner.llm :as llm]
             [robertluo.fly-learner.server.study :as study]
@@ -86,6 +87,9 @@
           (println "Finding the key sentences of new passages")
           (let [{:keys [passages keypoints]} (keypoints/extract! conn client {:models models})]
             (println (format "  %d passages, %d key sentences" passages keypoints)))
+          (println "Finding the exercises of new sources")
+          (let [{:keys [exercises solutions]} (exercises/extract! conn client {:models models})]
+            (println (format "  %d exercises, %d with the author's solution" exercises solutions)))
           (println "Finding passages to explore")
           (let [{:keys [judged proposed]} (explore/propose! conn client {:models models})]
             (println (format "  %d passages judged, %d can be explored" judged proposed)))

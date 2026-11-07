@@ -14,13 +14,17 @@
   concepts when it was not judged (a parent no passage mentions, a concept
   not judged yet); a relation's two concepts. Hidden concepts (background
   the sources assume) have no passages: their material is their gloss and
-  what needs them."
+  what needs them. A concept's material carries the exercises testing it
+  (robertluo.fly-learner.exercises), with the author's solution, the
+  exercises they build on as context, every concept they test as items and
+  {:source/id :node/id :page} as anchor."
   (:require [clojure.string :as str]
             [datalevin.core :as d]
             [robertluo.fly-learner.concept.graph :as graph]
             [robertluo.fly-learner.concept.prereq :as prereq]
             [robertluo.fly-learner.concept.view :as view]
             [robertluo.fly-learner.db :as db]
+            [robertluo.fly-learner.exercises :as exercises]
             [robertluo.fly-learner.learning :as learning]))
 
 (defn concept-item [id] [:concept id])
@@ -61,6 +65,23 @@
                             (interpose " › ") (apply str))
                 :text  (or (:node/summary n) (:node/text n) "")}))))
 
+(defn- exercises-of
+  "Concept `id`'s exercises as material :exercises."
+  [db cid]
+  (let [texts (memoize #(exercises/by-label db %))]
+    (vec (for [{:exercise/keys [id label text solution refers points concepts page summary] :as x}
+               (exercises/of-concept db cid)
+               :let [sid (:source/id x)]]
+           {:id      id
+            :title   (str "Exercise " label)
+            :about   summary
+            :prompt  text
+            :answer  solution
+            :points  points
+            :context (when-let [ts (seq (keep (texts sid) refers))] (str/join "\n\n" ts))
+            :items   (mapv concept-item concepts)
+            :anchor  {:source/id sid :node/id (:node/id x) :page page}}))))
+
 (defn curriculum
   "Curriculum over the concept graph in `db` (a snapshot: build it again
   after the graph changes)."
@@ -98,7 +119,8 @@
         (case kind
           :concept
           (let [{:concept/keys [gloss aliases]} (concepts a)]
-            {:title   (label a)
+            {:title     (label a)
+             :exercises (exercises-of db a)
              :about   (str "the concept \"" (label a) "\""
                            (when gloss (str ": " gloss))
                            (when-let [others (seq (disj aliases (label a)))]

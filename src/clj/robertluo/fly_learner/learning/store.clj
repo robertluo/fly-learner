@@ -13,13 +13,15 @@
    :evidence/grade  {:db/valueType :db.type/double}
    :evidence/at     {:db/valueType :db.type/instant}
    :evidence/source {}                                 ; what produced it, e.g. a question id
+   :evidence/weight {:db/valueType :db.type/double}    ; how much it counts, when not 1
    :goal/key        {:db/valueType :db.type/string :db/unique :db.unique/identity} ; pr-str of the scope
    :goal/scope      {}                                 ; scope id (EDN value), opaque to the store
    :goal/at         {:db/valueType :db.type/instant}})
 
-(defn- ->datoms [{:keys [item kind grade at source]}]
+(defn- ->datoms [{:keys [item kind grade at source weight]}]
   (cond-> {:evidence/item item :evidence/kind kind :evidence/at (java.util.Date. (long at))}
     grade  (assoc :evidence/grade (double grade))
+    (and weight (not (== 1 weight))) (assoc :evidence/weight (double weight))
     source (assoc :evidence/source source)))
 
 (defn record!
@@ -31,12 +33,14 @@
 (defn evidence
   "Every piece of evidence, oldest first, :at in epoch ms."
   [db]
-  (->> (d/q '[:find [(pull ?e [:evidence/item :evidence/kind :evidence/grade :evidence/at :evidence/source]) ...]
+  (->> (d/q '[:find [(pull ?e [:evidence/item :evidence/kind :evidence/grade :evidence/at :evidence/source
+                                :evidence/weight]) ...]
               :where [?e :evidence/kind]]
             db)
-       (map (fn [{:evidence/keys [item kind grade at source]}]
+       (map (fn [{:evidence/keys [item kind grade at source weight]}]
               (cond-> {:item item :kind kind :at (.getTime ^java.util.Date at)}
                 grade  (assoc :grade grade)
+                weight (assoc :weight weight)
                 source (assoc :source source))))
        (sort-by :at)
        vec))
