@@ -621,6 +621,29 @@
            [:div.mark {:replicant/key i
                        :style {:left (pct x) :top (pct y) :width (pct w) :height (pct h)}}]))]])])
 
+(defn- page-input
+  "\"Page [p] / n\": type a page number and Enter to go there; Esc or
+  leaving the box gives up. While typing, the box holds what is typed, not
+  the page scrolled to."
+  [db sid p n following? dispatch!]
+  (let [draft (get-in db [:pdf :draft])]
+    [:form.page {:on {:submit (fn [e]
+                                (.preventDefault e)
+                                (dispatch! {:db #(db/pdf-page-entered % sid)
+                                            :history (if following? :push :replace)})
+                                #?(:cljs (some-> (.querySelector (.-target e) "input") .blur)))}}
+     [:label {:for "pdf-page-input"} "Page"]
+     [:input#pdf-page-input
+      {:type "text" :inputmode "numeric" :autocomplete "off"
+       :aria-label (str "Page number" (when n (str ", of " n)))
+       :size (max 2 (count (str (or n p))))
+       :value (or draft (str p))
+       :on {:focus #(.select (.-target %))
+            :input #(dispatch! {:db (fn [d] (db/pdf-page-typed d (.. % -target -value)))})
+            :keydown #(when (= "Escape" (.-key %)) (.blur (.-target %)))
+            :blur #(dispatch! {:db (fn [d] (db/pdf-page-typed d nil))})}}]
+     (when n [:span (str "/ " n)])]))
+
 (defn- source-pane
   "The original document (pdf.js), every page in one scrolling column, at
   the selected node's page with its source text highlighted."
@@ -657,7 +680,7 @@
      [:div.pdf-toolbar
       (width-toggle db dispatch! "text")
       [:button {:disabled (<= p 1) :on {:click (goto (dec p))}} "‹"]
-      [:span.page "Page " p (when n (str " / " n))]
+      (page-input db sid p n following? dispatch!)
       [:button {:disabled (boolean (and n (>= p n))) :on {:click (goto (inc p))}} "›"]
       (when-not following?
         [:button.follow {:on {:click #(dispatch! {:db db/pdf-follow :history :push})}} "Back to selection"])]

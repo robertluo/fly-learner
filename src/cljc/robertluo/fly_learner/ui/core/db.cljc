@@ -64,6 +64,7 @@
                      :aspect    {}    ; source-id -> width/height of a page (pages not yet drawn)
                      :highlight nil   ; {:key [url page node-id] :aspect w/h :rects [{:x :y :w :h}]}
                      :text-ready #{}  ; "url#page" whose text layer has been laid out
+                     :draft     nil   ; the page number being typed in the toolbar, nil when not typing
                      :zoom      1.0   ; page width / the pane's
                      :placed    {}}   ; quotes key (pdf-quotes-key) -> {idea-id [{:x :y :w :h}]}
    :source-only?    false  ; split views: the left pane hidden, the source (PDF, graph) full width
@@ -932,6 +933,19 @@
   (let [n (or (pdf-pages db source-id) p)]
     (assoc-in db [:pdf :page] (-> p (max 1) (min n)))))
 
+(defn pdf-page-typed
+  "The learner is typing `s` as the page to go to."
+  [db s]
+  (assoc-in db [:pdf :draft] s))
+
+(defn pdf-page-entered
+  "Go to the page typed (clamped to the document), if it is a number; the
+  typing ends either way."
+  [db source-id]
+  (let [p (some->> (get-in db [:pdf :draft]) (re-find #"\d+") parse-long)]
+    (cond-> (assoc-in db [:pdf :draft] nil)
+      p (pdf-goto source-id p))))
+
 (defn pdf-follow [db] (assoc-in db [:pdf :page] nil))
 
 (defn following? [db] (nil? (get-in db [:pdf :page])))
@@ -1030,6 +1044,11 @@
   (:source-only? (source-only-toggle initial-state)) ;=> true
   (:source-only? (-> initial-state source-only-toggle source-only-toggle)) ;=> false
   (:source-only? (source-only initial-state "yes")) ;=> true
+  ;; typing a page number in the toolbar
+  (let [d (-> initial-state (pdf-loaded :s 120) (pdf-page-typed "88"))]
+    [(get-in d [:pdf :draft]) (get-in (pdf-page-entered d :s) [:pdf :page])]) ;=> ["88" 88]
+  (get-in (-> initial-state (pdf-loaded :s 120) (pdf-page-typed "999") (pdf-page-entered :s)) [:pdf :page]) ;=> 120
+  (get-in (-> initial-state (pdf-page-typed "abc") (pdf-page-entered :s)) [:pdf]) ;=> (:pdf initial-state)
   (wide? (fullscreen initial-state true)) ;=> true
   (wide? initial-state) ;=> false
   (node-page {:node/children [{:node/page 3}]}) ;=> 3

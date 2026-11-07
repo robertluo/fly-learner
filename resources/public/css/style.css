@@ -687,6 +687,13 @@ form.ask input:focus { outline: 2px solid var(--accent-soft); border-color: var(
 }
 .pdf-toolbar button:disabled { opacity: .4; cursor: default; }
 .pdf-toolbar .follow { margin-left: auto; color: var(--accent); }
+.pdf-toolbar .page { display: inline-flex; align-items: center; gap: .35rem; margin: 0; }
+.pdf-toolbar .page input {
+  font: inherit; font-variant-numeric: tabular-nums; text-align: center;
+  padding: .1rem .25rem; border: 1px solid var(--border); border-radius: 6px;
+  background: var(--bg); color: var(--text);
+}
+.pdf-toolbar .page input:focus { outline: 2px solid var(--accent-soft); border-color: var(--accent); }
 
 /* every page in one column; pages away from the view are blank sheets of the same size */
 .pdf-page { flex: 1; overflow: auto; padding: 1rem; position: relative; }
