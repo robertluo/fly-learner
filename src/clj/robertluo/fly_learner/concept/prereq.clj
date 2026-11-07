@@ -23,6 +23,7 @@
                 concepts (or finds they are concepts after all)
     ->tx        a judgement as tx data: :prereq/* claims, hidden concepts,
                 each judged concept marked :concept/prereqs-by
+    claim! unclaim!  human corrections, logged as :edit/*
     dag         the claims as an acyclic graph: mutual claims drop out (the
                 two are learned together), a cycle loses the edge the
                 sources' order contradicts most
@@ -134,6 +135,36 @@
   (before g :c #{:a} str) ;=> [:b]
   (before g :a) ;=> []
   )
+
+;;=============================================================================
+;; Curation (human-written)
+;;=============================================================================
+
+(defn- concept-eid [db id]
+  (or (d/entid db [:concept/id id]) (throw (ex-info "No such concept" {:concept/id id}))))
+
+(defn- log [op args]
+  {:edit/op op :edit/by "human" :edit/args args :edit/at (java.util.Date.)})
+
+(defn unclaim!
+  "Retract every claim that concept `of` needs concept `needs` (a model's
+  mistake, say), logged as an :unclaim edit."
+  [conn of needs]
+  (let [db (d/db conn)
+        ps (d/q '[:find [?p ...] :in $ ?b ?a :where [?p :prereq/of ?b] [?p :prereq/needs ?a]]
+                db (concept-eid db of) (concept-eid db needs))]
+    (d/transact! conn (conj (mapv #(vector :db/retractEntity %) ps) (log :unclaim [of needs])))
+    (count ps)))
+
+(defn claim!
+  "Claim that concept `of` needs concept `needs` first, because `why`: a
+  human claim, logged as a :claim edit."
+  [conn of needs why]
+  (let [db (d/db conn)]
+    (d/transact! conn [{:prereq/of (concept-eid db of) :prereq/needs (concept-eid db needs)
+                        :prereq/why why :prereq/by "human"}
+                       (log :claim [of needs why])])
+    nil))
 
 ;;=============================================================================
 ;; Derived once per db version

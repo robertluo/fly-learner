@@ -48,7 +48,7 @@ Web stack follows flybot.sg (github.com/flybot-sg/lasagna-pattern, `examples/fly
     mentions; the label is an alias, so a later source teaching it gives it mentions); stored as `:prereq/*` claims,
     judged concepts marked `:concept/prereqs-by`. `dag` derived on read: mutual claims drop (learned together), a
     cycle loses the edge the sources' page order contradicts most; `before` = what to learn first, in order;
-    `derived` (claims, pages, dag, reasons) once per db version
+    `derived` (claims, pages, dag, reasons) once per db version; `claim!` / `unclaim!`: human corrections (edit log)
   - `concept/view` — `index`, `concept` (hierarchy, related with shared-passage counts, prerequisites: `:concept/needs`
     with why, `:concept/before` in order, `:concept/needed-by`; mentions with paths) and `graph` (every concept +
     broader/related/requires edges; the API's lazy `:concept-graph`) for the API

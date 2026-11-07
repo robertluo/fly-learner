@@ -47,3 +47,17 @@
       (concept/merge! conn a a')
       (is (= [{:of b :needs a :why "a subset of it" :by "stub"}] (prereq/claims (d/db conn))))
       (finally (d/close conn)))))
+
+(deftest curation
+  (let [dir   (str (System/getProperty "java.io.tmpdir") "/fly-learner-prereq-" (random-uuid))
+        conn  (db/connect dir)
+        [a b] (repeatedly 2 random-uuid)]
+    (try
+      (d/transact! conn [{:concept/id a :concept/label "transitivity" :concept/aliases ["transitivity"]}
+                         {:concept/id b :concept/label "equivalence relation" :concept/aliases ["equivalence relation"]}])
+      (d/transact! conn (prereq/->tx {:by "stub" :judged [a] :claims [{:of a :needs b :why "backwards"}]}))
+      (is (= 1 (prereq/unclaim! conn a b)))
+      (prereq/claim! conn b a "one of its defining properties")
+      (is (= [{:of b :needs a :why "one of its defining properties" :by "human"}] (prereq/claims (d/db conn))))
+      (is (= [:prereqs :unclaim :claim] (map :edit/op (concept/edits (d/db conn)))))
+      (finally (d/close conn)))))
