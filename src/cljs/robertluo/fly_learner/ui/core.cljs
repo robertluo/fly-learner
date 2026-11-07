@@ -103,6 +103,7 @@
 (def ^:private source-only-key "fly-learner/source-only")
 (def ^:private pdf-zoom-key "fly-learner/pdf-zoom")
 (def ^:private split-key "fly-learner/split")
+(def ^:private cards-key "fly-learner/cards-all")
 
 (defonce _render-on-change
   (add-watch app-db ::render
@@ -113,6 +114,8 @@
                  (select/clear!))
                (when (not= (:source-only? old) (:source-only? new))
                  (some-> js/window.localStorage (.setItem source-only-key (str (:source-only? new)))))
+               (when (not= (get-in old [:cards :all?]) (get-in new [:cards :all?]))
+                 (some-> js/window.localStorage (.setItem cards-key (str (get-in new [:cards :all?])))))
                (when (not= (:split old) (:split new))
                  (some-> js/window.localStorage (.setItem split-key (str (:split new)))))
                (when (not= (db/pdf-zoom old) (db/pdf-zoom new))
@@ -135,6 +138,9 @@
   ;; and so does the zoom of the source's pages (small print)
   (when-let [z (some-> js/window.localStorage (.getItem pdf-zoom-key) js/parseFloat)]
     (when-not (js/isNaN z) (dispatch! {:db #(db/pdf-zoomed % z)})))
+  ;; and drill-down summaries read in full
+  (when (= "true" (some-> js/window.localStorage (.getItem cards-key)))
+    (dispatch! {:db #(db/cards-all % true)}))
   ;; and the panes' share of the width
   (when-let [f (some-> js/window.localStorage (.getItem split-key) js/parseFloat)]
     (when-not (js/isNaN f) (dispatch! {:db #(db/split-set % f)})))

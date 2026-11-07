@@ -623,6 +623,16 @@ blockquote.asked-about {
 }
 
 .cards.compact .preview { -webkit-line-clamp: 2; }
+/* drill-down cards read in full on demand */
+.card.expandable { position: relative; }
+.card.expandable .card-title { padding-right: 1.6rem; }
+.card-toggle { position: absolute; top: .55rem; right: .5rem; border: 0; background: none; color: var(--muted);
+  cursor: pointer; font-size: .9rem; padding: .1rem .3rem; border-radius: 4px; }
+.card-toggle:hover { color: var(--accent); background: var(--accent-soft); }
+.card.expandable .preview { cursor: pointer; }
+.preview.full { display: block; -webkit-line-clamp: unset; overflow: visible; color: var(--text); }
+.section-head { display: flex; align-items: baseline; justify-content: space-between; }
+.section-head .btn { font-size: .82rem; }
 
 /* ask ------------------------------------------------------------------ */
 

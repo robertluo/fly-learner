@@ -70,6 +70,8 @@
    :keypoints       {}     ; source-id -> [{:page :para :node :quote :label}]: key sentences (robertluo.fly-learner.keypoints)
    :source-only?    false  ; split views: the left pane hidden, the source (PDF, graph) full width
    :split           0.5    ; split views: the left pane's share of the width (kept in localStorage)
+   :cards           {:all? false  ; drill-down summaries read in full (kept in localStorage)
+                     :open #{}}   ; node ids whose summary is read in full (the others not, when not all?)
    :split-drag      nil    ; that share while the divider is being dragged
    :fullscreen?     false  ; the browser is full screen, showing only the pane (map, graph, PDF)
    :map-view        {}     ; the map's pan and zoom (robertluo.fly-learner.ui.core.viewport)
@@ -947,6 +949,23 @@
 
 (defn pdf-zoom [db] (get-in db [:pdf :zoom] 1.0))
 
+(defn card-open?
+  "Whether the summary of the card of node `id` is read in full."
+  [db id]
+  (let [{:keys [all? open]} (:cards db)]
+    (if all? (not (contains? open id)) (contains? open id))))
+
+(defn card-toggled
+  "Read the summary of node `id`'s card in full, or fold it again."
+  [db id]
+  (update-in db [:cards :open] (fn [o] (let [o (or o #{})] (if (contains? o id) (disj o id) (conj o id))))))
+
+(defn cards-all
+  "Every drill-down summary in full (`all?`), or folded; cards opened or
+  folded one by one follow."
+  [db all?]
+  (assoc db :cards {:all? (boolean all?) :open #{}}))
+
 (def split-range "The left pane's share of the width: from, to." [0.25 0.75])
 
 (defn split-share
@@ -1248,6 +1267,9 @@
     [(mapv (juxt :node-id :page) (bookmarks d)) (:idea/id (bookmark-on d :n1)) (ideas-in-node d :n1 nil)
      (let [o (open-bookmark d (first (bookmarks d :s)))] [(:node-id o) (pdf-page o)])])
   ;=> [[[:n2 1] [:n1 12]] :b1 [] [:n2 1]]
+  ;; drill-down cards: one by one, or all (then a toggle folds one)
+  [(card-open? (card-toggled initial-state :a) :a) (card-open? (cards-all initial-state true) :a)
+   (card-open? (-> initial-state (cards-all true) (card-toggled :a)) :a)] ;=> [true true false]
   ;; the divider between the panes: live while dragged, kept on release, within range
   (split-share (split-dragged initial-state 0.9)) ;=> 0.75
   ((juxt :split :split-drag) (split-set (split-dragged initial-state 0.6234) nil)) ;=> [0.623 nil]

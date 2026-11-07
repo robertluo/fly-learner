@@ -187,15 +187,26 @@
   `in` ({:db .. :source-id ..}), source text can be selected to react to,
   and shows the quotes of ideas on it."
   ([dispatch! n] (card dispatch! n nil))
-  ([dispatch! {:node/keys [id summary text kind] :as n} in]
-   [:li.card {:replicant/key id}
-    (node-link dispatch! n {:class "card-title"}
-               (if (= :paragraph kind) (meta-line n) (:node/title n)))
-    (when-not (= :paragraph kind) (meta-line n))
-    (cond
-      (and (= :paragraph kind) in) (anchored-text :p.source-text in id :text text)
-      (= :paragraph kind)          [:p.source-text text]
-      summary                      [:p.preview summary])]))
+  ([dispatch! {:node/keys [id summary text kind] :as n} {:keys [db] :as in}]
+   (let [expandable? (and db summary (not= :paragraph kind))
+         open?       (and expandable? (db/card-open? db id))
+         toggle      #(dispatch! {:db (fn [d] (db/card-toggled d id))})]
+     [:li.card {:replicant/key id :class (when expandable? "expandable")}
+      (when expandable?
+        [:button.card-toggle {:title (if open? "Fold it" "Read it all") :aria-expanded (str open?)
+                              :on {:click toggle}}
+         (if open? "▴" "▾")])
+      (node-link dispatch! n {:class "card-title"}
+                 (if (= :paragraph kind) (meta-line n) (:node/title n)))
+      (when-not (= :paragraph kind) (meta-line n))
+      (cond
+        (and (= :paragraph kind) in) (anchored-text :p.source-text in id :text text)
+        (= :paragraph kind)          [:p.source-text text]
+        expandable?                  [:p.preview {:class (when open? "full")
+                                                  :title (when-not open? "Click to read it all")
+                                                  :on {:click toggle}}
+                                      summary]
+        summary                      [:p.preview summary])])))
 
 ;;=============================================================================
 ;; Ideas
@@ -584,7 +595,13 @@
 
        (seq children)
        [:section
-        [:h2 (if leaves? "Source text" "Drill down")]
+        (if leaves?
+          [:h2 "Source text"]
+          (let [all? (get-in db [:cards :all?])]
+            [:div.section-head
+             [:h2 "Drill down"]
+             [:button.btn.quiet {:on {:click #(dispatch! {:db (fn [d] (db/cards-all d (not all?)))})}}
+              (if all? "Collapse all" "Expand all")]]))
         [:ol.cards (for [c children] (card dispatch! c in))]])
      (ideas-panel db dispatch! (db/node-anchor node)
                   (db/ideas-in-node db id [:page (:source/id source) (db/pdf-page db)]))
