@@ -7,6 +7,10 @@
   result is shifted so that, on average, old concepts stay put. A broader
   concept is pushed above its narrower ones.
 
+  Parts with no edge between them are laid out each on its own and packed in
+  rows: repulsion alone would push them ever further apart (only the weak
+  gravity holds them), leaving the picture mostly gap.
+
   Deterministic (no randomness), so it is tested on the JVM.")
 
 (def defaults
@@ -16,7 +20,8 @@
    :aspect     2.0   ; labels are wide: repulsion counts horizontal distance as this much shorter
    :widths     {}    ; id -> label width; labels' boxes are kept apart
    :height     36    ; height of a concept's box (dot and label)
-   :gravity    0.03})
+   :gravity    0.03
+   :pack-aspect 1.5}) ; width / height the separate parts are packed into
 
 (def ^:private golden-angle 2.399963229728653)
 
@@ -26,105 +31,181 @@
   (let [a (* i golden-angle), r (+ 24 (* 4 (mod i 5)))]
     [(+ x (* r (Math/cos a))) (+ y (* r (Math/sin a)))]))
 
+(defn components
+  "The connected parts of `ids` under `edges`, largest first (then by their
+  first id as a string), each a vector of ids."
+  [ids edges]
+  (let [in  (set ids)
+        adj (reduce (fn [m {:keys [from to]}]
+                      (if (and (in from) (in to))
+                        (-> m (update from (fnil conj []) to) (update to (fnil conj []) from))
+                        m))
+                    {} edges)
+        reach (fn [id]
+                (loop [stack [id], seen #{id}]
+                  (if-let [x (peek stack)]
+                    (let [nbrs (remove seen (adj x))]
+                      (recur (into (pop stack) nbrs) (into seen nbrs)))
+                    seen)))]
+    (loop [[id & more :as todo] (sort-by str ids), seen #{}, out []]
+      (cond
+        (empty? todo) (vec (sort-by (juxt (comp - count) (comp str first)) out))
+        (seen id)     (recur more seen out)
+        :else         (let [part (reach id)]
+                        (recur more (into seen part) (conj out (vec (sort-by str part)))))))))
+
+(declare settle)
+
+(defn- extent
+  "[x0 y0 x1 y1] around the boxes of `pos`."
+  [pos widths height]
+  (let [hw #(/ (max 24 (get widths % 0)) 2)]
+    [(apply min (for [[id [x _]] pos] (- x (hw id))))
+     (apply min (for [[_ [_ y]] pos] (- y (/ height 2))))
+     (apply max (for [[id [x _]] pos] (+ x (hw id))))
+     (apply max (for [[_ [_ y]] pos] (+ y (/ height 2))))]))
+
+(defn- pack
+  "Parts (each {id [x y]}, largest first) put together without gaps: those
+  holding concepts already shown (else the largest) stay where they are;
+  the others go in rows below them, the rows about as wide as `pack-aspect`
+  makes the whole."
+  [parts prev {:keys [length widths height pack-aspect]}]
+  (let [gap      (* 0.5 length)
+        box      #(extent % widths height)
+        size     (fn [[x0 y0 x1 y1]] [(- x1 x0) (- y1 y0)])
+        shown    (filter #(some prev (keys %)) parts)
+        anchored (if (seq shown) shown (take 1 parts))
+        loose    (remove (set anchored) parts)
+        area     (reduce + (for [p parts :let [[w h] (size (box p))]] (* (+ w gap) (+ h gap))))
+        row-w    (max (apply max (map (comp first size box) parts))
+                      (Math/sqrt (* area pack-aspect)))
+        [x-start _ _ ay1] (box (apply merge anchored))]
+    (loop [[p & more] loose, x x-start, y (+ ay1 gap), row-h 0
+           out (apply merge {} anchored)]
+      (if-not p
+        out
+        (let [[x0 y0 :as b] (box p)
+              [w h]  (size b)
+              wrap?  (and (> x x-start) (> (+ (- x x-start) w) row-w))
+              y      (if wrap? (+ y row-h gap) y)
+              x      (if wrap? x-start x)
+              row-h  (if wrap? 0 row-h)
+              dx (- x x0), dy (- y y0)]
+          (recur more (+ x w gap) y (max row-h h)
+                 (into out (for [[id [px py]] p] [id [(+ px dx) (+ py dy)]]))))))))
+
 (defn layout
   "Positions {id [x y]} for `ids` and `edges` ({:from :to :kind}; :broader
   runs narrower -> broader). `prev` holds positions of concepts already
-  shown; `seeds` maps a new concept to the concept beside which it starts."
+  shown; `seeds` maps a new concept to the concept beside which it starts.
+  Unconnected parts are laid out apart, then packed (see `pack`)."
   ([ids edges prev seeds] (layout ids edges prev seeds {}))
   ([ids edges prev seeds opts]
-   (let [{:keys [length iterations old-mobility gravity aspect widths height]} (merge defaults opts)
-         ids  (vec (sort-by str ids))
-         n    (count ids)
-         idx  (zipmap ids (range))
-         xs   (double-array n), ys (double-array n), mob (double-array n)
-         ws   (double-array (map #(double (get widths % 0)) ids))
-         dxs  (double-array n), dys (double-array n)
-         start (reduce (fn [placed [i id]]
-                         (assoc placed id (or (prev id)
-                                              (some-> (seeds id) placed (beside i))
-                                              (beside [0 0] i))))
-                       {}
-                       ;; seeds before the concepts they seed
-                       (sort-by (fn [[_ id]] (if (prev id) 0 (if (prev (seeds id)) 1 2)))
-                                (map-indexed vector ids)))
-         es   (vec (keep (fn [{:keys [from to kind]}]
-                           (when-let [i (idx from)]
-                             (when-let [j (idx to)] [i j (= :broader kind)])))
-                         edges))
-         l2   (* length length)]
-     (dotimes [i n]
-       (let [[x y] (start (ids i))]
-         (aset xs i (double x)) (aset ys i (double y))
-         (aset mob i (if (prev (ids i)) (double old-mobility) 1.0))))
-     (dotimes [it iterations]
-       (let [temp (* length (- 0.5 (* 0.49 (/ it iterations))))]
-         (dotimes [i n] (aset dxs i 0.0) (aset dys i 0.0))
-         ;; every pair repels, side by side more than one above the other,
-         ;; so labels do not overlap and siblings stagger
-         (dotimes [i n]
-           (loop [j (inc i)]
-             (when (< j n)
-               (let [dx (- (aget xs i) (aget xs j)), dy (- (aget ys i) (aget ys j))
-                     ex (/ dx aspect)
-                     d  (max 1.0 (Math/sqrt (+ (* ex ex) (* dy dy))))
-                     f  (/ l2 d d)]
-                 (aset dxs i (+ (aget dxs i) (* dx f))) (aset dys i (+ (aget dys i) (* dy f)))
-                 (aset dxs j (- (aget dxs j) (* dx f))) (aset dys j (- (aget dys j) (* dy f))))
-               (recur (inc j)))))
-         ;; edges attract
-         (doseq [[i j broader?] es]
-           (let [dx (- (aget xs i) (aget xs j)), dy (- (aget ys i) (aget ys j))
-                 d  (max 1.0 (Math/sqrt (+ (* dx dx) (* dy dy))))
-                 f  (* (if broader? 1.0 0.7) (/ d length))]
-             (aset dxs i (- (aget dxs i) (* dx f))) (aset dys i (- (aget dys i) (* dy f)))
-             (aset dxs j (+ (aget dxs j) (* dx f))) (aset dys j (+ (aget dys j) (* dy f)))))
-         ;; a little gravity keeps the picture together
-         (dotimes [i n]
-           (aset dxs i (- (aget dxs i) (* gravity (aget xs i))))
-           (aset dys i (- (aget dys i) (* gravity (aget ys i))))
-           (let [dx (aget dxs i), dy (aget dys i)
-                 d  (Math/sqrt (+ (* dx dx) (* dy dy)))]
-             (when (pos? d)
-               (let [step (* (min d temp) (aget mob i))]
-                 (aset xs i (+ (aget xs i) (* step (/ dx d))))
-                 (aset ys i (+ (aget ys i) (* step (/ dy d))))))))
-         ;; a constraint, not a force (a hub's many children would outvote
-         ;; it): a broader concept is at least `gap` above each narrower one;
-         ;; whoever is freer to move does more of the moving
-         (doseq [[i j broader?] es :when broader?]
-           (let [over (- (aget ys j) (- (aget ys i) (* 0.6 length)))]
-             (when (pos? over)
-               (let [mi (aget mob i), mj (aget mob j), total (+ mi mj)]
-                 (aset ys i (+ (aget ys i) (* over (/ mi total))))
-                 (aset ys j (- (aget ys j) (* over (/ mj total))))))))))
-     ;; label boxes that still overlap: the lower concept moves down (never
-     ;; up, so broader concepts stay above), its narrower ones follow
-     (loop [pass 0]
-       (let [moved (volatile! false)]
-         (dotimes [i n]
-           (loop [j (inc i)]
-             (when (< j n)
-               (let [dy (- (aget ys j) (aget ys i))]
-                 (when (and (< (abs (- (aget xs i) (aget xs j))) (/ (+ (aget ws i) (aget ws j)) 2))
-                            (< (abs dy) height))
-                   (let [low (if (or (pos? dy) (and (zero? dy) (> j i))) j i)]
-                     (aset ys low (+ (aget ys low) (- height (abs dy)) 0.5))
-                     (vreset! moved true))))
-               (recur (inc j)))))
-         (doseq [[i j broader?] es :when broader?]
-           (let [over (- (aget ys j) (- (aget ys i) (* 0.6 length)))]
-             (when (pos? over)
-               (aset ys i (+ (aget ys i) over))
-               (vreset! moved true))))
-         (when (and @moved (< pass 60)) (recur (inc pass)))))
-     ;; old concepts stay put on average
-     (let [old    (filter #(prev (ids %)) (range n))
-           [sx sy] (if (seq old)
-                     (let [k (count old)]
-                       [(/ (reduce + (map #(- (first (prev (ids %))) (aget xs %)) old)) k)
-                        (/ (reduce + (map #(- (second (prev (ids %))) (aget ys %)) old)) k)])
-                     [0 0])]
-       (into {} (map (fn [i] [(ids i) [(+ sx (aget xs i)) (+ sy (aget ys i))]])) (range n))))))
+   (let [parts (components ids edges)]
+     (if (<= (count parts) 1)
+       (settle ids edges prev seeds opts)
+       (pack (for [part parts :let [in (set part)]]
+               (settle part (filter #(and (in (:from %)) (in (:to %))) edges) prev seeds opts))
+             prev
+             (merge defaults opts))))))
+
+(defn- settle
+  "The force layout of one connected part (see `layout`)."
+  [ids edges prev seeds opts]
+  (let [{:keys [length iterations old-mobility gravity aspect widths height]} (merge defaults opts)
+        ids  (vec (sort-by str ids))
+        n    (count ids)
+        idx  (zipmap ids (range))
+        xs   (double-array n), ys (double-array n), mob (double-array n)
+        ws   (double-array (map #(double (get widths % 0)) ids))
+        dxs  (double-array n), dys (double-array n)
+        start (reduce (fn [placed [i id]]
+                        (assoc placed id (or (prev id)
+                                             (some-> (seeds id) placed (beside i))
+                                             (beside [0 0] i))))
+                      {}
+                      ;; seeds before the concepts they seed
+                      (sort-by (fn [[_ id]] (if (prev id) 0 (if (prev (seeds id)) 1 2)))
+                               (map-indexed vector ids)))
+        es   (vec (keep (fn [{:keys [from to kind]}]
+                          (when-let [i (idx from)]
+                            (when-let [j (idx to)] [i j (= :broader kind)])))
+                        edges))
+        l2   (* length length)]
+    (dotimes [i n]
+      (let [[x y] (start (ids i))]
+        (aset xs i (double x)) (aset ys i (double y))
+        (aset mob i (if (prev (ids i)) (double old-mobility) 1.0))))
+    (dotimes [it iterations]
+      (let [temp (* length (- 0.5 (* 0.49 (/ it iterations))))]
+        (dotimes [i n] (aset dxs i 0.0) (aset dys i 0.0))
+        ;; every pair repels, side by side more than one above the other,
+        ;; so labels do not overlap and siblings stagger
+        (dotimes [i n]
+          (loop [j (inc i)]
+            (when (< j n)
+              (let [dx (- (aget xs i) (aget xs j)), dy (- (aget ys i) (aget ys j))
+                    ex (/ dx aspect)
+                    d  (max 1.0 (Math/sqrt (+ (* ex ex) (* dy dy))))
+                    f  (/ l2 d d)]
+                (aset dxs i (+ (aget dxs i) (* dx f))) (aset dys i (+ (aget dys i) (* dy f)))
+                (aset dxs j (- (aget dxs j) (* dx f))) (aset dys j (- (aget dys j) (* dy f))))
+              (recur (inc j)))))
+        ;; edges attract
+        (doseq [[i j broader?] es]
+          (let [dx (- (aget xs i) (aget xs j)), dy (- (aget ys i) (aget ys j))
+                d  (max 1.0 (Math/sqrt (+ (* dx dx) (* dy dy))))
+                f  (* (if broader? 1.0 0.7) (/ d length))]
+            (aset dxs i (- (aget dxs i) (* dx f))) (aset dys i (- (aget dys i) (* dy f)))
+            (aset dxs j (+ (aget dxs j) (* dx f))) (aset dys j (+ (aget dys j) (* dy f)))))
+        ;; a little gravity keeps the picture together
+        (dotimes [i n]
+          (aset dxs i (- (aget dxs i) (* gravity (aget xs i))))
+          (aset dys i (- (aget dys i) (* gravity (aget ys i))))
+          (let [dx (aget dxs i), dy (aget dys i)
+                d  (Math/sqrt (+ (* dx dx) (* dy dy)))]
+            (when (pos? d)
+              (let [step (* (min d temp) (aget mob i))]
+                (aset xs i (+ (aget xs i) (* step (/ dx d))))
+                (aset ys i (+ (aget ys i) (* step (/ dy d))))))))
+        ;; a constraint, not a force (a hub's many children would outvote
+        ;; it): a broader concept is at least `gap` above each narrower one;
+        ;; whoever is freer to move does more of the moving
+        (doseq [[i j broader?] es :when broader?]
+          (let [over (- (aget ys j) (- (aget ys i) (* 0.6 length)))]
+            (when (pos? over)
+              (let [mi (aget mob i), mj (aget mob j), total (+ mi mj)]
+                (aset ys i (+ (aget ys i) (* over (/ mi total))))
+                (aset ys j (- (aget ys j) (* over (/ mj total))))))))))
+    ;; label boxes that still overlap: the lower concept moves down (never
+    ;; up, so broader concepts stay above), its narrower ones follow
+    (loop [pass 0]
+      (let [moved (volatile! false)]
+        (dotimes [i n]
+          (loop [j (inc i)]
+            (when (< j n)
+              (let [dy (- (aget ys j) (aget ys i))]
+                (when (and (< (abs (- (aget xs i) (aget xs j))) (/ (+ (aget ws i) (aget ws j)) 2))
+                           (< (abs dy) height))
+                  (let [low (if (or (pos? dy) (and (zero? dy) (> j i))) j i)]
+                    (aset ys low (+ (aget ys low) (- height (abs dy)) 0.5))
+                    (vreset! moved true))))
+              (recur (inc j)))))
+        (doseq [[i j broader?] es :when broader?]
+          (let [over (- (aget ys j) (- (aget ys i) (* 0.6 length)))]
+            (when (pos? over)
+              (aset ys i (+ (aget ys i) over))
+              (vreset! moved true))))
+        (when (and @moved (< pass 60)) (recur (inc pass)))))
+    ;; old concepts stay put on average
+    (let [old    (filter #(prev (ids %)) (range n))
+          [sx sy] (if (seq old)
+                    (let [k (count old)]
+                      [(/ (reduce + (map #(- (first (prev (ids %))) (aget xs %)) old)) k)
+                       (/ (reduce + (map #(- (second (prev (ids %))) (aget ys %)) old)) k)])
+                    [0 0])]
+      (into {} (map (fn [i] [(ids i) [(+ sx (aget xs i)) (+ sy (aget ys i))]])) (range n)))))
 
 (defn view-box
   "[x y w h] around `pos` with `pad` around it, at least `min-size` wide and high."
@@ -176,6 +257,24 @@
   (every? #(< (second (wide :hub)) (second (wide %))) (range 12)) ;=> true
   ;; deterministic
   (= pos (layout [:p :t :a :b] edges {} {})) ;=> true
+
+  ;; parts with no edge between them stay close: a star and three loners
+  (components [:x :hub 1 2 :y] [{:from 1 :to :hub} {:from 2 :to :hub}]) ;=> [[1 2 :hub] [:x] [:y]]
+  (def apart (layout (concat [:hub :x :y :z] (range 12)) (for [i (range 12)] {:from i :to :hub :kind :broader}) {} {}
+                     {:widths (zipmap (concat [:hub :x :y :z] (range 12)) (repeat 120))}))
+  (let [xs (map first (vals apart)) ys (map second (vals apart))]
+    (< (max (- (apply max xs) (apply min xs)) (- (apply max ys) (apply min ys))) 1200)) ;=> true
+  (every? (fn [[a b]] (let [[xa ya] (apart a) [xb yb] (apart b)]
+                        (or (>= (abs (- xa xb)) 120) (>= (abs (- ya yb)) 36))))
+          (for [a (keys apart) b (keys apart) :when (neg? (compare (str a) (str b)))] [a b]))
+  ;=> true
+  ;; a part already shown stays about where it was when a loner joins
+  (def apart2 (layout (concat [:hub :x :y :z :w] (range 12)) (for [i (range 12)] {:from i :to :hub :kind :broader})
+                      apart {} {:widths (zipmap (concat [:hub :x :y :z :w] (range 12)) (repeat 120))}))
+  ;; (its concepts settle a little; it is not moved as a whole to make room)
+  (def centre (fn [pos ks] (let [ps (map pos ks)] [(/ (reduce + (map first ps)) (count ps)) (/ (reduce + (map second ps)) (count ps))])))
+  (let [[x1 y1] (centre apart (cons :hub (range 12))) [x2 y2] (centre apart2 (cons :hub (range 12)))]
+    (< (Math/hypot (- x1 x2) (- y1 y2)) 1)) ;=> true
 
   ;; adding :c next to :a: old concepts move well under an edge's length,
   ;; and :c ends about an edge's length from :a

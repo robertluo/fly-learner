@@ -51,7 +51,8 @@ Web stack follows flybot.sg (github.com/flybot-sg/lasagna-pattern, `examples/fly
   `history` (URL <-> state; `/` the map, `/g/<id>` a cluster), `views` (Replicant hiccup: one flow, map ->
   cluster -> concept -> passage; the header holds the map and the clusters being learned), `highlight` (find a node's text among pdf.js text items),
   `graph` (concept graph: visible = focus + neighbours of expanded concepts, outline-style), `layout`
-  (incremental force layout on primitive arrays: broader-above is a constraint, label boxes never overlap; tween)
+  (incremental force layout on primitive arrays: broader-above is a constraint, label boxes never overlap;
+  unconnected parts laid out apart and packed in rows below the largest, else repulsion strands them far away; tween)
 - `src/cljs/robertluo/fly_learner/ui/` — `core` (dispatch-of effects `:db`/`:pull`/`:history`/`:animate`, transit fetch, render,
   mouseup -> text selection), `pdf` (pdf.js: render a page, its selectable text layer, highlight boxes; the source as one scrolling column of
   pages, drawn near the view only: `sync-scroll!` keeps it at the state's page, `watch-scroll!` turns the page as the learner scrolls), `select` (the

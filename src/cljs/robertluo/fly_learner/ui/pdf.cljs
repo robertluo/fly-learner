@@ -84,7 +84,7 @@
                        (.setProperty (.-style container) "--total-scale-factor" (str scale))
                        (.setProperty (.-style container) "--scale-round-x" "1px")
                        (.setProperty (.-style container) "--scale-round-y" "1px")
-                       (-> (.render (new (.-TextLayer l)
+                       (-> (.render ^js (new (.-TextLayer l)
                                          #js {:textContentSource (.streamTextContent page)
                                               :container container
                                               :viewport (.getViewport page #js {:scale scale})}))
