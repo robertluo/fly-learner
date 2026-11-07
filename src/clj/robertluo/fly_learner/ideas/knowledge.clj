@@ -93,8 +93,11 @@
           :relation {:kind :relation
                      :title (str (:concept/label (d/pull db [:concept/label] [:concept/id a])) " — "
                                  (:concept/label (d/pull db [:concept/label] [:concept/id b])))}
-          :node     (let [{:node/keys [title kind page]} (d/pull db [:node/title :node/kind :node/page] [:node/id a])]
-                      {:kind :node :title title :node/kind kind :page page})
+          :node     (let [{:node/keys [title kind page source]}
+                          (d/pull db [:node/title :node/kind :node/page {:node/source [:source/id :source/title]}]
+                                  [:node/id a])]
+                      {:kind :node :title title :node/kind kind :page page
+                       :source/id (:source/id source) :source/title (:source/title source)})
           :page     {:kind :page
                      :title (str (:source/title (d/pull db [:source/title] [:source/id a])) ", p. " b)}
           {:kind kind :title (str kind)})))))

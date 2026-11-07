@@ -104,7 +104,7 @@
   (apply concept-link dispatch! c {:class ["chip" "concept"] :replicant/key (:concept/id c)}
          (:concept/label c) extra))
 
-(def ^:private map-effects {:db db/go-home :pull [:universe :learning] :history :push})
+(def ^:private map-effects {:db db/go-home :pull [:universe :learning :ideas] :history :push})
 
 (defn- cluster-effects [id]
   {:db #(db/open-cluster % id) :pull [:universe :cluster :concept-graph :learning :ideas]
@@ -201,8 +201,8 @@
 ;; Ideas
 ;;=============================================================================
 
-(def ^:private stance-mark {:agree "✓" :disagree "✗" :note "✎" :highlight "▍"})
-(def ^:private stance-label {:agree "Agree" :disagree "Disagree" :note "Note" :highlight "Highlight"})
+(def ^:private stance-mark {:agree "✓" :disagree "✗" :note "✎" :highlight "▍" :bookmark "🔖"})
+(def ^:private stance-label {:agree "Agree" :disagree "Disagree" :note "Note" :highlight "Highlight" :bookmark "Bookmark"})
 
 (defn- create-idea-op [data]
   {:pattern {:ideas {nil data}} :then (fn [r] {:db #(db/idea-added % (get r 'ideas))})})
@@ -369,6 +369,44 @@
            [:button.btn {:type "submit"} "Ask"]]])])))
 
 ;;=============================================================================
+;; Bookmarks
+;;=============================================================================
+
+(defn- bookmark-icon [on?]
+  [:svg.icon {:viewBox "0 0 16 16" :width 16 :height 16 :aria-hidden "true"}
+   [:path {:d "M4 2.5h8v11l-4-3-4 3z" :fill (if on? "currentColor" "none") :stroke "currentColor"
+           :stroke-width 1.5 :stroke-linejoin "round"}]])
+
+(defn- bookmark-toggle
+  "Bookmark the passage open, at the page shown; or take the bookmark away."
+  [db node dispatch!]
+  (let [b (db/bookmark-on db (:node/id node))]
+    [:button.bookmark {:class (when b "on")
+                       :title (if b
+                                (str "Remove the bookmark (made at p. " (:page b) ")")
+                                (str "Bookmark this place: " (:node/title node) ", p. " (db/pdf-page db)))
+                       :aria-pressed (str (boolean b))
+                       :on {:click #(dispatch! (if b
+                                                 {:db (fn [d] (db/idea-removed d (:idea/id b)))
+                                                  :pull (delete-idea-op (:idea/id b))}
+                                                 {:pull (create-idea-op {:idea/stance :bookmark
+                                                                         :idea/anchors [(db/bookmark-anchor db node)]})}))}}
+     (bookmark-icon (some? b))]))
+
+(defn- bookmark-list
+  "Bookmarks to go on reading from: the passage, where, when."
+  [dispatch! bms show-source?]
+  [:ul.bookmarks
+   (for [{:keys [node-id page] :as b} bms
+         :let [source-title (:source/title b)]]
+     [:li {:replicant/key (str (:idea/id b))}
+      (link dispatch! {:db #(db/open-bookmark % b) :pull [:node :ideas] :history :push}
+            (history/state->path {:view :node :node-id node-id :pdf {:page page}})
+            {:class "bookmark-link" :title "Go on reading here"}
+            (bookmark-icon true) [:span.bm-title (:title b)])
+      [:span.meta (when show-source? (str source-title " · ")) (when page (str "p. " page))]])])
+
+;;=============================================================================
 ;; Views
 ;;=============================================================================
 
@@ -461,6 +499,10 @@
              (cluster-link dispatch! c {:class "card-title"})
              (score-bar score) [:span.pct (percent score)]])]
          [:p.hint.muted "Pick a topic on the map, then “Learn this topic”. Learn a few at a time."])]
+      (when-let [bms (seq (db/bookmarks db))]
+        [:section
+         [:h2 "Bookmarks"]
+         (bookmark-list dispatch! bms true)])
       (when (seq sources)
         [:section
          [:h2 "Sources"]
@@ -524,6 +566,11 @@
        [:div.keywords
         (for [c concepts] (concept-chip dispatch! c))
         (for [kw keywords] [:span {:replicant/key kw} (keyword-link dispatch! kw)])])
+     (when (= :source kind)
+       (when-let [bms (seq (db/bookmarks db (:source/id source)))]
+         [:section
+          [:h2 "Continue reading"]
+          (bookmark-list dispatch! bms false)]))
      (node-explore db node dispatch!)
      (cond
        ;; a passage: its key sentences, the paragraphs folded away
@@ -767,6 +814,7 @@
       [:button {:disabled (<= p 1) :on {:click (goto (dec p))}} "‹"]
       (page-input db sid p n following? dispatch!)
       [:button {:disabled (boolean (and n (>= p n))) :on {:click (goto (inc p))}} "›"]
+      (bookmark-toggle db node dispatch!)
       (when-not following?
         [:button.follow {:on {:click #(dispatch! {:db db/pdf-follow :history :push})}} "Back to selection"])]
      [:div.pdf-page (pages-attrs following? sync key (db/highlight-texts node) found dispatch!)

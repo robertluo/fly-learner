@@ -98,7 +98,8 @@ Each layer knows the one below as little as possible, so any part can be reimple
 - **features** (`quiz`: generate questions from an item's material, grade free text into `:answer` evidence) —
   depend on learning only, never on knowledge
 - **ideas** (`ideas.cljc`, depends on nothing) — the learner's own voice: an idea takes a stance
-  (`:agree`/`:disagree`) or is a `:note`, on one or more anchors (opaque maps), and may link to other ideas.
+  (`:agree`/`:disagree`), is a `:note`, or marks something: `:highlight`, `:bookmark` (a node anchor with the PDF
+  `:page`; `ui.core.db/bookmarks`, kept out of the idea lists), on one or more anchors (opaque maps), and may link to other ideas.
   `Anchors` protocol (`target` -> a key ideas are grouped by, `describe`); W3C-style text quotes
   (`quote-selector`, `find-quote`, `mark-segments`) re-find a span after the text changes.
   - `ideas.store` — Datalevin, own schema

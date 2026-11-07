@@ -914,3 +914,12 @@ main.explore section h2 { margin-top: 2rem; }
 details.paragraphs { margin-top: 1rem; }
 details.paragraphs summary { cursor: pointer; color: var(--muted); font-size: .9rem; }
 details.paragraphs .cards { margin-top: .6rem; }
+
+/* bookmarks */
+.pdf-toolbar .bookmark { display: inline-flex; align-items: center; padding: .2rem .4rem; color: var(--muted); }
+.pdf-toolbar .bookmark.on { color: #c2410c; border-color: #c2410c; }
+.bookmarks { list-style: none; padding: 0; margin: .4rem 0 0; display: grid; gap: .45rem; }
+.bookmarks li { display: grid; gap: .1rem; }
+.bookmark-link { display: inline-flex; gap: .4rem; align-items: baseline; font-weight: 600; }
+.bookmark-link .icon { color: #c2410c; flex: none; transform: translateY(2px); }
+.bookmarks .meta { padding-left: 1.4rem; }

@@ -158,7 +158,7 @@
   "Pull operation needed after navigating to a parsed route."
   [{:keys [view]}]
   (case view
-    :home     [:universe :learning]
+    :home     [:universe :learning :ideas]
     :cluster  [:universe :cluster :concept-graph :learning :ideas]
     :node     [:node :ideas]
     :keyword  :keyword
@@ -207,7 +207,7 @@
   (for-route {:view :concepts}) ;=> :concept-index
   (for-route {:view :concept}) ;=> [:universe :concept :concept-graph :learning :ideas]
   (for-route {:view :cluster}) ;=> [:universe :cluster :concept-graph :learning :ideas]
-  (for-route {:view :home}) ;=> [:universe :learning]
+  (for-route {:view :home}) ;=> [:universe :learning :ideas]
   ;; the map is fetched once, and again after scores moved
   (resolve-pull :universe (db/universe-fetched db/initial-state {:clusters [] :links []})) ;=> nil
   (some? (resolve-pull :universe (assoc-in (db/universe-fetched db/initial-state {:clusters [] :links []}) [:universe :stale?] true))) ;=> true

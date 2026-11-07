@@ -1,7 +1,8 @@
 (ns robertluo.fly-learner.ideas
   "Ideas: the learner's own voice on what they study. An idea takes a
   stance on something (agree, disagree), adds a note to it, or just marks
-  it as worth keeping (a highlight, as in any reading app), and may link
+  it: worth keeping (a highlight), or where to go on reading (a bookmark),
+  as in any reading app. It may link
   to other ideas, so the learner's ideas form a graph of their own over
   the knowledge.
 
@@ -10,7 +11,7 @@
   robertluo.fly-learner.ideas.knowledge) says what an anchor points at now.
 
     {:idea/id      uuid
-     :idea/stance  :agree | :disagree | :note | :highlight
+     :idea/stance  :agree | :disagree | :note | :highlight | :bookmark
      :idea/text    str (required for a note, optional otherwise)
      :idea/anchors [anchor ..]   what it is about (one or more)
      :idea/links   [idea-id ..]  other ideas it relates to
@@ -22,7 +23,7 @@
   TextQuoteSelector."
   (:require [clojure.string :as str]))
 
-(def stances #{:agree :disagree :note :highlight})
+(def stances #{:agree :disagree :note :highlight :bookmark})
 
 (defprotocol Anchors
   (target [a anchor]

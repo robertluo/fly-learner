@@ -389,12 +389,53 @@
 
 (defn ideas-in-node
   "Ideas on node `id`, on anything inside it, or on the PDF page `page-key`
-  ([:page source-id page]) shown beside it (marked there)."
+  ([:page source-id page]) shown beside it (marked there). Bookmarks are
+  not ideas to read here (see bookmarks)."
   [db id page-key]
-  (filterv #(or (some #{[:node id] page-key} (target-keys %))
-                (some #{id} (:idea/within %))
-                (on-pdf-page? page-key %))
+  (filterv #(and (not= :bookmark (:idea/stance %))
+                 (or (some #{[:node id] page-key} (target-keys %))
+                     (some #{id} (:idea/within %))
+                     (on-pdf-page? page-key %)))
            (get-in db [:ideas :all])))
+
+(declare pdf-page)
+
+;;=============================================================================
+;; Bookmarks: where to go on reading (ideas of stance :bookmark on a node)
+;;=============================================================================
+
+(defn bookmarks
+  "The learner's bookmarks, newest first, on nodes still there:
+  [{:idea/id :node-id :title :page :source/id :source/title :at}], page the
+  PDF page it was made on (else the node's)."
+  ([db] (bookmarks db nil))
+  ([db source-id]
+   (->> (get-in db [:ideas :all])
+        (filter #(= :bookmark (:idea/stance %)))
+        (keep (fn [{:idea/keys [id anchors targets at]}]
+                (when-let [t (first (filter #(= :node (:kind %)) targets))]
+                  {:idea/id id :node-id (second (:key t)) :title (:title t)
+                   :page (or (:page (first anchors)) (:page t))
+                   :source/id (:source/id t) :source/title (:source/title t) :at at})))
+        (filter #(or (nil? source-id) (= source-id (:source/id %))))
+        (sort-by :at >)
+        vec)))
+
+(defn bookmark-on
+  "The bookmark on node `id`, or nil."
+  [db id]
+  (some #(when (= id (:node-id %)) %) (bookmarks db)))
+
+(defn bookmark-anchor
+  "Anchor of a bookmark on `node` at the PDF page shown."
+  [db node]
+  (assoc (node-anchor node) :page (pdf-page db)))
+
+(defn open-bookmark
+  "Go on reading at bookmark `b`: its node, the PDF at its page."
+  [db {:keys [node-id page]}]
+  (cond-> (open-node db node-id)
+    page (assoc-in [:pdf :page] page)))
 
 (defn ideas-about-concept
   "Ideas on concept `id` and on its relations."
@@ -1171,6 +1212,15 @@
      (:node-id (page-synced (pdf-scrolled d 10) 9 b))])
   ;=> [{:source/id :s :page 9 :near #uuid "00000000-0000-0000-0000-00000000000a"} nil nil
   ;    [#uuid "00000000-0000-0000-0000-00000000000b" 9] #uuid "00000000-0000-0000-0000-00000000000a"]
+  ;; bookmarks: newest first, at the page they were made on; not among the ideas of a node
+  (let [bm (fn [id node at page] {:idea/id id :idea/stance :bookmark :idea/at at
+                                  :idea/anchors [{:anchor/kind :node :node/id node :page page}]
+                                  :idea/targets [{:key [:node node] :kind :node :title (name node) :page 1
+                                                  :source/id :s :source/title "Book"}]})
+        d  (ideas-fetched initial-state [(bm :b1 :n1 1 12) (bm :b2 :n2 2 nil)])]
+    [(mapv (juxt :node-id :page) (bookmarks d)) (:idea/id (bookmark-on d :n1)) (ideas-in-node d :n1 nil)
+     (let [o (open-bookmark d (first (bookmarks d :s)))] [(:node-id o) (pdf-page o)])])
+  ;=> [[[:n2 1] [:n1 12]] :b1 [] [:n2 1]]
   (wide? (fullscreen initial-state true)) ;=> true
   (wide? initial-state) ;=> false
   (node-page {:node/children [{:node/page 3}]}) ;=> 3
