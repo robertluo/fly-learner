@@ -101,6 +101,7 @@
     (r/render el (views/app-view @app-db dispatch!))))
 
 (def ^:private source-only-key "fly-learner/source-only")
+(def ^:private pdf-zoom-key "fly-learner/pdf-zoom")
 
 (defonce _render-on-change
   (add-watch app-db ::render
@@ -111,6 +112,8 @@
                  (select/clear!))
                (when (not= (:source-only? old) (:source-only? new))
                  (some-> js/window.localStorage (.setItem source-only-key (str (:source-only? new)))))
+               (when (not= (db/pdf-zoom old) (db/pdf-zoom new))
+                 (some-> js/window.localStorage (.setItem pdf-zoom-key (str (db/pdf-zoom new)))))
                (when (not= (select-keys old [:view :node-id :ask-id :keyword :concept-id])
                            (select-keys new [:view :node-id :ask-id :keyword :concept-id]))
                  (js/window.scrollTo 0 0)))))
@@ -126,6 +129,9 @@
   ;; the left pane stays hidden across visits (a small screen reading the source)
   (when (= "true" (some-> js/window.localStorage (.getItem source-only-key)))
     (dispatch! {:db #(db/source-only % true)}))
+  ;; and so does the zoom of the source's pages (small print)
+  (when-let [z (some-> js/window.localStorage (.getItem pdf-zoom-key) js/parseFloat)]
+    (when-not (js/isNaN z) (dispatch! {:db #(db/pdf-zoomed % z)})))
   (go-to-route! (history/path->state (history/current-path)))
   (dispatch! {:pull :init}))
 

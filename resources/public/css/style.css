@@ -84,12 +84,12 @@ main.split.source-only > .source { border-left: 0; }
 .width-toggle { white-space: nowrap; }
 .graph-toolbar .width-toggle { margin-left: 0; }
 /* full width: a page wider than this is harder to read, not easier */
-main.split.source-only .pdf-sheet { max-width: 1000px; margin-left: auto; margin-right: auto; }
+
 
 @media (max-width: 900px) {
   main.split { grid-template-columns: 1fr; }
   /* below the text: the column of pages scrolls in a pane of its own */
-  .source { position: static; height: calc(100vh - 52px); border-left: 0; border-top: 1px solid var(--border); }
+  .source { position: relative; height: calc(100vh - 52px); border-left: 0; border-top: 1px solid var(--border); }
 }
 
 /* node ---------------------------------------------------------------- */
@@ -346,7 +346,13 @@ input.filter:focus { outline: 2px solid var(--accent-soft); border-color: var(--
 .legend .key { display: inline-block; width: 18px; height: 0; border-top: 2px solid var(--muted); margin-left: .5rem; }
 .legend .key.related { border-top: 2px dashed var(--accent); }
 
-.cgraph { flex: 1; width: 100%; min-height: 0; display: block; user-select: none; }
+.cgraph { flex: 1; width: 100%; min-height: 0; display: block; user-select: none; cursor: grab; touch-action: none; }
+.cgraph:active { cursor: grabbing; }
+.cgraph .cnode { cursor: pointer; }
+/* zoomed out past readable names: dots only (each has its name as a tooltip) */
+.cgraph.no-labels .label { display: none; }
+/* above the hint line at the pane's foot */
+.graph-pane .zoom-controls { bottom: 48px; }
 .graph-empty { padding: 1rem; }
 .graph-hint { margin: 0; padding: .4rem 1rem; font-size: .8rem; color: var(--muted); border-top: 1px solid var(--border); }
 
@@ -674,7 +680,7 @@ form.ask input:focus { outline: 2px solid var(--accent-soft); border-color: var(
 
 /* every page in one column; pages away from the view are blank sheets of the same size */
 .pdf-page { flex: 1; overflow: auto; padding: 1rem; position: relative; }
-.pdf-sheet { position: relative; background: #fff; box-shadow: 0 1px 4px rgba(0, 0, 0, .15); }
+.pdf-sheet { position: relative; margin-left: auto; margin-right: auto; background: #fff; box-shadow: 0 1px 4px rgba(0, 0, 0, .15); }
 .pdf-sheet + .pdf-sheet { margin-top: 1rem; }
 .pdf-layers { position: relative; }
 .pdf-sheet canvas { display: block; width: 100%; height: auto; }
@@ -720,7 +726,38 @@ main.map-home {
 ul.plain li { font-size: .9rem; line-height: 1.35; }
 .map-pane { position: sticky; top: 52px; height: calc(100vh - 52px); display: flex; flex-direction: column; background: var(--quote); }
 .map-pane .hint { margin-left: auto; font-size: .82rem; }
-.kmap { flex: 1; width: 100%; min-height: 0; }
+.kmap { flex: 1; width: 100%; min-height: 0; cursor: grab; touch-action: none; user-select: none; }
+.kmap:active { cursor: grabbing; }
+/* zoomed out past readable names: bubbles only (each has its name as a tooltip) */
+.kmap.no-labels .label, .kmap.no-labels .n { display: none; }
+
+/* zoom: icon buttons floating at the bottom right of the map and the PDF */
+.zoom-controls {
+  position: absolute;
+  right: 18px;
+  bottom: 22px; /* clear of a scrollbar */
+  z-index: 5;
+  display: flex;
+  flex-direction: column;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--panel);
+  box-shadow: 0 1px 4px rgba(0, 0, 0, .12);
+  overflow: hidden;
+}
+.zoom-controls button {
+  display: grid;
+  place-items: center;
+  width: 32px;
+  height: 32px;
+  border: 0;
+  background: none;
+  color: var(--text);
+  cursor: pointer;
+}
+.zoom-controls button + button { border-top: 1px solid var(--border); }
+.zoom-controls button:hover:not(:disabled) { background: var(--accent-soft); color: var(--accent); }
+.zoom-controls button:disabled { opacity: .35; cursor: default; }
 .kmap .links line { stroke: var(--border); stroke-opacity: .9; }
 .kmap .bubble { cursor: pointer; }
 .kmap .bubble .body { fill: var(--panel); stroke: var(--accent); stroke-width: 1.5; }
@@ -740,5 +777,5 @@ ul.plain li { font-size: .9rem; line-height: 1.35; }
 @media (max-width: 900px) {
   main.map-home { grid-template-columns: 1fr; }
   .map-side { border-right: 0; border-bottom: 1px solid var(--border); }
-  .map-pane { position: static; height: 70vh; }
+  .map-pane { position: relative; height: 70vh; }
 }

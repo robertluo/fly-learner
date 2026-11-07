@@ -52,13 +52,18 @@ Web stack follows flybot.sg (github.com/flybot-sg/lasagna-pattern, `examples/fly
     current schema, e.g. after marking an attribute `:db/fulltext` — Datalevin's `re-index` loses full-text entries)
 - `src/cljc/robertluo/fly_learner/ui/core/` — frontend logic, JVM-testable: `db` (pure state fns), `pull` (named pull specs),
   `history` (URL <-> state; `/` the map, `/g/<id>` a cluster), `views` (Replicant hiccup: one flow, map ->
-  cluster -> concept -> passage; the header holds the map and the clusters being learned), `highlight` (find a node's text among pdf.js text items),
+  cluster -> concept -> passage; the header holds the map and the clusters being learned), `highlight` (find a node's text among pdf.js text items), `viewport` (pan/zoom of a drawing: automatic
+  until the learner pans or zooms: whole if readable, else readable names around a focus; names below `readable-px`
+  are not drawn; `db/pane-*` for `:map` and `:graph`, which goes automatic again on another graph),
   `graph` (concept graph: visible = focus + neighbours of expanded concepts, outline-style), `layout`
   (incremental force layout on primitive arrays: broader-above is a constraint, label boxes never overlap;
   unconnected parts laid out apart and packed in rows below the largest, else repulsion strands them far away; tween)
 - `src/cljs/robertluo/fly_learner/ui/` — `core` (dispatch-of effects `:db`/`:pull`/`:history`/`:animate`, transit fetch, render,
   mouseup -> text selection), `pdf` (pdf.js: render a page, its selectable text layer, highlight boxes; the source as one scrolling column of
-  pages, drawn near the view only: `sync-scroll!` keeps it at the state's page, `watch-scroll!` turns the page as the learner scrolls), `select` (the
+  pages, drawn near the view only: `sync-scroll!` keeps it at the state's page (and at the same spot when pages change
+  size: width, zoom), `watch-scroll!` turns the page as the learner scrolls), `zoom` (pan/zoom gestures: drag,
+  trackpad scroll, pinch = ctrl/⌘ + wheel; the map and the concept graph pan and zoom their viewBox, see `viewport`;
+  the PDF zooms its pages' width (`db/pdf-zoom*`, kept in localStorage)), `select` (the
   selection inside a `data-anchor` element as a quote anchor; `<br>` between PDF lines counts as a space)
 - `resources/public/` — `index.html` (loads vendored pdf.js as a module), `css/style.css`
 - `src/cljc/robertluo/fly_learner/knowledge.cljc` — shared malli schema for nodes

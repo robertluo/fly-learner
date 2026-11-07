@@ -6,11 +6,45 @@
             [robertluo.fly-learner.ui.core.db :as db]
             [robertluo.fly-learner.ui.core.history :as history]
             #?(:cljs [robertluo.fly-learner.ui.pdf :as pdf])
-            #?(:cljs [robertluo.fly-learner.ui.select :as select])))
+            #?(:cljs [robertluo.fly-learner.ui.select :as select])
+            #?(:cljs [robertluo.fly-learner.ui.zoom :as zoom])))
 
 ;;=============================================================================
 ;; Helpers
 ;;=============================================================================
+
+#?(:cljs
+   (defn- on-render
+     "A :replicant/on-render hook calling (f node) when the element is mounted or
+     updated, never when it is removed: then it is detached, and a hook that
+     throws leaves Replicant's view of the page out of step with the page."
+     [f]
+     {:replicant/on-render (fn [{:replicant/keys [node life-cycle]}]
+                             (when-not (= :replicant.life-cycle/unmount life-cycle)
+                               (f node)))}))
+
+(defn- icon
+  "A 16px line icon: `d` an SVG path."
+  [d]
+  [:svg.icon {:viewBox "0 0 16 16" :width 16 :height 16 :aria-hidden "true"}
+   [:path {:d d :fill "none" :stroke "currentColor" :stroke-width 1.6
+           :stroke-linecap "round" :stroke-linejoin "round"}]])
+
+(def ^:private icons
+  {:plus  "M8 3v10M3 8h10"
+   :minus "M3 8h10"
+   :whole "M2 6V2h4M10 2h4v4M14 10v4h-4M6 14H2v-4"
+   :width "M2 8h12M5 5 2 8l3 3M11 5l3 3-3 3"})
+
+(defn- zoom-controls
+  "Icon buttons floating at the bottom right of a pane: [[icon title
+  on-click disabled?] ..]; the title is the tooltip (and the accessible name)."
+  [buttons]
+  [:div.zoom-controls
+   (for [[k title on-click disabled?] buttons]
+     [:button {:replicant/key (name k) :title title :aria-label title
+               :disabled (boolean disabled?) :on {:click on-click}}
+      (icon (icons k))])])
 
 (def ^:private kind-label
   {:source "Overview" :section "Section" :group "Passage" :paragraph "Source text"})
@@ -354,10 +388,33 @@
     (for [[i line] (map-indexed vector lines)]
       [:tspan {:replicant/key i :x 0 :dy (if (zero? i) 0 "1.15em")} line])]])
 
+(defn- pane-attrs
+  "A pannable, zoomable SVG (pane `k`, see db/pane-view): it reports its
+  size, and dragging, scrolling and pinching pan and zoom it; names too
+  small to read are left out. Gestures are inert on the JVM."
+  #?(:cljs [db k dispatch!] :clj [db k _dispatch!])
+  (let [{:keys [view-box labels?]} (db/pane-view db k)]
+    (merge {:viewBox (str/join " " view-box)
+            :preserveAspectRatio "xMidYMid meet"
+            :class (when-not labels? "no-labels")}
+           #?(:cljs (on-render
+                     (fn [el]
+                       (zoom/watch-size! el (fn [w h] (dispatch! {:db #(db/pane-sized % k w h)})))
+                       (zoom/pan-zoom! el {:on-pan  (fn [dx dy] (dispatch! {:db #(db/pane-panned % k dx dy)}))
+                                           :on-zoom (fn [f at] (dispatch! {:db #(db/pane-zoomed % k f at)}))})))
+              :clj  {}))))
+
+(defn- pane-zoom-controls
+  "Zoom in, out, and the whole drawing, for pane `k`."
+  [k dispatch! whole-title]
+  (zoom-controls [[:plus "Zoom in" #(dispatch! {:db (fn [d] (db/pane-zoomed d k 1.4))})]
+                  [:minus "Zoom out" #(dispatch! {:db (fn [d] (db/pane-zoomed d k (/ 1 1.4)))})]
+                  [:whole whole-title #(dispatch! {:db (fn [d] (db/pane-whole d k))})]]))
+
 (defn- knowledge-map [db dispatch!]
-  (let [{:keys [bubbles links box]} (db/map-scene db)]
+  (let [{:keys [bubbles links]} (db/map-scene db)]
     (if (seq bubbles)
-      [:svg.kmap {:viewBox (str/join " " box) :preserveAspectRatio "xMidYMid meet"}
+      [:svg.kmap (pane-attrs db :map dispatch!)
        [:g.links
         (for [[i {:keys [x1 y1 x2 y2 weight]}] (map-indexed vector links)]
           [:line {:replicant/key i :x1 x1 :y1 y1 :x2 x2 :y2 y2
@@ -404,7 +461,9 @@
        [:span (count (get-in db [:universe :clusters])) " topics"]
        [:span.legend [:span.key.heat] "known" [:span.key.learning] "learning"]
        [:span.hint "Click a topic to open it."]]
-      (knowledge-map db dispatch!)]]))
+      (knowledge-map db dispatch!)
+      (when (seq (get-in db [:universe :clusters]))
+        (pane-zoom-controls :map dispatch! "The whole map"))]]))
 
 (defn- node-article [db node dispatch!]
   (let [{:node/keys [id title summary text keywords concepts children links ancestors kind source]} node
@@ -436,16 +495,6 @@
 
 (defn- pct [x] (str (* 100 x) "%"))
 
-#?(:cljs
-   (defn- on-render
-     "A :replicant/on-render hook calling (f node) when the element is mounted or
-     updated, never when it is removed: then it is detached, and a hook that
-     throws leaves Replicant's view of the page out of step with the page."
-     [f]
-     {:replicant/on-render (fn [{:replicant/keys [node life-cycle]}]
-                             (when-not (= :replicant.life-cycle/unmount life-cycle)
-                               (f node)))}))
-
 (defn- pdf-canvas-attrs
   "Canvas attrs that (re)draw page `p` of `url` via pdf.js after each render.
   On the JVM (tests, no DOM) the canvas is inert."
@@ -463,6 +512,7 @@
   (merge {:data-following (str (boolean following?)) :data-sync (pr-str sync)}
          #?(:cljs (on-render
                    (fn [pane]
+                     (zoom/pinch! pane (fn [f] (dispatch! {:db #(db/pdf-zoomed % (* f (db/pdf-zoom %)))})))
                      (pdf/watch-scroll! pane
                                         (fn [p] (dispatch! {:db #(db/pdf-scrolled % p)}))
                                         ;; leaving the node's page is one step back in history
@@ -535,10 +585,11 @@
 (defn- pdf-sheet
   "Page `q` of the source: drawn when near the page shown, else a blank
   sheet of the same size. The node's page carries its highlight."
-  [db {:keys [sid url aspect hl-page found layout on-doc]} dispatch! q near?]
+  [db {:keys [sid url aspect hl-page found layout on-doc size]} dispatch! q near?]
   [:div.pdf-sheet {:replicant/key (str url "#" q) :data-page (str q)
-                   :style (when-let [a (if (= q hl-page) (or (:aspect found) aspect) aspect)]
-                            {:aspect-ratio (str a)})}
+                   :style (merge size
+                                 (when-let [a (if (= q hl-page) (or (:aspect found) aspect) aspect)]
+                                   {:aspect-ratio (str a)}))}
    (when near?
      [:div.pdf-layers
       [:canvas (merge (pdf-canvas-attrs url q on-doc) layout)]
@@ -568,16 +619,20 @@
         ;; pages are drawn to fit the pane's width: an attribute that changes with it
         ;; re-runs the drawing hooks when the pane widens or narrows
         mode   (if (:source-only? db) "wide" "split")
-        layout {:data-layout mode}
+        zoom   (db/pdf-zoom db)
+        layout {:data-layout (str mode "@" zoom)}
         sheet  {:sid sid :url url :aspect (db/pdf-aspect db sid) :hl-page (second key)
                 :found found :layout layout
+                ;; the pane's width x zoom; full width, no wider than reads well
+                :size {:width (str (* 100 zoom) "%")
+                       :max-width (when (:source-only? db) (str (* 1000 zoom) "px"))}
                 :on-doc (fn [pages aspect]
                           (when (or (not= pages n) (nil? (db/pdf-aspect db sid)))
                             (dispatch! {:db #(db/pdf-loaded % sid pages aspect)})))}
         sync   {:page p
                 :y (when (and following? found) (some :y (:rects found)))
                 :key (pr-str key)
-                :layout (pr-str [url n mode])}]
+                :layout (pr-str [url n mode zoom])}]
     [:aside.source
      [:div.pdf-toolbar
       (width-toggle db dispatch! "text")
@@ -589,7 +644,12 @@
      [:div.pdf-page (pages-attrs following? sync key (db/highlight-texts node) found dispatch!)
       ;; until the page count is known, only the page shown
       (for [q (if n (range 1 (inc n)) [p])]
-        (pdf-sheet db sheet dispatch! q (db/pdf-window p q)))]]))
+        (pdf-sheet db sheet dispatch! q (db/pdf-window p q zoom)))]
+     (zoom-controls [[:plus (str "Zoom in (" (Math/round (* 100 zoom)) "%)")
+                      #(dispatch! {:db (fn [d] (db/pdf-zoom-step d 1))}) (>= zoom (peek db/pdf-zooms))]
+                     [:minus (str "Zoom out (" (Math/round (* 100 zoom)) "%)")
+                      #(dispatch! {:db (fn [d] (db/pdf-zoom-step d -1))}) (<= zoom (first db/pdf-zooms))]
+                     [:width "Fit the width" #(dispatch! {:db (fn [d] (db/pdf-zoomed d 1))}) (== zoom 1)]])]))
 
 (defn- node-view [db dispatch!]
   (if-let [node (db/current-node db)]
@@ -850,7 +910,7 @@
                 "; you know " (percent score))]])
 
 (defn- concept-graph [db dispatch!]
-  (let [{:keys [nodes edges box scale] {idea-dots :ideas idea-links :links} :ideas} (db/graph-scene db)
+  (let [{:keys [nodes edges scale] {idea-dots :ideas idea-links :links} :ideas} (db/graph-scene db)
         id (:concept-id db)]
     [:aside.source.graph-pane
      [:div.graph-toolbar
@@ -871,7 +931,7 @@
                            "Show only this concept and its neighbours")}
          "Reset"])]
      (if (seq nodes)
-       [:svg.cgraph {:viewBox (str/join " " box) :preserveAspectRatio "xMidYMid meet"}
+       [:svg.cgraph (pane-attrs db :graph dispatch!)
         [:g.edges (map graph-edge edges)]
         [:g.nodes (for [n nodes] (graph-node dispatch! scale n))]
         [:g.ideas
@@ -883,6 +943,7 @@
             [:title (str (stance-label stance) (when text (str ": " text)))]
             [:rect {:x -4.5 :y -4.5 :width 9 :height 9 :transform "rotate(45)"}]])]]
        [:p.muted.graph-empty "Loading the concept graph…"])
+     (when (seq nodes) (pane-zoom-controls :graph dispatch! "The whole graph"))
      [:p.graph-hint (if (get-in db [:graph :scope])
                       "The topic's concepts. Click one to open it. Filled: how well you know it."
                       (list "Click a concept to open and expand it, click it again to collapse. "

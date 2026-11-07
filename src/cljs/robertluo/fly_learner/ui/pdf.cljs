@@ -26,6 +26,8 @@
         (swap! docs assoc url p)
         p)))
 
+(def ^:private max-canvas-pixels 8e6)
+
 (defn render-page!
   "Draw page `p` of `url` into `canvas`, fitted to the width of its parent.
   Cheap to call on every render: skips when that page is already drawn at
@@ -45,12 +47,17 @@
                      (on-doc (.-numPages doc) (/ (.-width vp1) (.-height vp1))))
                    ;; a newer render may have started meanwhile
                    (when (= key (.. canvas -dataset -rendered))
-                     (let [scale (/ width (.-width (.getViewport page #js {:scale 1})))
-                           dpr   (or (.-devicePixelRatio js/window) 1)
+                     (let [vp1   (.getViewport page #js {:scale 1})
+                           scale (/ width (.-width vp1))
+                           ;; zoomed in, a page at full resolution would take hundreds of MB
+                           dpr   (min (or (.-devicePixelRatio js/window) 1)
+                                      (Math/sqrt (/ max-canvas-pixels
+                                                    (* width (/ (* width (.-height vp1)) (.-width vp1))))))
                            vp    (.getViewport page #js {:scale (* scale dpr)})
                            task  (do (set! (.-width canvas) (.-width vp))
                                      (set! (.-height canvas) (.-height vp))
-                                     (set! (.. canvas -style -width) (str width "px"))
+                                     ;; no CSS size of its own: the sheet's width sizes it
+                                     ;; (else, until redrawn, a zoomed-out page keeps its old size)
                                      (.render page #js {:canvas canvas :viewport vp}))]
                        (set! (.-renderTask canvas) task)
                        (.-promise task)))))
@@ -171,33 +178,57 @@
               (parse-long (.. s -dataset -page))))
           (js/Array.from (.querySelectorAll pane ".pdf-sheet")))))
 
+(defn- remember-spot!
+  "Where in its page the pane is (a fraction of the page at the probe line)
+  and across (the middle, as a fraction of the width), to return there when
+  the pages change size."
+  [^js pane]
+  (when-let [^js s (sheet pane (.. pane -dataset -at))]
+    (set! (.. pane -dataset -fy) (/ (- (+ (.-scrollTop pane) probe) (.-offsetTop s)) (max 1 (.-offsetHeight s))))
+    (set! (.. pane -dataset -fx) (/ (+ (.-scrollLeft pane) (/ (.-clientWidth pane) 2)) (max 1 (.-scrollWidth pane))))))
+
 (defn- scroll-pane!
   "Scroll `pane` to `top`; the scroll events this causes are not the learner's."
   [^js pane top smooth?]
   (set! (.-ignoreUntil pane) (+ (js/performance.now) (if smooth? 700 120)))
-  (.scrollTo pane #js {:top (max 0 top) :behavior (if smooth? "smooth" "instant")}))
+  (.scrollTo pane #js {:top (max 0 top) :behavior (if smooth? "smooth" "instant")})
+  (remember-spot! pane))
 
 (defn sync-scroll!
   "Keep `pane` at page `page`. Scrolls there when the page was changed other
-  than by scrolling (pane.dataset.at is the page the scroll position is at)
-  or when the pages moved (`layout`, a string: the document, its page count,
-  the pane's width). `y`, a fraction of the page, is where the highlight
-  `key` (a string) is when it should be in view: scrolled to once, smoothly
-  when already on its page."
+  than by scrolling (pane.dataset.at is the page the scroll position is at);
+  when the pages changed size (`layout`, a string: the document, its page
+  count, the pane's width, the zoom), back to the same spot of the page.
+  `y`, a fraction of the page, is where the highlight `key` (a string) is
+  when it should be in view: scrolled to once, smoothly when already on its
+  page."
   [^js pane {:keys [page y key layout]}]
-  (let [ds     (.-dataset pane)
-        moved? (or (not= (str page) (.-at ds)) (not= layout (.-layout ds)))
-        new-y? (and y (not= key (.-placed ds)))]
-    (when (or moved? new-y?)
-      (when-let [^js s (sheet pane page)]
-        (set! (.-at ds) (str page))
-        (set! (.-layout ds) layout)
-        (when y (set! (.-placed ds) key))
-        (scroll-pane! pane
-                      (if y
-                        (- (+ (.-offsetTop s) (* y (.-clientHeight s))) 48)
-                        (- (.-offsetTop s) 16))
-                      (not moved?))))))
+  (let [ds       (.-dataset pane)
+        turned?  (not= (str page) (.-at ds))
+        resized? (not= layout (.-layout ds))
+        new-y?   (and y (not= key (.-placed ds)))]
+    (when-let [^js s (and (or turned? resized? new-y?) (sheet pane page))]
+      (set! (.-layout ds) layout)
+      (cond
+        (or turned? (and new-y? (not resized?)))
+        (do (set! (.-at ds) (str page))
+            (when y (set! (.-placed ds) key))
+            (scroll-pane! pane
+                          (if y
+                            (- (+ (.-offsetTop s) (* y (.-clientHeight s))) 48)
+                            (- (.-offsetTop s) 16))
+                          (not turned?)))
+
+        :else
+        (let [fy (js/parseFloat (.-fy ds)), fx (js/parseFloat (.-fx ds))]
+          (when y (set! (.-placed ds) key))
+          (when-not (js/isNaN fx)
+            (set! (.-scrollLeft pane) (- (* fx (.-scrollWidth pane)) (/ (.-clientWidth pane) 2))))
+          (scroll-pane! pane
+                        (if (js/isNaN fy)
+                          (- (.-offsetTop s) 16)
+                          (- (+ (.-offsetTop s) (* fy (.-offsetHeight s))) probe))
+                        false))))))
 
 (defn watch-scroll!
   "Once per pane: as the learner scrolls, (on-page p) when another page
@@ -227,5 +258,7 @@
                              (vreset! settle (js/setTimeout (fn []
                                                               (on-settle @following)
                                                               (vreset! following nil))
-                                                            400))))))))))
+                                                            400))))))
+                       ;; after the page it is on may have changed
+                       (remember-spot! pane)))))
        #js {:passive true}))))

@@ -7,7 +7,8 @@
   (:require [clojure.string :as str]
             [robertluo.fly-learner.ideas :as ideas]
             [robertluo.fly-learner.ui.core.graph :as graph]
-            [robertluo.fly-learner.ui.core.layout :as layout]))
+            [robertluo.fly-learner.ui.core.layout :as layout]
+            [robertluo.fly-learner.ui.core.viewport :as viewport]))
 
 ;;=============================================================================
 ;; State shape
@@ -55,8 +56,10 @@
                      :aspect    {}    ; source-id -> width/height of a page (pages not yet drawn)
                      :highlight nil   ; {:key [url page node-id] :aspect w/h :rects [{:x :y :w :h}]}
                      :text-ready #{}  ; "url#page" whose text layer has been laid out
+                     :zoom      1.0   ; page width / the pane's
                      :placed    {}}   ; quotes key (pdf-quotes-key) -> {idea-id [{:x :y :w :h}]}
    :source-only?    false  ; split views: the left pane hidden, the source (PDF, graph) full width
+   :map-view        {}     ; the map's pan and zoom (robertluo.fly-learner.ui.core.viewport)
    :loading?        false
    :error           nil})  ; {:code :reason} or nil
 
@@ -470,6 +473,8 @@
   [db id]
   (-> db
       (update :graph assoc :focus id :expanded #{id} :scope nil :pos {} :from {})
+      ;; another graph: its view is automatic again
+      (update-in [:graph :view] viewport/automatic-again)
       graph-relayout))
 
 (defn graph-scope
@@ -479,6 +484,7 @@
     db
     (-> db
         (update :graph assoc :scope (set ids) :focus nil :expanded #{} :pos {} :from {})
+        (update-in [:graph :view] viewport/automatic-again)
         graph-relayout)))
 
 (defn show-in-graph
@@ -699,6 +705,72 @@
                                           [k p]))
                                {:pad 20})}))
 
+(def ^:private graph-font
+  "Concept names in the graph at label scale 1, in graph units."
+  12)
+
+(defn- pane
+  "A pannable, zoomable pane (`:map` or `:graph`): where its view state is,
+  what it draws (its box) and the viewport options (see viewport)."
+  [db k]
+  (case k
+    :map   (let [{:keys [bubbles box]} (map-scene db)
+                 learning (for [b bubbles :when (:learning? b)] [(:x b) (:y b)])]
+             {:path [:map-view] :box (when (seq bubbles) box)
+              :opts {:font map-font :max-auto 1.2
+                     :focus (when (seq learning)
+                              [(/ (reduce + (map first learning)) (count learning))
+                               (/ (reduce + (map second learning)) (count learning))])}})
+    :graph (let [{:keys [nodes box scale]} (graph-scene db)
+                 at (some #(when (:selected? %) [(:x %) (:y %)]) nodes)]
+             {:path [:graph :view] :box (when (seq nodes) box)
+              :opts {:font (* graph-font scale) :max-auto 2.0 :focus at}})))
+
+(defn pane-view
+  "What pane `k` shows now: {:view {:scale :center} (nil before its size is
+  known) :view-box [x y w h] :labels? bool}."
+  [db k]
+  (let [{:keys [path box opts]} (pane db k)
+        state (get-in db path)
+        v     (viewport/current state box opts)]
+    {:view     v
+     :view-box (if v (viewport/view-box v (:size state)) box)
+     :labels?  (viewport/labels? v (:font opts))}))
+
+(defn pane-sized [db k w h]
+  (let [{:keys [path]} (pane db k)]
+    (if (= [w h] (get-in db (conj path :size)))
+      db
+      (update-in db path viewport/sized w h))))
+
+(defn pane-panned [db k dx dy]
+  (let [{:keys [path box opts]} (pane db k)]
+    (update-in db path viewport/panned box opts dx dy)))
+
+(defn pane-zoomed
+  ([db k factor] (pane-zoomed db k factor nil))
+  ([db k factor at]
+   (let [{:keys [path box opts]} (pane db k)]
+     (update-in db path viewport/zoomed box opts factor at))))
+
+(defn pane-whole [db k]
+  (let [{:keys [path box]} (pane db k)]
+    (update-in db path viewport/whole box)))
+
+^:rct/test
+(comment
+  ;; the map follows its view state; before the pane's size is known, the whole box
+  (def u {:clusters [{:cluster/id :a :cluster/label "A" :concepts [1 2]} {:cluster/id :b :cluster/label "B" :concepts [3]}]
+          :links [{:from :a :to :b :weight 1.0}]})
+  (def m (universe-fetched initial-state u))
+  (= (:view-box (pane-view m :map)) (:box (map-scene m))) ;=> true
+  (def sized (pane-sized m :map 800 600))
+  (:labels? (pane-view sized :map)) ;=> true
+  ;; zoomed and panned: manual from then on
+  (some? (get-in (pane-zoomed sized :map 2) [:map-view :manual])) ;=> true
+  (get-in (pane-whole sized :map) [:map-view :size]) ;=> [800 600]
+  )
+
 (defn keyword-fetched [db kw nodes]
   (-> db
       (assoc-in [:keyword-results kw] (vec nodes))
@@ -735,6 +807,27 @@
 
 (defn pdf-aspect [db source-id] (get-in db [:pdf :aspect source-id]))
 
+(def pdf-zooms
+  "Zoom steps of the source's pages (1: the pane's width)."
+  [0.5 0.67 0.8 1.0 1.25 1.5 2.0 2.5 3.0])
+
+(defn pdf-zoom [db] (get-in db [:pdf :zoom] 1.0))
+
+(defn pdf-zoomed
+  "Pages at `z` x the pane's width (rounded, within the steps' range)."
+  [db z]
+  (assoc-in db [:pdf :zoom] (-> (/ (Math/round (* 100.0 z)) 100.0)
+                                (max (first pdf-zooms)) (min (peek pdf-zooms)))))
+
+(defn pdf-zoom-step
+  "One step in (`dir` 1) or out (-1) from the zoom shown."
+  [db dir]
+  (let [z (pdf-zoom db)
+        to (if (pos? dir)
+             (or (first (filter #(> % (+ z 0.001)) pdf-zooms)) (peek pdf-zooms))
+             (or (last (filter #(< % (- z 0.001)) pdf-zooms)) (first pdf-zooms)))]
+    (pdf-zoomed db to)))
+
 (defn pdf-scrolled
   "The learner scrolled the source to page `p`: it no longer follows the node."
   [db p]
@@ -742,9 +835,13 @@
 
 (defn pdf-window
   "Whether page `q` is near page `p` (the one at the top of the pane), so
-  worth drawing: the others are blank sheets of the right size."
-  [p q]
-  (<= (- p 2) q (+ p 3)))
+  worth drawing: the others are blank sheets of the right size. Fewer when
+  zoomed in (pages are big, and costly to keep drawn)."
+  ([p q] (pdf-window p q 1.0))
+  ([p q zoom]
+   (if (> zoom 1.5)
+     (<= (- p 1) q (+ p 1))
+     (<= (- p 2) q (+ p 3)))))
 
 (defn pdf-goto
   "Show page `p` (clamped to the document) regardless of the selected node."
@@ -854,6 +951,12 @@
   (following? (pdf-scrolled shown-n 9)) ;=> false
   (pdf-aspect (-> initial-state (pdf-loaded :s 10 0.7) (pdf-loaded :s 10 0.8)) :s) ;=> 0.7
   (filter #(pdf-window 5 %) (range 1 12)) ;=> [3 4 5 6 7 8]
+  (filter #(pdf-window 5 % 2.0) (range 1 12)) ;=> [4 5 6]
+  ;; zoom: steps in and out, kept within range
+  (pdf-zoom (pdf-zoom-step initial-state 1)) ;=> 1.25
+  (pdf-zoom (pdf-zoom-step (pdf-zoomed initial-state 1.1) -1)) ;=> 1.0
+  (pdf-zoom (pdf-zoom-step (pdf-zoomed initial-state 3.0) 1)) ;=> 3.0
+  (pdf-zoom (pdf-zoomed initial-state 9)) ;=> 3.0
 
   ;; what gets highlighted
   (highlight-texts {:node/kind :paragraph :node/text "Some text."}) ;=> ["Some text."]
