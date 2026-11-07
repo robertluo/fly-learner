@@ -67,6 +67,7 @@
                      :draft     nil   ; the page number being typed in the toolbar, nil when not typing
                      :zoom      1.0   ; page width / the pane's
                      :placed    {}}   ; quotes key (pdf-quotes-key) -> {idea-id [{:x :y :w :h}]}
+   :keypoints       {}     ; source-id -> [{:page :para :node :quote :label}]: key sentences (robertluo.fly-learner.keypoints)
    :source-only?    false  ; split views: the left pane hidden, the source (PDF, graph) full width
    :fullscreen?     false  ; the browser is full screen, showing only the pane (map, graph, PDF)
    :map-view        {}     ; the map's pan and zoom (robertluo.fly-learner.ui.core.viewport)
@@ -1022,6 +1023,82 @@
                         (= sid (:source/id a)) (= p (:page a)))]
          {:idea i :anchor a})))
 
+(defn keypoints-fetched [db sid kps] (assoc-in db [:keypoints sid] (vec kps)))
+
+(defn page-keypoints
+  "Key sentences that may be on page `p` of source `sid`: their paragraph
+  starts there or on the page before (it may run over)."
+  [db sid p]
+  (filterv #(<= (dec p) (:page %) p) (get-in db [:keypoints sid])))
+
+(defn keypoints-placed
+  "Where the key sentences `kps` are on page `p` ({:rects [rects-or-nil ..]
+  :left margin}, rects in order): kept by page, with the sentences they are of."
+  [db url p kps {:keys [rects left]}]
+  (assoc-in db [:pdf :key-rects (str url "#" p)] {:kps kps :rects rects :left left}))
+
+(defn keypoint-rects
+  "{:found [[keypoint rects] ..] :left margin} on page `p` of `url`, once
+  placed for these `kps`; nil while not."
+  [db url p kps]
+  (let [{placed-kps :kps :keys [rects left]} (get-in db [:pdf :key-rects (str url "#" p)])]
+    (when (= placed-kps kps)
+      {:found (vec (keep (fn [[k r]] (when r [k r])) (map vector kps rects))) :left left})))
+
+(defn keypoint-at
+  "Where key sentence `kp` ({:para :quote}) was found: [page y] (y a fraction
+  of the page), on its paragraph's page or the next (it may run over); nil
+  while not placed."
+  [db url sid page kp]
+  (some (fn [q]
+          (some (fn [[k rects]] (when (= (:quote k) (:quote kp)) [q (:y (first rects))]))
+                (:found (keypoint-rects db url q (page-keypoints db sid q)))))
+        [page (inc page)]))
+
+(defn pdf-goto-target
+  "Show page `p` with `y` (a fraction of it, or nil: its top) at the top of
+  the pane: a key sentence clicked on the left."
+  [db source-id p y]
+  (-> (pdf-goto db source-id p)
+      (assoc-in [:pdf :target] {:page p :y y :n (inc (get-in db [:pdf :target :n] 0))})))
+
+(defn pdf-target
+  "{:y :key} to scroll page `p` to, when a key sentence there was clicked."
+  [db p]
+  (let [{:keys [page y n]} (get-in db [:pdf :target])]
+    (when (and y (= page p)) {:y y :key (str "target-" n)})))
+
+(defn open-texts
+  "Text of `node` that may be on page `q`, to mark it open there: a
+  passage's paragraphs starting on `q`, and the last one starting on the
+  page before (it may run over); a paragraph on its page and the next; a
+  section's heading on its page."
+  [{:node/keys [kind text title page children]} q]
+  (case kind
+    :paragraph (when (and text page (<= page q (inc page))) [text])
+    :section   (when (and title (= page q)) [title])
+    :group     (let [paras (filter :node/text children)
+                     on    (filter #(= q (:node/page %)) paras)
+                     before (last (filter #(= (dec q) (:node/page %)) paras))]
+                 (not-empty (mapv :node/text (cond->> on before (cons before)))))
+    nil))
+
+(defn open-placed
+  "Where the texts of node `id` open on page `p` of `url` are: a bar spans
+  from the first to the last rect."
+  [db url p id texts rects]
+  (assoc-in db [:pdf :open-rects (str url "#" p)] {:id id :texts texts :rects (vec (mapcat identity rects))}))
+
+(defn open-span
+  "[top bottom left] of node `id`'s `texts` on page `p` (fractions), once
+  placed; :pending while not."
+  [db url p id texts]
+  (let [{pid :id ptexts :texts rects :rects} (get-in db [:pdf :open-rects (str url "#" p)])]
+    (if (and (= pid id) (= ptexts texts))
+      (when (seq rects)
+        [(apply min (map :y rects)) (apply max (map #(+ (:y %) (:h %)) rects)) (apply min (map :x rects))])
+      :pending)))
+
 (defn pdf-quotes-key
   "Identifies where `quotes` are on page `p` of `sid`: boxes are fractions of
   the page, the same at any width."
@@ -1061,6 +1138,21 @@
   (pdf-quotes-key :s 28 (pdf-quotes with-pq :s 28)) ;=> [:s 28 [":q1"]]
   (text-layer-ready? (text-layer-ready initial-state "/f" 28) "/f" 28) ;=> true
   (pdf-quotes-placed? (pdf-quotes-placed initial-state [:k] {}) [:k]) ;=> true
+  ;; what is open, page by page: a passage's paragraphs and the one running over
+  (def g {:node/kind :group :node/page 4 :node/children [{:node/text "a" :node/page 4} {:node/text "b" :node/page 4}
+                                                         {:node/text "c" :node/page 5}]})
+  [(open-texts g 4) (open-texts g 5) (open-texts g 6) (open-texts g 7) (open-texts g 3)]
+  ;=> [["a" "b"] ["b" "c"] ["c"] nil nil]
+  (open-span (open-placed initial-state "/f" 5 :g ["b" "c"] [[{:x 0.1 :y 0.2 :w 0.5 :h 0.02}] [{:x 0.12 :y 0.4 :w 0.5 :h 0.02}]])
+             "/f" 5 :g ["b" "c"]) ;=> [0.2 0.42000000000000004 0.1]
+  (open-span initial-state "/f" 5 :g ["b"]) ;=> :pending
+  (pdf-target (pdf-goto-target (pdf-loaded initial-state :s 9) :s 5 0.3) 5) ;=> {:y 0.3 :key "target-1"}
+  ;; key sentences: those of the page and the one before, placed once per set
+  (def kd (keypoints-fetched initial-state :s [{:page 4 :quote "a"} {:page 5 :quote "b"} {:page 7 :quote "c"}]))
+  (map :quote (page-keypoints kd :s 5)) ;=> ["a" "b"]
+  (keypoint-rects kd "/f" 5 (page-keypoints kd :s 5)) ;=> nil
+  (map (comp :quote first) (:found (keypoint-rects (keypoints-placed kd "/f" 5 (page-keypoints kd :s 5) {:rects [nil [{:x 0}]] :left 0.1})
+                                                   "/f" 5 (page-keypoints kd :s 5)))) ;=> ["b"]
   (:source-only? (source-only-toggle initial-state)) ;=> true
   (:source-only? (-> initial-state source-only-toggle source-only-toggle)) ;=> false
   (:source-only? (source-only initial-state "yes")) ;=> true

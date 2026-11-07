@@ -53,7 +53,14 @@
     (let [id (:node-id db)]
       (when (and id (not (contains? (:nodes db) id)))
         {:pattern {:nodes {{:node/id id} '?node}}
-         :then    (fn [r] {:db #(db/node-fetched % (get r 'node))})}))
+         :then    (fn [r] {:db #(db/node-fetched % (get r 'node)) :pull :keypoints})}))
+
+    ;; the key sentences of the source of the node shown, once
+    :keypoints
+    (let [sid (get-in (db/current-node db) [:node/source :source/id])]
+      (when (and sid (not (contains? (:keypoints db) sid)))
+        {:pattern {:keypoints {{:source/id sid} '?k}}
+         :then    (fn [r] {:db #(db/keypoints-fetched % sid (get r 'k))})}))
 
     :exploration
     (let [id (:exploration-id db)]

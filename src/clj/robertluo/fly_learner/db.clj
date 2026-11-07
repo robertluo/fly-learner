@@ -27,6 +27,8 @@
    :node/order      {:db/valueType :db.type/long}
    :node/children   {:db/valueType :db.type/ref :db/cardinality :db.cardinality/many}
    :node/links      {:db/valueType :db.type/ref :db/cardinality :db.cardinality/many}
+   ;; key sentences of a passage (robertluo.fly-learner.keypoints): [{:para node-id :quote :label}], [] for none
+   :node/keypoints  {}
 
    ;; concepts: ideas with an identity of their own, across sources
    ;; (robertluo.fly-learner.concept). Node n mentions concept c when one of
@@ -127,7 +129,7 @@
   [db node-id]
   (when-let [eid (d/entid db [:node/id node-id])]
     (let [n (d/pull db [:node/id :node/kind :node/level :node/order :node/title :node/summary
-                        :node/text :node/keywords :node/page
+                        :node/text :node/keywords :node/page :node/keypoints
                         {:node/children node-ref} {:node/links node-ref}
                         {:node/source [:source/id :source/title]}]
                     eid)]

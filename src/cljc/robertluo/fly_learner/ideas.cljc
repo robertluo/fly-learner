@@ -1,6 +1,7 @@
 (ns robertluo.fly-learner.ideas
   "Ideas: the learner's own voice on what they study. An idea takes a
-  stance on something (agree, disagree) or adds a note to it, and may link
+  stance on something (agree, disagree), adds a note to it, or just marks
+  it as worth keeping (a highlight, as in any reading app), and may link
   to other ideas, so the learner's ideas form a graph of their own over
   the knowledge.
 
@@ -9,8 +10,8 @@
   robertluo.fly-learner.ideas.knowledge) says what an anchor points at now.
 
     {:idea/id      uuid
-     :idea/stance  :agree | :disagree | :note
-     :idea/text    str (required for a note, optional for a stance)
+     :idea/stance  :agree | :disagree | :note | :highlight
+     :idea/text    str (required for a note, optional otherwise)
      :idea/anchors [anchor ..]   what it is about (one or more)
      :idea/links   [idea-id ..]  other ideas it relates to
      :idea/at      epoch ms}
@@ -21,7 +22,7 @@
   TextQuoteSelector."
   (:require [clojure.string :as str]))
 
-(def stances #{:agree :disagree :note})
+(def stances #{:agree :disagree :note :highlight})
 
 (defprotocol Anchors
   (target [a anchor]
@@ -144,6 +145,8 @@
   (idea {:stance :agree :anchors [{:a 1}] :links [7 7]} 1 0)
   ;=> {:idea/id 1 :idea/stance :agree :idea/anchors [{:a 1}] :idea/links [7] :idea/at 0}
   (:error (idea {:stance :agree :anchors []} 1 0)) ;=> "What is it about?"
+  ;; a highlight is a mark, no words needed
+  (:idea/stance (idea {:stance :highlight :anchors [{:quote "x"}]} 1 0)) ;=> :highlight
 
   (def anchors (reify Anchors
                  (target [_ a] (:to a))

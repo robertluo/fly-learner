@@ -201,8 +201,8 @@
 ;; Ideas
 ;;=============================================================================
 
-(def ^:private stance-mark {:agree "✓" :disagree "✗" :note "✎"})
-(def ^:private stance-label {:agree "Agree" :disagree "Disagree" :note "Note"})
+(def ^:private stance-mark {:agree "✓" :disagree "✗" :note "✎" :highlight "▍"})
+(def ^:private stance-label {:agree "Agree" :disagree "Disagree" :note "Note" :highlight "Highlight"})
 
 (defn- create-idea-op [data]
   {:pattern {:ideas {nil data}} :then (fn [r] {:db #(db/idea-added % (get r 'ideas))})})
@@ -296,7 +296,7 @@
        (if (seq shown)
          [:ul.idea-list (for [i (reverse shown)]
                           (idea-item db dispatch! i (not= [anchor] (:idea/anchors i))))]
-         [:p.hint.muted "Agree, disagree or add a note. Select any sentence to react to just that."]))]))
+         [:p.hint.muted "Agree, disagree or add a note. Select any sentence to highlight it or react to just that."]))]))
 
 (declare answer-view ask-link)
 
@@ -359,7 +359,7 @@
          :else
          [:div
           [:div.actions
-           (for [stance [:agree :disagree]]
+           (for [stance [:highlight :agree :disagree]]
              [:button.btn {:replicant/key (name stance) :class (name stance)
                            :on {:click #(dispatch! {:pull (create-idea-op {:idea/stance stance :idea/anchors [anchor]})})}}
               (stance-mark stance) " " (stance-label stance)])
@@ -484,6 +484,29 @@
 
 (declare node-explore)
 
+(defn- key-points
+  "The key sentences of a passage: label and sentence; a click shows it in
+  the source (the PDF scrolled to it)."
+  [db {:node/keys [keypoints children source]} dispatch!]
+  (let [sid    (:source/id source)
+        url    (str "/files/sources/" sid)
+        page-of (into {} (map (juxt :node/id :node/page)) children)]
+    [:ol.key-list
+     (for [[i {:keys [para quote label] :as kp}] (map-indexed vector keypoints)
+           :let [page  (page-of para)
+                 found (when page (db/keypoint-at db url sid page kp))]]
+       [:li {:replicant/key i}
+        [:button.key-point
+         {:title (str "Show it in the source" (when page (str ", p. " page)))
+          :on {:click #(when page
+                         (let [[p y] (or found [page nil])]
+                           (dispatch! {:db (fn [d] (db/pdf-goto-target d sid p y))
+                                       :history (if (db/following? db) :push :replace)})))}}
+         [:span.key-label-l label]
+         [:span.key-quote "“" quote "”"]
+         ;; the page it was found on, once placed (its paragraph may start the page before)
+         (when page [:span.meta "p. " (or (first found) page)])]])]))
+
 (defn- node-article [db node dispatch!]
   (let [{:node/keys [id title summary text keywords concepts children links ancestors kind source]} node
         leaves? (every? #(= :paragraph (:node/kind %)) children)
@@ -502,7 +525,17 @@
         (for [c concepts] (concept-chip dispatch! c))
         (for [kw keywords] [:span {:replicant/key kw} (keyword-link dispatch! kw)])])
      (node-explore db node dispatch!)
-     (when (seq children)
+     (cond
+       ;; a passage: its key sentences, the paragraphs folded away
+       (and leaves? (seq (:node/keypoints node)))
+       [:section.key-points
+        [:h2 "Key points"]
+        (key-points db node dispatch!)
+        [:details.paragraphs
+         [:summary (count children) " paragraphs"]
+         [:ol.cards (for [c children] (card dispatch! c in))]]]
+
+       (seq children)
        [:section
         [:h2 (if leaves? "Source text" "Drill down")]
         [:ol.cards (for [c children] (card dispatch! c in))]])
@@ -589,6 +622,32 @@
        [:div.idea-mark {:replicant/key (str id "-" i) :class (name stance)
                         :style {:left (pct x) :top (pct y) :width (pct w) :height (pct h)}}])]))
 
+(defn- key-marks-attrs
+  "Attrs that find the key sentences `kps` on page `p` once (pdf.js text
+  content), unless placed. Inert on the JVM."
+  #?(:cljs [url p kps placed? dispatch!] :clj [_url p kps _placed? _dispatch!])
+  (merge {:data-keys (pr-str [p (count kps)])}
+         #?(:cljs (on-render
+                   (fn [_]
+                     (when (and (seq kps) (not placed?))
+                       (pdf/find-each! url p (mapv :quote kps)
+                                       (fn [placed] (dispatch! {:db #(db/keypoints-placed % url p kps placed)}))))))
+            :clj  {})))
+
+(defn- pdf-key-marks
+  "The key sentences on this page: tinted, their label in the page's margin."
+  [db sid url p dispatch!]
+  (let [kps    (db/page-keypoints db sid p)
+        {:keys [found left] :as placed} (db/keypoint-rects db url p kps)
+        margin (max 0.03 (- (or left 0.1) 0.012))]
+    [:div.pdf-key-marks (key-marks-attrs url p kps (some? placed) dispatch!)
+     (for [[i [{:keys [label quote]} rects]] (map-indexed vector found)
+           :let [{:keys [y]} (first rects)]]
+       [:div {:replicant/key (str i quote)}
+        [:div.key-label {:title label :style {:top (pct y) :width (pct (- margin 0.008))}} label]
+        (for [[j {:keys [x y w h]}] (map-indexed vector rects)]
+          [:div.key-mark {:replicant/key j :style {:left (pct x) :top (pct y) :width (pct w) :height (pct h)}}])])]))
+
 (defn- width-toggle
   "Give the source (right pane) the whole width, or share it again."
   [{:keys [source-only?]} dispatch! what]
@@ -604,10 +663,35 @@
    [:section.content left]
    right])
 
+(defn- open-bar-attrs
+  "Attrs that find node `id`'s `texts` on page `p` once. Inert on the JVM."
+  #?(:cljs [url p id texts pending? dispatch!] :clj [_url p _id texts _pending? _dispatch!])
+  (merge {:data-open (pr-str [p (count texts)])}
+         #?(:cljs (on-render
+                   (fn [_]
+                     (when (and pending? (seq texts))
+                       (pdf/find-each! url p texts
+                                       (fn [{:keys [rects]}]
+                                         (dispatch! {:db #(db/open-placed % url p id texts rects)}))))))
+            :clj  {})))
+
+(defn- open-bar
+  "What is open on the left, where it is on this page: a bar in the margin
+  along it, on every page it covers."
+  [db url {:node/keys [id] :as node} q dispatch!]
+  (let [texts (db/open-texts node q)
+        span  (when texts (db/open-span db url q id texts))]
+    [:div.pdf-marks (open-bar-attrs url q id texts (= :pending span) dispatch!)
+     (when (vector? span)
+       (let [[top bottom left] span]
+         [:div.open-bar {:title "Open on the left"
+                         :style {:left (pct (max 0.004 (- left 0.022))) :top (pct top)
+                                 :height (pct (- bottom top))}}]))]))
+
 (defn- pdf-sheet
   "Page `q` of the source: drawn when near the page shown, else a blank
   sheet of the same size. The node's page carries its highlight."
-  [db {:keys [sid url aspect hl-page found layout on-doc size]} dispatch! q near?]
+  [db {:keys [sid url node aspect hl-page found layout on-doc size]} dispatch! q near?]
   [:div.pdf-sheet {:replicant/key (str url "#" q) :data-page (str q)
                    :style (merge size
                                  (when-let [a (if (= q hl-page) (or (:aspect found) aspect) aspect)]
@@ -616,12 +700,10 @@
      [:div.pdf-layers
       [:canvas (merge (pdf-canvas-attrs url q on-doc) layout)]
       [:div.textLayer (merge (text-layer-attrs url q sid dispatch!) layout {:replicant/key (str url "#" q)})]
+      (pdf-key-marks db sid url q dispatch!)
       (pdf-quote-marks db sid url q dispatch!)
-      [:div.pdf-marks
-       (when (= q hl-page)
-         (for [[i {:keys [x y w h]}] (map-indexed vector (:rects found))]
-           [:div.mark {:replicant/key i
-                       :style {:left (pct x) :top (pct y) :width (pct w) :height (pct h)}}]))]])])
+      ;; what is open on the left: a bar in the margin along it
+      (open-bar db url node q dispatch!)])])
 
 (defn- page-input
   "\"Page [p] / n\": type a page number and Enter to go there; Esc or
@@ -666,7 +748,7 @@
         mode   (if (db/wide? db) "wide" "split")
         zoom   (db/pdf-zoom db)
         layout {:data-layout (str mode "@" zoom)}
-        sheet  {:sid sid :url url :aspect (db/pdf-aspect db sid) :hl-page (second key)
+        sheet  {:sid sid :url url :node node :aspect (db/pdf-aspect db sid) :hl-page (second key)
                 :found found :layout layout
                 ;; the pane's width x zoom; full width, no wider than reads well
                 :size {:width (str (* 100 zoom) "%")
@@ -674,9 +756,10 @@
                 :on-doc (fn [pages aspect]
                           (when (or (not= pages n) (nil? (db/pdf-aspect db sid)))
                             (dispatch! {:db #(db/pdf-loaded % sid pages aspect)})))}
+        target (db/pdf-target db p)
         sync   {:page p
-                :y (when (and following? found) (some :y (:rects found)))
-                :key (pr-str key)
+                :y (or (:y target) (when (and following? found) (some :y (:rects found))))
+                :key (or (:key target) (pr-str key))
                 :layout (pr-str [url n mode zoom])}]
     [:aside.source
      [:div.pdf-toolbar

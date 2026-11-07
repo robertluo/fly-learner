@@ -2,7 +2,8 @@
   "pdf.js interop. The library is self-hosted under /vendor/pdfjs (bb vendor)
   and loaded by a module script in index.html, which sets window.pdfjsLib and
   fires `pdfjs:ready`."
-  (:require [robertluo.fly-learner.ui.core.highlight :as hl]))
+  (:require [clojure.string :as str]
+            [robertluo.fly-learner.ui.core.highlight :as hl]))
 
 (defn- lib
   "Promise of the pdf.js module."
@@ -143,6 +144,46 @@
                                                                (span-rect vp (aget items item) from to))
                                                              run)))
                                                     runs))}))))))))
+
+(defonce ^:private finding (atom #{}))
+
+(defn find-each!
+  "Where each of `texts` is on page `p` of `url`: calls (on-found {:rects
+  [rects-or-nil ..] :left x}), rects one per text, in order (key sentences,
+  each with its own label), x the left edge of the page's text (its margin
+  ends there). Once at a time for the same page and texts."
+  [url p texts on-found]
+  (let [k [url p texts]]
+    (when-not (@finding k)
+      (swap! finding conj k)
+      (-> (document url)
+      (.then (fn [^js doc] (.getPage doc p)))
+      (.then (fn [^js page]
+               (-> (.getTextContent page)
+                   (.then (fn [^js tc]
+                            (let [vp    (.getViewport page #js {:scale 1})
+                                  items (.-items tc)
+                                  strs  (mapv #(.-str ^js %) items)]
+                              (on-found
+                               {:left  (->> items
+                                            (keep (fn [^js it]
+                                                    (when-not (str/blank? (.-str it))
+                                                      (:x (span-rect vp it 0 (count (.-str it)))))))
+                                            sort
+                                            ;; the margin: past the odd item hanging left (a page number, a mark)
+                                            (#(nth % (quot (count %) 10) nil)))
+                                :rects
+                               (mapv (fn [t]
+                                       (not-empty
+                                        (vec (mapcat (fn [run]
+                                                       (hl/merge-rects
+                                                        (keep (fn [{:keys [item from to]}]
+                                                                (span-rect vp (aget items item) from to))
+                                                              run)))
+                                                     (take 1 (hl/find-spans strs [t]))))))
+                                     texts)})))))))
+          (.catch (fn [e] (js/console.error "pdf.js key sentences:" e)))
+          (.finally #(swap! finding disj k))))))
 
 (defonce ^:private pending (atom nil))
 

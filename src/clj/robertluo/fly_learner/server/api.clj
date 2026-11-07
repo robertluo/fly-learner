@@ -26,6 +26,7 @@
     {:explorations {nil {:exploration/node id}}}   ; make one of a node with Claude (its proposal's pitch)
     {:explorations {nil {:exploration/previous id :exploration/feedback \"..\"}}} ; remake one
   A node (:nodes) carries :node/explore: its proposal, if any, and its explorations.
+    '{:keypoints {{:source/id #uuid \"..\"} ?k}}  ; a source's key sentences [{:page :para :node :quote :label}]
     '{:pages {{:source/id #uuid \"..\" :page 40 :near #uuid \"..\"} ?n}} ; the node (as :nodes) to show beside a page
 
   Personal app: no roles."
@@ -36,6 +37,7 @@
             [robertluo.fly-learner.db :as db]
             [robertluo.fly-learner.explore.knowledge :as explore]
             [robertluo.fly-learner.explore.store :as explore.store]
+            [robertluo.fly-learner.keypoints :as keypoints]
             [robertluo.fly-learner.server.ideas :as ideas]
             [robertluo.fly-learner.server.study :as study]
             [sg.flybot.pullable.collection :as coll]))
@@ -199,10 +201,11 @@
                                 (when (and (uuid? id) (uuid? near) (pos-int? page))
                                   (let [db (d/db conn)]
                                     (some->> (db/node-at-page db id page near) (node-of db))))))
+        kps     (query-lookup (fn [{:source/keys [id]}] (when (uuid? id) (keypoints/for-source (d/db conn) id))))
         kws     (query-lookup (fn [{:keys [keyword]}] (when (string? keyword)
                                                         (db/nodes-with-keyword (d/db conn) keyword))))]
     (fn [_request]
-      {:data   {:sources sources :nodes nodes :pages pages :keywords kws :search search :asks asks
+      {:data   {:sources sources :nodes nodes :pages pages :keypoints kps :keywords kws :search search :asks asks
                 :concepts concepts
                 :concept-graph (lazy-value #(concept-view/graph (d/db conn)))
                 :learning (lazy-value #(study/overview (d/db conn) learning))

@@ -50,6 +50,10 @@ Web stack follows flybot.sg (github.com/flybot-sg/lasagna-pattern, `examples/fly
     keeping its id and name; returns `:successors` {gone-id new-id}), `universe` (clusters with members, dominant
     source, links). Stored as `:cluster/*`; `bb ingest` refreshes them and moves goals on a gone cluster to its
     successor (`study/clusters-replaced!`)
+  - `keypoints` — key sentences: `extract!` (`:common` model, a few passages per call, 4 calls at a time) quotes
+    1-3 sentences per passage verbatim with a 2-6 word label (the passage's hidden headings); `locate` keeps a quote
+    only when found in its paragraph, as the paragraph's own text. Stored on the passage as `:node/keypoints`
+    (`[]` for none; a re-ingest drops them with the node). `for-source` -> the `:keypoints` lookup
   - `db` (Datalevin knowledge schema + queries; `connect` merges other layers' schemas; `copy!` rebuilds a db under the
     current schema, e.g. after marking an attribute `:db/fulltext` — Datalevin's `re-index` loses full-text entries)
 - `src/cljc/robertluo/fly_learner/ui/core/` — frontend logic, JVM-testable: `db` (pure state fns), `pull` (named pull specs),
@@ -64,7 +68,7 @@ Web stack follows flybot.sg (github.com/flybot-sg/lasagna-pattern, `examples/fly
 - `src/cljs/robertluo/fly_learner/ui/` — `core` (dispatch-of effects `:db`/`:pull`/`:history`/`:animate`, transit fetch, render,
   mouseup -> text selection), `pdf` (pdf.js: render a page, its selectable text layer, highlight boxes; the source as one scrolling column of
   pages, drawn near the view only: `sync-scroll!` keeps it at the state's page (and at the same spot when pages change
-  size: width, zoom), `watch-scroll!` turns the page as the learner scrolls; when it pauses the left pane follows: `db/node-at-page` via
+  size: width, zoom), `find-each!` finds texts on a page one by one (key sentences, what is open), `watch-scroll!` turns the page as the learner scrolls; when it pauses the left pane follows: `db/node-at-page` via
   the `:pages` lookup picks the node of the same kind and level on that page, returned whole so the PDF is never
   unmounted), `zoom` (pan/zoom gestures: drag,
   trackpad scroll, pinch = ctrl/⌘ + wheel; `fullscreen!`: the whole page, so popovers work; `db/fullscreen` follows
@@ -128,7 +132,7 @@ Each layer knows the one below as little as possible, so any part can be reimple
 - `bb watch` — shadow-cljs without a REPL; `bb serve` — release build served by the backend on :8080
 - `bb test`, `bb lint`; `bb install` / `bb vendor` copy pdf.js into `resources/public/vendor/pdfjs`
 - `bb ingest data/sources/<file>.pdf ...` — `cli/ingest!` (ingest + fold, then `concept/resolve!`, clusters,
-  `explore.knowledge/propose!` for new passages; prints the cost).
+  `keypoints/extract!` and `explore.knowledge/propose!` for new passages; prints the cost).
   `bb/ingest_task.clj` evaluates it over nREPL in the running `bb dev` REPL when `.nrepl-port` answers (Datalevin
   must have one writer: the app's), else runs `clojure -M:ingest`. Paths are stored relative to the project
   (`cli/source-path`), so any spelling of a file re-ingests the same source

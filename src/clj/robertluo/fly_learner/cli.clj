@@ -13,6 +13,7 @@
             [robertluo.fly-learner.db :as db]
             [robertluo.fly-learner.explore.knowledge :as explore]
             [robertluo.fly-learner.ingest :as ingest]
+            [robertluo.fly-learner.keypoints :as keypoints]
             [robertluo.fly-learner.llm :as llm]
             [robertluo.fly-learner.server.study :as study]
             [robertluo.fly-learner.server.system :as sys]))
@@ -42,7 +43,8 @@
   "Ingest the PDFs at `paths`: extract, fold with Claude and store each
   (replacing an earlier ingest of the same file), then resolve the keywords
   no concept covers yet into concepts and cluster them into topics again,
-  then judge which new passages could become explorations. Uses the running system's db when
+  then find the key sentences of new passages and judge which could become
+  explorations. Uses the running system's db when
   there is one, else opens it and closes it after. Prints progress and the
   cost. Returns {:sources [..] :concepts totals}."
   [& paths]
@@ -76,6 +78,9 @@
             (println (format "  %d clusters: %d kept, %d new (named), %d gone" clusters kept named dropped))
             (when (seq moved)
               (println (format "  %d topic(s) you were learning regrouped: now learning their successors" (count moved)))))
+          (println "Finding the key sentences of new passages")
+          (let [{:keys [passages keypoints]} (keypoints/extract! conn client {:models models})]
+            (println (format "  %d passages, %d key sentences" passages keypoints)))
           (println "Finding passages to explore")
           (let [{:keys [judged proposed]} (explore/propose! conn client {:models models})]
             (println (format "  %d passages judged, %d can be explored" judged proposed)))

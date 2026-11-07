@@ -468,8 +468,8 @@ input.filter:focus { outline: 2px solid var(--accent-soft); border-color: var(--
 
 /* ideas --------------------------------------------------------------- */
 
-:root { --agree: #2f8f5b; --disagree: #b5523b; --note: #a07a2a; }
-@media (prefers-color-scheme: dark) { :root { --agree: #6cc495; --disagree: #e38b74; --note: #d8b25e; } }
+:root { --agree: #2f8f5b; --disagree: #b5523b; --note: #a07a2a; --highlight: #ffd60a; }
+@media (prefers-color-scheme: dark) { :root { --agree: #6cc495; --disagree: #e38b74; --note: #d8b25e; --highlight: #9c7f00; } }
 
 .ideas .reactions { display: flex; flex-wrap: wrap; gap: .5rem; }
 .ideas .hint { margin: .6rem 0 0; }
@@ -509,6 +509,9 @@ input.filter:focus { outline: 2px solid var(--accent-soft); border-color: var(--
 .idea .stance { font-weight: 700; color: var(--note); }
 .idea.agree .stance { color: var(--agree); }
 .idea.disagree .stance { color: var(--disagree); }
+.idea.highlight { border-left-color: var(--highlight); }
+.idea.highlight .stance { color: #c9a400; }
+.idea-popover .btn.highlight:hover { border-color: #c9a400; color: #8a7000; }
 .idea-body p { margin: 0; white-space: pre-line; }
 .idea-body blockquote {
   margin: 0 0 .3rem;
@@ -524,6 +527,7 @@ mark { background: none; border-bottom: 2px solid var(--note); color: inherit; c
 mark.agree { border-bottom-color: var(--agree); background: color-mix(in srgb, var(--agree) 10%, transparent); }
 mark.disagree { border-bottom-color: var(--disagree); background: color-mix(in srgb, var(--disagree) 10%, transparent); }
 mark.note { background: color-mix(in srgb, var(--note) 10%, transparent); }
+mark.highlight { border-bottom: 0; background: color-mix(in srgb, var(--highlight) 45%, transparent); }
 
 .idea-popover {
   position: fixed;
@@ -704,13 +708,25 @@ form.ask input:focus { outline: 2px solid var(--accent-soft); border-color: var(
 .pdf-marks { position: absolute; inset: 0; pointer-events: none; mix-blend-mode: multiply; }
 /* multiply the whole layer (it has a z-index, so it is its own stacking context: a blend on
    each mark would only see the layer): the glyphs stay black, overlapping boxes do not darken */
-.pdf-marks .mark { position: absolute; background: #ffe066; border-radius: 2px; }
+/* what is open on the left: a bar in the page's margin along it */
+.pdf-marks .open-bar { position: absolute; width: 4px; border-radius: 2px; background: #2f6f5e; opacity: .75; }
 /* your ideas on text selected in the PDF: tinted and underlined in the stance's colour
    (fixed colours: the page is white in either theme) */
 .pdf-idea-marks { position: absolute; inset: 0; pointer-events: none; mix-blend-mode: multiply; z-index: 2; }
 .idea-mark { position: absolute; background: rgb(160 122 42 / .22); border-bottom: 2px solid #a07a2a; }
 .idea-mark.agree { background: rgb(47 143 91 / .2); border-bottom-color: #2f8f5b; }
 .idea-mark.disagree { background: rgb(181 82 59 / .2); border-bottom-color: #b5523b; }
+/* key sentences: a light tint, their label in the page's margin, sized with the page */
+.pdf-sheet { container-type: inline-size; }
+.pdf-key-marks { position: absolute; inset: 0; pointer-events: none; z-index: 1; }
+.key-mark { position: absolute; background: rgb(70 130 220 / .13); mix-blend-mode: multiply; border-radius: 2px; }
+.key-label {
+  position: absolute; left: .4cqw; text-align: right; pointer-events: auto; cursor: default;
+  font: 600 clamp(7px, 1.35cqw, 12px)/1.2 var(--font); color: #3566b0;
+  display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden;
+}
+/* your highlights: a highlighter's yellow, nothing more */
+.idea-mark.highlight { background: rgb(255 214 10 / .45); border-bottom: 0; }
 
 /* errors -------------------------------------------------------------- */
 
@@ -882,3 +898,19 @@ figure figcaption { color: var(--muted); font-size: .85rem; margin-top: .4rem; }
 .x-remake .actions { display: flex; justify-content: space-between; margin-top: .5rem; }
 main.explore section h2 { margin-top: 2rem; }
 .explore-offer .offer .btn { white-space: nowrap; flex: none; }
+
+/* key points of a passage, on the left */
+.key-list { list-style: none; padding: 0; margin: .5rem 0 0; display: grid; gap: .5rem; }
+.key-point {
+  display: grid; gap: .2rem; width: 100%; text-align: left; cursor: pointer; font: inherit; color: inherit;
+  padding: .6rem .8rem; background: var(--panel); border: 1px solid var(--border);
+  border-left: 3px solid #4682dc; border-radius: 6px;
+}
+.key-point:hover { border-color: #4682dc; }
+.key-label-l { font-weight: 600; color: #3566b0; }
+@media (prefers-color-scheme: dark) { .key-label-l { color: #8fb4ee; } }
+.key-quote { font: 1rem/1.5 var(--serif); }
+.key-point .meta { justify-self: end; }
+details.paragraphs { margin-top: 1rem; }
+details.paragraphs summary { cursor: pointer; color: var(--muted); font-size: .9rem; }
+details.paragraphs .cards { margin-top: .6rem; }
