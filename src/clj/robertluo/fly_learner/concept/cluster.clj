@@ -54,10 +54,12 @@
 
 (defn- absorb-small
   "Clusters under `min-size` join the cluster they share the most weight
-  with (smallest first); unconnected ones stay."
+  with (smallest first); unconnected ones stay, marked ::alone (and are not
+  looked at again)."
   [adj groups min-size]
   (loop [groups (vec (sort-by (juxt count #(str (first (sort-by str %)))) groups))]
-    (let [i (first (keep-indexed (fn [i g] (when (< (count g) min-size) i)) groups))
+    (let [i (first (keep-indexed (fn [i g] (when (and (< (count g) min-size) (not (::alone (meta g)))) i))
+                                 groups))
           g (when i (groups i))
           pull (when g
                  (->> (for [[j h] (map-indexed vector groups) :when (not= i j)]
@@ -79,7 +81,8 @@
   largest first. Concepts without edges form no cluster."
   ([ids edges] (communities ids edges {}))
   ([ids edges {:keys [sweeps min-size] :or {sweeps 8 min-size 6}}]
-   (let [adj   (adjacency (filter #(and (contains? (set ids) (:from %)) (contains? (set ids) (:to %))) edges))
+   (let [in    (set ids)
+         adj   (adjacency (filter #(and (in (:from %)) (in (:to %))) edges))
          order (sort-by str (keys adj))
          deg   (into {} (for [[n nb] adj] [n (reduce + (vals nb))]))
          m2    (reduce + (vals deg))]
@@ -105,6 +108,13 @@
   ;; too small to stand alone: joins its neighbour
   (count (communities [:a :b :c :x :y :z :p] es {:min-size 4})) ;=> 1
   (communities [:a] []) ;=> []
+  ;; a small part connected to nothing else is no topic (and does not stall)
+  (communities [:a :b :c :x :y :z :p :q] (conj es {:from :p :to :q :kind :related :weight 1.0}
+                                               {:from :u :to :v :kind :related :weight 1.0})
+               {:min-size 3})
+  ;=> [#{:a :b :c :p :q} #{:x :y :z}]
+  (communities [:a :b :c :u :v] (conj es {:from :u :to :v :kind :related :weight 1.0}) {:min-size 3})
+  ;=> [#{:a :b :c}]
   )
 
 ;;=============================================================================
