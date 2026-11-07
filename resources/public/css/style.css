@@ -722,7 +722,6 @@ ul.plain li { font-size: .9rem; line-height: 1.35; }
 .map-pane .hint { margin-left: auto; font-size: .82rem; }
 .kmap { flex: 1; width: 100%; min-height: 0; }
 .kmap .links line { stroke: var(--border); stroke-opacity: .9; }
-.kmap .domain { fill: var(--muted); font-family: var(--font); font-weight: 600; letter-spacing: .06em; text-transform: uppercase; }
 .kmap .bubble { cursor: pointer; }
 .kmap .bubble .body { fill: var(--panel); stroke: var(--accent); stroke-width: 1.5; }
 .kmap .bubble .heat { fill: var(--accent); pointer-events: none; }

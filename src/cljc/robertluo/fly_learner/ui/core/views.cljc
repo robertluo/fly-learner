@@ -355,16 +355,13 @@
       [:tspan {:replicant/key i :x 0 :dy (if (zero? i) 0 "1.15em")} line])]])
 
 (defn- knowledge-map [db dispatch!]
-  (let [{:keys [bubbles links domains box]} (db/map-scene db)]
+  (let [{:keys [bubbles links box]} (db/map-scene db)]
     (if (seq bubbles)
       [:svg.kmap {:viewBox (str/join " " box) :preserveAspectRatio "xMidYMid meet"}
        [:g.links
         (for [[i {:keys [x1 y1 x2 y2 weight]}] (map-indexed vector links)]
           [:line {:replicant/key i :x1 x1 :y1 y1 :x2 x2 :y2 y2
                   :style {:stroke-width (min 6 (+ 1 (* 0.5 weight)))}}])]
-       [:g.domains
-        (for [{:keys [title x y]} domains]
-          [:text.domain {:replicant/key title :x x :y y :text-anchor "middle" :font-size (* 1.1 db/map-font)} title])]
        [:g.bubbles (for [b bubbles] (map-bubble dispatch! b))]]
       [:p.muted.graph-empty
        (if (:universe db)
@@ -372,8 +369,8 @@
          "Loading the map…")])))
 
 (defn- home-view
-  "The map of everything: topics (clusters of concepts) grouped by source,
-  sized by concepts, filled by how well they are known. Pick topics to learn."
+  "The map of everything: topics (clusters of concepts) placed by how they
+  connect, whatever their sources, sized by concepts, filled by how well they are known. Pick topics to learn."
   [{:keys [sources ask-history learning] :as db} dispatch!]
   (let [learning-now (db/learning-clusters db)]
     [:main.map-home

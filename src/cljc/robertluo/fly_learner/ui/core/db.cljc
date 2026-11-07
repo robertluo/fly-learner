@@ -591,52 +591,56 @@
   what sits near what, not a web."
   3)
 
-(defn- strongest-links
-  "Links among `ids`, keeping for each cluster its `k` strongest."
+(def ^:private map-link-share
+  "A link is drawn only if it is at least this share of the strongest link of
+  each end: a few shared words (a homonym, a passing mention) join two
+  fields as strongly, in absolute terms, as two neighbouring topics are
+  joined, but never strongly next to what each field holds together."
+  0.25)
+
+(defn strongest-links
+  "Links among `ids`, keeping for each cluster its `k` strongest, and of
+  those only the ones not weak next to either end's strongest."
   [links ids k]
   (let [in   (filter #(and (contains? ids (:from %)) (contains? ids (:to %))) links)
-        top  (fn [id] (->> in
-                           (filter #(or (= id (:from %)) (= id (:to %))))
+        of   (fn [id] (filter #(or (= id (:from %)) (= id (:to %))) in))
+        best (memoize (fn [id] (reduce max 0 (map :weight (of id)))))
+        top  (fn [id] (->> (of id)
                            (sort-by (juxt (comp - :weight) (comp str :from) (comp str :to)))
                            (take k)))]
-    (vec (distinct (mapcat top (sort-by str ids))))))
+    (->> (mapcat top (sort-by str ids))
+         distinct
+         (filter (fn [{:keys [from to weight]}]
+                   (>= weight (* map-link-share (min (best from) (best to))))))
+         vec)))
 
-(defn- domain-layout
-  "Positions of one domain's clusters, centred on [0 0], and its width. Each
-  topic's box is its bubble with its name below, so none overlap."
-  [clusters links]
-  (let [ids  (set (map :cluster/id clusters))
-        ;; one box height for all (the layout's): a typical topic's, not the largest
-        rtyp (let [rs (sort (map (comp bubble-radius count :concepts) clusters))] (nth rs (quot (count rs) 2)))
-        pos  (layout/layout ids
-                            (map #(assoc % :kind :related) (strongest-links links ids map-links-per-cluster))
-                            {} {}
-                            {:length 150 :iterations 300 :aspect 1.0
-                             :height (+ (* 2 rtyp) (* 2.4 map-font))
-                             :widths (into {} (for [{:cluster/keys [id label] :keys [concepts]} clusters]
-                                                [id (max (* 2 (bubble-radius (count concepts))) (name-width label))]))})
-        xs   (map first (vals pos))
-        ys   (map second (vals pos))
-        cx   (/ (+ (apply min xs) (apply max xs)) 2)
-        cy   (/ (+ (apply min ys) (apply max ys)) 2)]
-    {:pos   (into {} (for [[id [x y]] pos] [id [(- x cx) (- y cy)]]))
-     :width (+ (- (apply max xs) (apply min xs)) 380)}))
+^:rct/test
+(comment
+  ;; two fields, each held together, joined by a few shared words
+  (strongest-links [{:from :a :to :b :weight 10.0} {:from :x :to :y :weight 8.0}
+                    {:from :b :to :x :weight 1.5} {:from :a :to :leaf :weight 0.8}]
+                   #{:a :b :x :y :leaf} 3)
+  ;=> [{:from :a :to :b :weight 10.0} {:from :a :to :leaf :weight 0.8} {:from :x :to :y :weight 8.0}]
+  )
 
 (defn- map-layout
-  "Positions {cluster-id [x y]}: each domain (the source most of a cluster's
-  passages come from) laid out on its own, the domains side by side, so
-  topics that share edges sit close and domains stay apart."
+  "Positions {cluster-id [x y]}: topics placed by their links alone (each
+  joined to its strongest few), whatever sources their passages come from:
+  the knowledge is what is mapped, so topics that share edges sit close and
+  only unconnected knowledge stands apart (see layout/layout). Each topic's
+  box is its bubble with its name below, so none overlap."
   [{:keys [clusters links]}]
-  (let [domains (->> clusters
-                     (group-by (comp :source/id :source))
-                     (sort-by (fn [[src cs]] [(- (count cs)) (str src)]))
-                     (map (fn [[_ cs]] (domain-layout cs links))))]
-    (loop [[d & more] domains, x 0, out {}]
-      (if-not d
-        out
-        (let [cx (+ x (/ (:width d) 2))]
-          (recur more (+ x (:width d))
-                 (into out (for [[id [px py]] (:pos d)] [id [(+ px cx) py]]))))))))
+  (let [ids (set (map :cluster/id clusters))]
+    (when (seq ids)
+      (layout/layout ids
+                     (map #(assoc % :kind :related) (strongest-links links ids map-links-per-cluster))
+                     {} {}
+                     {:length 150 :iterations 300 :aspect 1.0
+                      ;; one box height for all (the layout's): a typical topic's, not the largest
+                      :height (let [rs (sort (map (comp bubble-radius count :concepts) clusters))]
+                                (+ (* 2 (nth rs (quot (count rs) 2))) (* 2.4 map-font)))
+                      :widths (into {} (for [{:cluster/keys [id label] :keys [concepts]} clusters]
+                                         [id (max (* 2 (bubble-radius (count concepts))) (name-width label))]))}))))
 
 (defn cluster-of
   "Cluster `id` from the universe, or nil."
@@ -674,40 +678,25 @@
 
 (defn map-scene
   "What the map draws: {:bubbles [{:id :label :lines :gloss :n :score
-  :learning? :x :y :r :source}] :links [{:x1 :y1 :x2 :y2 :weight}] :domains
-  [{:title :x :y}] :box [x y w h]}, in map units (fixed sizes, see map-font).
-  Domains: where the clusters' passages come from."
+  :learning? :x :y :r}] :links [{:x1 :y1 :x2 :y2 :weight}] :box [x y w h]},
+  in map units (fixed sizes, see map-font)."
   [db]
   (let [{:keys [clusters links pos]} (:universe db)
-        bubbles (vec (for [{:cluster/keys [id label gloss] :keys [concepts score learning? source]} clusters
+        bubbles (vec (for [{:cluster/keys [id label gloss] :keys [concepts score learning?]} clusters
                            :let [[x y] (pos id)] :when x]
                        {:id id :label label :lines (label-lines label) :gloss gloss :n (count concepts)
                         :score (or score 0) :learning? learning? :x x :y y
-                        :r (bubble-radius (count concepts)) :source source}))
-        at      (into {} (map (juxt :id identity)) bubbles)
-        domain  (into {} (map (juxt :id (comp :source/id :source))) bubbles)
-        shown   (->> (group-by :source bubbles) vals
-                     (mapcat #(strongest-links links (set (map :id %)) map-links-per-cluster)))
-        domains (vec (for [[src bs] (group-by :source bubbles) :when src]
-                       {:title (:source/title src)
-                        :x     (/ (reduce + (map :x bs)) (count bs))
-                        :y     (- (apply min (map #(- (:y %) (:r %)) bs)) (* 2.2 map-font))}))]
+                        :r (bubble-radius (count concepts))}))
+        at      (into {} (map (juxt :id identity)) bubbles)]
     {:bubbles bubbles
-     :links   (vec (for [{:keys [from to weight]} shown
-                         :when (= (domain from) (domain to))
-                         :let [a (at from) b (at to)] :when (and a b)]
+     :links   (vec (for [{:keys [from to weight]} (strongest-links links (set (keys at)) map-links-per-cluster)
+                         :let [a (at from) b (at to)]]
                      {:x1 (:x a) :y1 (:y a) :x2 (:x b) :y2 (:y b) :weight weight}))
-     :domains domains
-     :box     (layout/view-box (into {} (concat
-                                         (for [{:keys [id x y r label lines]} bubbles
-                                               :let [hw (max r (/ (name-width label) 2))]
-                                               [k p] [[[id 0] [(- x hw) (- y r)]]
-                                                      [[id 1] [(+ x hw) (+ y r (* 1.3 map-font (inc (count lines))))]]]]
-                                           [k p])
-                                         (for [{:keys [title x y]} domains
-                                               :let [hw (* 0.36 map-font (count title))]
-                                               [k p] [[[title 0] [(- x hw) (- y map-font)]] [[title 1] [(+ x hw) y]]]]
-                                           [k p])))
+     :box     (layout/view-box (into {} (for [{:keys [id x y r label lines]} bubbles
+                                              :let [hw (max r (/ (name-width label) 2))]
+                                              [k p] [[[id 0] [(- x hw) (- y r)]]
+                                                     [[id 1] [(+ x hw) (+ y r (* 1.3 map-font (inc (count lines))))]]]]
+                                          [k p]))
                                {:pad 20})}))
 
 (defn keyword-fetched [db kw nodes]
