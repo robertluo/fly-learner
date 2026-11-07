@@ -160,6 +160,41 @@
          [?n :node/kind :paragraph] [?n :node/id ?id]]
        db source-id page))
 
+(defn- paragraphs-at
+  "[[order eid] ..] of the paragraphs of source entity `s` starting on page `p`."
+  [db s p]
+  (d/q '[:find ?o ?n :in $ ?s ?p
+         :where [?n :node/source ?s] [?n :node/page ?p] [?n :node/kind :paragraph] [?n :node/order ?o]]
+       db s p))
+
+(defn node-at-page
+  "The node to show beside page `page` of source `source-id`, reading from
+  node `near-id`: `near-id` itself while any of its text is on the page (a
+  paragraph starting there, or the last one of an earlier page, which may run
+  over); else, among the nodes with a paragraph starting on the page, the
+  first in reading order of `near-id`'s kind and level, else of its kind at
+  the nearest level; else `near-id`. A page with no paragraph starting on it
+  (a figure, a long paragraph) is read through the one running over."
+  [db source-id page near-id]
+  (let [s    (d/entid db [:source/id source-id])
+        near (d/pull db [:db/id :node/kind :node/level] [:node/id near-id])
+        with-ancestors (fn [paras]
+                         (->> (sort paras) (map second)
+                              (mapcat (fn [e] (conj (vec (keep #(d/entid db [:node/id (:node/id %)]) (ancestors-of db e))) e)))
+                              distinct
+                              (map #(d/pull db [:db/id :node/id :node/kind :node/level :node/order] %))))
+        on   (paragraphs-at db s page)
+        prev (some #(not-empty (paragraphs-at db s %)) (range (dec page) (max 0 (- page 12)) -1))
+        over (when (seq prev) [(apply max-key first prev)])
+        kin  (filter #(= (:node/kind near) (:node/kind %)) (with-ancestors (or (not-empty on) over)))
+        by-order #(first (sort-by :node/order %))]
+    (cond
+      (or (nil? s) (nil? (:db/id near)))                                       nil
+      (some #(= (:db/id near) (:db/id %)) (with-ancestors (concat over on)))  near-id
+      :else (or (:node/id (or (by-order (filter #(= (:node/level near) (:node/level %)) kin))
+                              (first (sort-by (juxt #(abs (- (:node/level %) (:node/level near))) :node/order) kin))))
+                near-id))))
+
 (defn nodes-with-keyword
   "Summarised nodes carrying keyword `kw`, highest level first."
   [db kw]

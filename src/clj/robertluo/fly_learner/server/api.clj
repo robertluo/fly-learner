@@ -26,6 +26,7 @@
     {:explorations {nil {:exploration/node id}}}   ; make one of a node with Claude (its proposal's pitch)
     {:explorations {nil {:exploration/previous id :exploration/feedback \"..\"}}} ; remake one
   A node (:nodes) carries :node/explore: its proposal, if any, and its explorations.
+    '{:pages {{:source/id #uuid \"..\" :page 40 :near #uuid \"..\"} ?n}} ; the node (as :nodes) to show beside a page
 
   Personal app: no roles."
   (:require [clojure.string :as str]
@@ -192,14 +193,16 @@
         explorations (coll/collection (->ExplorationsDataSource conn client ask-opts) {:id-key :exploration/id})
         goals     (coll/collection (->GoalsDataSource conn learning) {:id-key :cluster/id})
         clusters  (coll/read-only (coll/collection (->ClustersDataSource conn learning) {:id-key :cluster/id}))
-        nodes   (query-lookup (fn [{:node/keys [id]}]
-                                (when (uuid? id)
+        node-of (fn [db id] (some-> (db/node db id) (assoc :node/explore (explore/for-node db id))))
+        nodes   (query-lookup (fn [{:node/keys [id]}] (when (uuid? id) (node-of (d/db conn) id))))
+        pages   (query-lookup (fn [{:keys [page near] :source/keys [id]}]
+                                (when (and (uuid? id) (uuid? near) (pos-int? page))
                                   (let [db (d/db conn)]
-                                    (some-> (db/node db id) (assoc :node/explore (explore/for-node db id)))))))
+                                    (some->> (db/node-at-page db id page near) (node-of db))))))
         kws     (query-lookup (fn [{:keys [keyword]}] (when (string? keyword)
                                                         (db/nodes-with-keyword (d/db conn) keyword))))]
     (fn [_request]
-      {:data   {:sources sources :nodes nodes :keywords kws :search search :asks asks
+      {:data   {:sources sources :nodes nodes :pages pages :keywords kws :search search :asks asks
                 :concepts concepts
                 :concept-graph (lazy-value #(concept-view/graph (d/db conn)))
                 :learning (lazy-value #(study/overview (d/db conn) learning))

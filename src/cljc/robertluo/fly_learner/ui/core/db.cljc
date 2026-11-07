@@ -917,6 +917,26 @@
   [db p]
   (assoc-in db [:pdf :page] p))
 
+(declare wide?)
+
+(defn page-sync
+  "{:source/id :page :near} to ask which node goes beside the page the source
+  was scrolled to (the left pane follows the source), or nil: not on a node
+  page, the left pane hidden, or the source following the node."
+  [db]
+  (let [node (current-node db) p (get-in db [:pdf :page])]
+    (when (and (= :node (:view db)) node p (not (wide? db)))
+      {:source/id (get-in node [:node/source :source/id]) :page p :near (:node/id node)})))
+
+(defn page-synced
+  "The node `id` goes beside page `p` of the source: show it, the source
+  staying where the learner scrolled it. Nothing when it is the node shown,
+  or the learner has scrolled on or gone elsewhere meanwhile."
+  [db p id]
+  (if (and id (= :node (:view db)) (not= id (:node-id db)) (= p (get-in db [:pdf :page])))
+    (-> db (open-node id) (assoc-in [:pdf :page] p))
+    db))
+
 (defn pdf-window
   "Whether page `q` is near page `p` (the one at the top of the pane), so
   worth drawing: the others are blank sheets of the right size. Fewer when
@@ -1049,6 +1069,16 @@
     [(get-in d [:pdf :draft]) (get-in (pdf-page-entered d :s) [:pdf :page])]) ;=> ["88" 88]
   (get-in (-> initial-state (pdf-loaded :s 120) (pdf-page-typed "999") (pdf-page-entered :s)) [:pdf :page]) ;=> 120
   (get-in (-> initial-state (pdf-page-typed "abc") (pdf-page-entered :s)) [:pdf]) ;=> (:pdf initial-state)
+  ;; the left pane follows the source scrolled to another page
+  (let [a #uuid "00000000-0000-0000-0000-00000000000a" b #uuid "00000000-0000-0000-0000-00000000000b"
+        d (-> initial-state (open-node a)
+              (assoc-in [:nodes a] {:node/id a :node/source {:source/id :s} :node/page 3})
+              (pdf-scrolled 9))]
+    [(page-sync d) (page-sync (pdf-follow d)) (page-sync (source-only d true))
+     (let [d2 (page-synced d 9 b)] [(:node-id d2) (pdf-page d2)])
+     (:node-id (page-synced (pdf-scrolled d 10) 9 b))])
+  ;=> [{:source/id :s :page 9 :near #uuid "00000000-0000-0000-0000-00000000000a"} nil nil
+  ;    [#uuid "00000000-0000-0000-0000-00000000000b" 9] #uuid "00000000-0000-0000-0000-00000000000a"]
   (wide? (fullscreen initial-state true)) ;=> true
   (wide? initial-state) ;=> false
   (node-page {:node/children [{:node/page 3}]}) ;=> 3

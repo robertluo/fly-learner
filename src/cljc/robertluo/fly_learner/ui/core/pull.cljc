@@ -82,6 +82,17 @@
         {:pattern {:explorations {{:exploration/id id} nil}}
          :then    (fn [_] {:db #(db/exploration-deleted % id) :history :push})}))
 
+    ;; the left pane follows the source: the node beside the page scrolled to
+    :page-sync
+    (when-let [{:keys [page] :as q} (db/page-sync db)]
+      ;; the node comes whole: shown at once, the source never unmounted for a "Loading…"
+      {:pattern {:pages {q '?n}}
+       :then    (fn [r]
+                  (let [node (get r 'n)]
+                    (when (and node (not= (:node/id node) (:near q)))
+                      {:db #(-> % (db/node-fetched node) (db/page-synced page (:node/id node)))
+                       :pull :ideas :history :replace})))})
+
     :concept
     (let [id (:concept-id db)]
       (when (and id (not (contains? (:concepts db) id)))

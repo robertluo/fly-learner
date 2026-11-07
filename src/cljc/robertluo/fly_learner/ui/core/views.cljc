@@ -535,9 +535,11 @@
                      (zoom/pinch! pane (fn [f] (dispatch! {:db #(db/pdf-zoomed % (* f (db/pdf-zoom %)))})))
                      (pdf/watch-scroll! pane
                                         (fn [p] (dispatch! {:db #(db/pdf-scrolled % p)}))
-                                        ;; leaving the node's page is one step back in history
+                                        ;; leaving the node's page is one step back in history;
+                                        ;; the left pane then follows to the node on that page
                                         (fn [was-following?]
-                                          (dispatch! {:history (if was-following? :push :replace)})))
+                                          (dispatch! {:history (if was-following? :push :replace)
+                                                      :pull :page-sync})))
                      (when-not found
                        (pdf/ensure-highlight! key texts
                                               (fn [k result]
