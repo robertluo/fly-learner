@@ -169,9 +169,8 @@
                                             (keep (fn [^js it]
                                                     (when-not (str/blank? (.-str it))
                                                       (:x (span-rect vp it 0 (count (.-str it)))))))
-                                            sort
-                                            ;; the margin: past the odd item hanging left (a page number, a mark)
-                                            (#(nth % (quot (count %) 10) nil)))
+                                            ;; the margin: where lines start, past a stray item hanging left
+                                            hl/text-left)
                                 :rects
                                (mapv (fn [t]
                                        (not-empty

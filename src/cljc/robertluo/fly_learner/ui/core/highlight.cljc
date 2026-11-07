@@ -191,3 +191,36 @@
   (merge-rects [{:x 10 :y 50 :w 10 :h 4} {:x 21 :y 52 :w 5 :h 3} {:x 10 :y 56 :w 20 :h 4}])
   ;=> [{:x 10 :y 50 :w 16 :h 5} {:x 10 :y 56 :w 20 :h 4}]
   )
+
+(defn text-left
+  "The left edge of a page's text column from the x of each text item (page
+  fractions): the leftmost x where at least `aligned` items start within
+  `tolerance` of it. A stray item hanging left (a page number, a mark) is
+  not aligned with another; lines of body text are, however many table
+  cells or formulas start further right (a percentile of the xs lands in
+  the text on such a page, and a label in the margin overlaps it). Two:
+  a page mostly figure may have two lines of text. nil when there is no
+  text."
+  ([xs] (text-left xs 2 0.006))
+  ([xs aligned tolerance]
+   (let [xs (vec (sort xs))
+         n  (count xs)]
+     (or (some (fn [i]
+                 (let [x (xs i)
+                       j (+ i aligned -1)]
+                   (when (and (< j n) (<= (- (xs j) x) tolerance)) x)))
+               (range n))
+         (first xs)))))
+
+^:rct/test
+(comment
+  ;; a page number at 0.05, body lines at 0.186, a table's cells further right
+  (text-left (concat [0.05] (repeat 10 0.186) (repeat 60 0.4) (range 0.34 0.8 0.01))) ;=> 0.186
+  ;; lines a hair apart still count as aligned
+  (text-left [0.2 0.2031 0.2049 0.5 0.5 0.5]) ;=> 0.2
+  ;; two lines of text under a figure are enough
+  (text-left [0.05 0.186 0.186 0.3 0.31 0.32 0.33 0.34]) ;=> 0.186
+  ;; nothing aligned: the leftmost
+  (text-left [0.3 0.1 0.6]) ;=> 0.1
+  (text-left []) ;=> nil
+  )
