@@ -69,6 +69,8 @@
                      :placed    {}}   ; quotes key (pdf-quotes-key) -> {idea-id [{:x :y :w :h}]}
    :keypoints       {}     ; source-id -> [{:page :para :node :quote :label}]: key sentences (robertluo.fly-learner.keypoints)
    :source-only?    false  ; split views: the left pane hidden, the source (PDF, graph) full width
+   :split           0.5    ; split views: the left pane's share of the width (kept in localStorage)
+   :split-drag      nil    ; that share while the divider is being dragged
    :fullscreen?     false  ; the browser is full screen, showing only the pane (map, graph, PDF)
    :map-view        {}     ; the map's pan and zoom (robertluo.fly-learner.ui.core.viewport)
    :loading?        false
@@ -945,6 +947,25 @@
 
 (defn pdf-zoom [db] (get-in db [:pdf :zoom] 1.0))
 
+(def split-range "The left pane's share of the width: from, to." [0.25 0.75])
+
+(defn split-share
+  "The left pane's share of the width now (while dragged, where the divider is)."
+  [db]
+  (or (:split-drag db) (:split db) 0.5))
+
+(defn split-dragged
+  "The divider is being dragged to `f` of the width (kept within range)."
+  [db f]
+  (let [[lo hi] split-range] (assoc db :split-drag (-> f (max lo) (min hi)))))
+
+(defn split-set
+  "The left pane takes `f` of the width (nil: where it was dragged to)."
+  [db f]
+  (let [[lo hi] split-range
+        f (or f (:split-drag db) (:split db) 0.5)]
+    (assoc db :split (-> (/ (Math/round (* 1000.0 f)) 1000.0) (max lo) (min hi)) :split-drag nil)))
+
 (defn pdf-zoomed
   "Pages at `z` x the pane's width (rounded, within the steps' range)."
   [db z]
@@ -1227,6 +1248,10 @@
     [(mapv (juxt :node-id :page) (bookmarks d)) (:idea/id (bookmark-on d :n1)) (ideas-in-node d :n1 nil)
      (let [o (open-bookmark d (first (bookmarks d :s)))] [(:node-id o) (pdf-page o)])])
   ;=> [[[:n2 1] [:n1 12]] :b1 [] [:n2 1]]
+  ;; the divider between the panes: live while dragged, kept on release, within range
+  (split-share (split-dragged initial-state 0.9)) ;=> 0.75
+  ((juxt :split :split-drag) (split-set (split-dragged initial-state 0.6234) nil)) ;=> [0.623 nil]
+  (:split (split-set initial-state 0.1)) ;=> 0.25
   (wide? (fullscreen initial-state true)) ;=> true
   (wide? initial-state) ;=> false
   (node-page {:node/children [{:node/page 3}]}) ;=> 3

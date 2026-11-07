@@ -74,7 +74,8 @@ Web stack follows flybot.sg (github.com/flybot-sg/lasagna-pattern, `examples/fly
   unmounted), `zoom` (pan/zoom gestures: drag,
   trackpad scroll, pinch = ctrl/⌘ + wheel; `fullscreen!`: the whole page, so popovers work; `db/fullscreen` follows
   the browser's `fullscreenchange` and shows only the pane; the map and the concept graph pan and zoom their viewBox, see `viewport`;
-  the PDF zooms its pages' width (`db/pdf-zoom*`, kept in localStorage)), `select` (the
+  the PDF zooms its pages' width (`db/pdf-zoom*`, kept in localStorage); the split views' divider is dragged in `views/split-handle`
+  (`db/split-*`, the left pane's share, kept in localStorage)), `select` (the
   selection inside a `data-anchor` element as a quote anchor; `<br>` between PDF lines counts as a space)
 - `resources/public/` — `index.html` (loads vendored pdf.js as a module), `css/style.css`
 - `src/cljc/robertluo/fly_learner/knowledge.cljc` — shared malli schema for nodes

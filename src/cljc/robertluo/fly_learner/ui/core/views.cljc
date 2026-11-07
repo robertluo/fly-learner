@@ -704,14 +704,50 @@
 
 (declare quiz-dock)
 
+(defn- split-handle
+  "The divider between the panes: drag it to share the width otherwise,
+  double-click for halves."
+  #?(:cljs [f dispatch!] :clj [f _dispatch!])
+  [:div.split-handle
+   {:title "Drag to resize the panes; double-click for halves"
+    :role "separator" :aria-orientation "vertical" :aria-valuenow (Math/round (* 100 f))
+    :style {:left (str "calc(" (* 100 f) "% - 4px)")}
+    :on #?(:clj {}
+           :cljs {:dblclick #(dispatch! {:db (fn [d] (db/split-set d 0.5))})
+                  :pointerdown
+                  (fn [^js e]
+                    (when (zero? (.-button e))
+                      (.preventDefault e)
+                      (let [handle (.-currentTarget e)
+                            main   (.closest handle "main.split")
+                            frame  (volatile! nil)
+                            move   (fn [^js m]
+                                     (let [r (.getBoundingClientRect main) x (.-clientX m)]
+                                       (when-not @frame
+                                         (vreset! frame (js/requestAnimationFrame
+                                                         (fn [] (vreset! frame nil)
+                                                           (dispatch! {:db #(db/split-dragged % (/ (- x (.-left r)) (.-width r)))})))))))
+                            up     (fn up [_]
+                                     (.removeEventListener handle "pointermove" move)
+                                     (.removeEventListener handle "pointerup" up)
+                                     (.remove (.-classList js/document.body) "resizing")
+                                     (js/requestAnimationFrame #(dispatch! {:db (fn [d] (db/split-set d nil))})))]
+                        (.setPointerCapture handle (.-pointerId e))
+                        (.add (.-classList js/document.body) "resizing")
+                        (.addEventListener handle "pointermove" move)
+                        (.addEventListener handle "pointerup" up))))})}])
+
 (defn- split
   "Two panes side by side (stacked on a small screen); the left one hidden
-  when the source should have the whole width. A quiz under way is docked at
-  the top of the left one."
+  when the source should have the whole width, else as wide as the learner
+  dragged the divider. A quiz under way is docked at the top of the left one."
   [db dispatch! left right]
-  [:main.split {:class (when (:source-only? db) "source-only")}
-   [:section.content (quiz-dock db dispatch!) left]
-   right])
+  (let [f (db/split-share db)]
+    [:main.split {:class (when (:source-only? db) "source-only")
+                  :style {:grid-template-columns (str "minmax(0, " f "fr) minmax(0, " (- 1 f) "fr)")}}
+     [:section.content (quiz-dock db dispatch!) left]
+     right
+     (when-not (db/wide? db) (split-handle f dispatch!))]))
 
 (defn- open-bar-attrs
   "Attrs that find node `id`'s `texts` on page `p` once. Inert on the JVM."
@@ -797,7 +833,8 @@
         ;; re-runs the drawing hooks when the pane widens or narrows
         mode   (if (db/wide? db) "wide" "split")
         zoom   (db/pdf-zoom db)
-        layout {:data-layout (str mode "@" zoom)}
+        ;; the panes' share too: pages drawn again when the divider is let go
+        layout {:data-layout (str mode "@" zoom "@" (:split db))}
         sheet  {:sid sid :url url :node node :aspect (db/pdf-aspect db sid) :hl-page (second key)
                 :found found :layout layout
                 ;; the pane's width x zoom; full width, no wider than reads well

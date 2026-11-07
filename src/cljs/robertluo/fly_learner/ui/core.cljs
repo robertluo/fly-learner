@@ -102,6 +102,7 @@
 
 (def ^:private source-only-key "fly-learner/source-only")
 (def ^:private pdf-zoom-key "fly-learner/pdf-zoom")
+(def ^:private split-key "fly-learner/split")
 
 (defonce _render-on-change
   (add-watch app-db ::render
@@ -112,6 +113,8 @@
                  (select/clear!))
                (when (not= (:source-only? old) (:source-only? new))
                  (some-> js/window.localStorage (.setItem source-only-key (str (:source-only? new)))))
+               (when (not= (:split old) (:split new))
+                 (some-> js/window.localStorage (.setItem split-key (str (:split new)))))
                (when (not= (db/pdf-zoom old) (db/pdf-zoom new))
                  (some-> js/window.localStorage (.setItem pdf-zoom-key (str (db/pdf-zoom new)))))
                (when (not= (select-keys old [:view :node-id :ask-id :keyword :concept-id])
@@ -132,6 +135,9 @@
   ;; and so does the zoom of the source's pages (small print)
   (when-let [z (some-> js/window.localStorage (.getItem pdf-zoom-key) js/parseFloat)]
     (when-not (js/isNaN z) (dispatch! {:db #(db/pdf-zoomed % z)})))
+  ;; and the panes' share of the width
+  (when-let [f (some-> js/window.localStorage (.getItem split-key) js/parseFloat)]
+    (when-not (js/isNaN f) (dispatch! {:db #(db/split-set % f)})))
   (go-to-route! (history/path->state (history/current-path)))
   (dispatch! {:pull :init}))
 
