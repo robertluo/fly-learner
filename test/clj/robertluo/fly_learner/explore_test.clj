@@ -57,9 +57,9 @@
 (deftest kept-explorations-survive-re-ingest
   (let [conn (db/connect (str (System/getProperty "java.io.tmpdir") "/fly-learner-explore-" (random-uuid))
                          store/schema)
-        path "data/sources/thesis.pdf"
+        sid  (random-uuid)
         nid  (fn [title] (d/q '[:find ?id . :in $ ?t :where [?n :node/title ?t] [?n :node/id ?id]] (d/db conn) title))
-        ingest! (fn [] (d/transact! conn [{:db/id "s" :source/id (random-uuid) :source/path path :source/title "Thesis"}
+        ingest! (fn [] (d/transact! conn [{:db/id "s" :source/id sid :source/path "data/sources/thesis.pdf" :source/title "Thesis"}
                                           {:db/id "g" :node/id (random-uuid) :node/source "s" :node/title "Reduction order"
                                            :node/kind :group :node/summary "Normal vs applicative order." :node/order 1
                                            :node/children ["p"]}
@@ -83,8 +83,8 @@
                (update (xk/for-node (d/db conn) g) :explorations #(mapv (fn [e] (dissoc e :exploration/at)) %))))
         (is (= (x/normalize examples/beta-reduction) (:exploration/spec (store/by-id (d/db conn) id)))
             "the spec comes back as kept")
-        ;; re-ingest: the old source and nodes go, new ones with new ids come
-        (ingest/remove-source! conn path)
+        ;; re-ingest: the source keeps its id; its old nodes go, new ones with new ids come
+        (ingest/remove-source! conn sid)
         (ingest!)
         (let [db (d/db conn) x (xk/exploration db id)]
           (is (= (nid "Reduction order") (get-in x [:exploration/node :node/id])) "found again by title")

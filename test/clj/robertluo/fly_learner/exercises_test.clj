@@ -50,7 +50,7 @@
           (is (nil? (:exercise/solution e2)))
           (is (= ["1.1"] (:exercise/refers e2)))
           (is (= 2 (:exercise/page e2)))
-          (is (= (exercises/exercise-id "data/sources/book.pdf" "1.1") (:exercise/id e1)) "found again, the same id")
+          (is (= (exercises/exercise-id s "1.1") (:exercise/id e1)) "found again, the same id")
           (exercises/extract! conn nil {:source s})
           (is (= 2 (count @prompts)) "one call a chapter's batch")
           (is (= (:exercise/id e1) (:exercise/id (first (exercises/of-concept (d/db conn) dom)))))

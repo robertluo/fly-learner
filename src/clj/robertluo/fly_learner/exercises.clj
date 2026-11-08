@@ -13,7 +13,7 @@
   tests, what it asks in a line, and the key points a full answer covers,
   from the author's solution when there is one.
 
-  Stored as `:exercise/*`, its id derived from the source's path and the
+  Stored as `:exercise/*`, its id derived from the source's id and the
   label, so finding them again, after a re-ingest too, keeps their identity
   (and the answers given to them). A re-ingest drops them with the source
   (robertluo.fly-learner.ingest/remove-source!) and finds them again.
@@ -239,18 +239,17 @@ For each exercise:
                       es))))
 
 (defn exercise-id
-  "The id of exercise `label` of the source at `path`: the same each time it is found."
-  [path label]
-  (java.util.UUID/nameUUIDFromBytes (.getBytes (str path "#exercise-" label) "UTF-8")))
+  "The id of exercise `label` of source `source-id`: the same each time it is found."
+  [source-id label]
+  (java.util.UUID/nameUUIDFromBytes (.getBytes (str source-id "#exercise-" label) "UTF-8")))
 
 (defn ->tx
   "Transaction storing exercises of source `source-id` linked by `by`."
   [db source-id by linked]
-  (let [s    (d/entid db [:source/id source-id])
-        path (or (:source/path (d/pull db [:source/path] s)) (str source-id))]
+  (let [s (d/entid db [:source/id source-id])]
     (concat
      (for [{:keys [label id page text solution refers concepts summary points]} linked
-           :let [xid (exercise-id path label)
+           :let [xid (exercise-id source-id label)
                  old (d/entid db [:exercise/id xid])]
            tx  (concat
                 (when old (for [c (:exercise/concepts (d/pull db [{:exercise/concepts [:db/id]}] old))]

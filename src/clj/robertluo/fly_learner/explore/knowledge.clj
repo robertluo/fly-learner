@@ -11,9 +11,9 @@
               more than structured outputs compile); robertluo.fly-learner.explore/check
               runs it, and the problems go back for one repair. Kept with
               its anchor and cites only when sound
-    anchors   a node as {:node/id :source/path :node/title}: after a
+    anchors   a node as {:node/id :source/id :node/title}: after a
               re-ingest (new node ids) it is found again by its title in the
-              same file"
+              same source"
   (:require [clojure.string :as str]
             [datalevin.core :as d]
             [jsonista.core :as json]
@@ -29,19 +29,19 @@
 (defn anchor
   "Anchor of node `node-id`, or nil when there is no such node."
   [db node-id]
-  (let [{:node/keys [title source]} (d/pull db [:node/title {:node/source [:source/path]}] [:node/id node-id])]
+  (let [{:node/keys [title source]} (d/pull db [:node/title {:node/source [:source/id]}] [:node/id node-id])]
     (when title
-      {:node/id node-id :source/path (:source/path source) :node/title title})))
+      {:node/id node-id :source/id (:source/id source) :node/title title})))
 
 (defn resolve-anchor
   "The id of the node `a` points at now: its own, else the node with its
-  title in the same file (re-ingested), else nil."
-  [db {:node/keys [id title] :source/keys [path]}]
+  title in the same source (re-ingested), else nil."
+  [db {:node/keys [id title] sid :source/id}]
   (or (when (and id (d/entid db [:node/id id])) id)
-      (when (and path title)
-        (d/q '[:find ?id . :in $ ?p ?t
-               :where [?s :source/path ?p] [?n :node/source ?s] [?n :node/title ?t] [?n :node/id ?id]]
-             db path title))))
+      (when (and sid title)
+        (d/q '[:find ?id . :in $ ?sid ?t
+               :where [?s :source/id ?sid] [?n :node/source ?s] [?n :node/title ?t] [?n :node/id ?id]]
+             db sid title))))
 
 (def ^:private ref-pull [:node/id :node/title :node/kind :node/page {:node/source [:source/id :source/title]}])
 

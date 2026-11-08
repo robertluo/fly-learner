@@ -22,8 +22,8 @@
 
 (defn source-path
   "`path` as stored for a source: relative to the working directory when
-  inside it (the server opens it from there), so that ingesting the same file
-  again, however it is spelled, replaces the earlier ingest."
+  inside it (the server opens it from there). Only where the file is: a
+  source is found again by its content (robertluo.fly-learner.ingest/same-source)."
   [path]
   (let [cwd (.toAbsolutePath (java.nio.file.Path/of "" (make-array String 0)))
         p   (.normalize (.toAbsolutePath (java.nio.file.Path/of (str path) (make-array String 0))))]
@@ -43,7 +43,7 @@
 
 (defn ingest!
   "Ingest the PDFs at `paths`: extract, fold with Claude and store each
-  (replacing an earlier ingest of the same file), then resolve the keywords
+  (replacing an earlier ingest of the same document, wherever the file is now), then resolve the keywords
   no concept covers yet into concepts and cluster them into topics again,
   judge what new concepts need first (concept.prereq), then find the key sentences of new passages and judge which could become
   explorations. Uses the running system's db when

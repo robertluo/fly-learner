@@ -9,7 +9,8 @@
    :source/id       {:db/valueType :db.type/uuid :db/unique :db.unique/identity}
    :source/type     {:db/valueType :db.type/keyword} ; :pdf, later :web, :epub ...
    :source/title    {:db/valueType :db.type/string}
-   :source/path     {:db/valueType :db.type/string}
+   :source/path     {:db/valueType :db.type/string}  ; where the file is now (may move)
+   :source/hash     {:db/valueType :db.type/string :db/unique :db.unique/identity} ; SHA-256 of the file's bytes
    :source/root     {:db/valueType :db.type/ref}     ; level-0 birdview node
    :source/exercises-by {:db/valueType :db.type/string} ; its exercises were looked for, by this model
 

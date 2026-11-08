@@ -7,7 +7,10 @@ See README.md for goals. Roadmap: backend (knowledge base from one source) first
 Web stack follows flybot.sg (github.com/flybot-sg/lasagna-pattern, `examples/flybot-site`); Datalevin instead of Datahike.
 
 - `src/clj/robertluo/fly_learner/` — backend
-  - `ingest` — `ingest-pdf!`: PDF -> section tree -> fold with Claude -> `data/folds/*.edn` + Datalevin
+  - `ingest` — `ingest-pdf!`: PDF -> section tree -> fold with Claude -> `data/folds/*.edn` + Datalevin. A source is its
+    document, not its path: `same-source` finds it by content (`file-hash`, `:source/hash`), else by path (changed in
+    place), else by text (moved and changed: a source whose file is gone from its path sharing `moved-overlap` of its
+    word 5-grams, `shingles`), and a re-ingest keeps its `:source/id` (a new one derives from the hash); the path is only where to read it
   - `ingest/pdf` — PDFBox paragraphs -> blocks (`:heading` / `:text`), headings recognised from text
   - `ingest/outline` — blocks -> section tree (drops cover pages, contents, bibliography, ...)
   - `fold` — regroup long sections, bottom-up summaries, flatten to nodes, keyword cross-links, `->tx`
@@ -41,7 +44,7 @@ Web stack follows flybot.sg (github.com/flybot-sg/lasagna-pattern, `examples/fly
     one; after the chapter's "Solutions to exercises" the same label opens its solution), `pair`, `found`; `extract!`
     (`:strong` model, a chapter's exercises 5 a call against the concepts the chapter mentions: 1-4 tested concepts,
     a one-line summary, key points from the solution) for sources not looked at (`:source/exercises-by`). Stored as
-    `:exercise/*`, id from the source path + label (stable across re-ingests; `ingest/remove-source!` drops them);
+    `:exercise/*`, id from the source id + label (stable across re-ingests and moves; `ingest/remove-source!` drops them);
     `merge!` moves them. `of-concept`, `by-label`, `lookup` ("exercise 1.1", "ex 2": chapter 2's)
   - `concept` — concepts: ideas with an identity (`:concept/label`, `:concept/gloss`, `:concept/broader`), named by
     keywords (`:concept/aliases`, unique: a keyword names one concept). Mentions are derived: node keyword = alias.
@@ -167,7 +170,7 @@ Each layer knows the one below as little as possible, so any part can be reimple
     -> kind + pitch), `make!` (`:strong` model writes a spec from the node and the text under it as numbered entries
     it cites [n]; a plain JSON reply, since structured outputs reject a schema this size (24 optional params, grammar
     size); `tidy`, `check`, one repair round with the problems, kept only when sound). Anchors `{:node/id
-    :source/path :node/title}`: re-found by title after a re-ingest
+    :source/id :node/title}`: re-found by title in the source after a re-ingest
 - **app** (`server.*`, `ui.*`; the UI knows item ids `[:concept id]` / `[:relation a b]` for the heat map) composes: `server.system` merges schemas and picks the model (mastery + decay)
   and the curriculum
 - `cli` — command-line tasks (app layer): `ingest!`; `server.system/connect` opens the db with every layer's schema
@@ -183,7 +186,8 @@ Each layer knows the one below as little as possible, so any part can be reimple
   `concept.prereq/judge!` for new concepts, `keypoints/extract!`, `exercises/extract!` for new sources and `explore.knowledge/propose!` for new passages; prints the cost).
   `bb/ingest_task.clj` evaluates it over nREPL in the running `bb dev` REPL when `.nrepl-port` answers (Datalevin
   must have one writer: the app's), else runs `clojure -M:ingest`. Paths are stored relative to the project
-  (`cli/source-path`), so any spelling of a file re-ingests the same source
+  (`cli/source-path`); a moved or renamed file re-ingests the same source (found by content).
+  `dev/migrations/source_identity.clj` brought a db from before (path identity) up to this, once
 - `devenv up` — runs `bb dev`
 
 Every JVM alias needs the Datalevin `--add-opens` flags; keep them when adding aliases.

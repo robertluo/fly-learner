@@ -116,13 +116,15 @@
 ;; --- persistence ----------------------------------------------------------
 
 (defn ->tx
-  "Transaction data for a source and its folded `nodes`.
+  "Transaction data for a source and its folded `nodes`: the source's `id`
+  (a new random one when nil), `title`, `path`, content `hash`, `type`.
   Node uuids double as tempids so children/links resolve in one transaction."
-  [{:keys [title path type] :or {type :pdf}} nodes]
+  [{:keys [id title path hash type] :or {type :pdf}} nodes]
   (let [tid    str
         root   (first (filter #(zero? (:node/level %)) nodes))
-        source {:db/id "source" :source/id (random-uuid) :source/type type
-                :source/title (or (:node/title root) title) :source/path path}]
+        source (cond-> {:db/id "source" :source/id (or id (random-uuid)) :source/type type
+                        :source/title (or (:node/title root) title) :source/path path}
+                 hash (assoc :source/hash hash))]
     (into [(cond-> source root (assoc :source/root (tid (:node/id root))))]
           (map (fn [n]
                  (cond-> (assoc n :db/id (tid (:node/id n)) :node/source "source")
