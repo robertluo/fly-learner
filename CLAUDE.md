@@ -50,7 +50,8 @@ Web stack follows flybot.sg (github.com/flybot-sg/lasagna-pattern, `examples/fly
     on chosen nodes; `merge!` moves prerequisite claims too, ...) are atomic multi-stage edits (Datalevin checks unique values against the pre-tx state, so an
     alias must leave one concept before joining another, inside `with-transaction`). Every change is an `:edit/*`.
   - `concept/graph` — pure over `load-graph`: `edges` (broader/narrower + NPMI co-occurrence, evidence = shared
-    nodes), `neighbourhood`, `path` (Dijkstra), `related`
+    nodes), `neighbourhood`, `path` (Dijkstra), `related`, `strongest-related`, `edge-list` (every edge as data,
+    the prerequisite dag given; `concept.prereq/edge-list` reads it from a db: what clustering and the curriculum use)
   - `concept/prereq` — prerequisites (directed: a before b; no path = independent). `judge` (`:common` model, 8
     concepts a call against the whole index tagged with sources, cached) names each concept's direct needs and the
     background it assumes; `consolidate` merges background into hidden concepts (`:concept/origin :inferred`, no
@@ -60,9 +61,10 @@ Web stack follows flybot.sg (github.com/flybot-sg/lasagna-pattern, `examples/fly
     `derived` (claims, pages, dag, reasons) once per db version; `audit` (model checks each claim's direction, stores nothing; run :common, then
     `:tier :strong :claims` the flagged for a second opinion); `claim!` / `unclaim!`: human corrections (edit log)
   - `concept/view` — `index`, `concept` (hierarchy, related with shared-passage counts, prerequisites: `:concept/needs`
-    with why, `:concept/before` in order, `:concept/needed-by`; `:concept/exercises`; mentions with paths), `lookup`
+    with why, `:concept/before` in order, `:concept/needed-by`; mentions with paths), `lookup`
     (by label or alias: same, prefix, word prefix, contains; then most mentioned) and `graph` (every concept +
-    broader/related/requires edges; the API's lazy `:concept-graph`) for the API
+    `edge-list`; the API's lazy `:concept-graph`) for the API. Display only: nothing below the app requires it
+    (architecture test); `server.api` adds a concept's `:concept/exercises`
   - `concept/cluster` — topics: `communities` (Louvain local moving over broader + co-occurrence weights; fragments
     under 6 join their most connected neighbour; `:keep` existing clusters fixed), `refresh!` (after an ingest:
     stored clusters stay as they are, new concepts join them or make new ones named by `llm-namer`, so a new source
@@ -78,8 +80,16 @@ Web stack follows flybot.sg (github.com/flybot-sg/lasagna-pattern, `examples/fly
     e.g. `graph/load-graph` (Datalevin 1.2.10 can fail heavy queries run concurrently: "Comparison method violates its
     general contract"); `connect` merges other layers' schemas; `copy!` rebuilds a db under the
     current schema, e.g. after marking an attribute `:db/fulltext` — Datalevin's `re-index` loses full-text entries)
-- `src/cljc/robertluo/fly_learner/ui/core/` — frontend logic, JVM-testable: `db` (pure state fns), `pull` (named pull specs),
-  `history` (URL <-> state; `/` the map, `/g/<id>` a cluster, `/x/<id>` an exploration), `views` (Replicant hiccup: one flow, map ->
+- `src/cljc/robertluo/fly_learner/ui/core/` — frontend logic, JVM-testable: `db` (pure state fns), `api` (the backend's wire
+  format, the only place that knows it: requests as data, `fetch`/`create`/`delete`/`batch`, `pattern` = today's
+  lasagna-remote pull pattern, `answer` reads the reply back, `send!` transit+json to `/api`, `source-url`; a new API
+  format changes this namespace only, architecture test), `pull` (what to fetch when: `{:request :then}`, `:then` gets
+  the answer; named ops in `resolve-pull`, `idea-create`/`idea-delete`/`goal` take arguments),
+  `history` (URL <-> state; `/` the map, `/g/<id>` a cluster, `/x/<id>` an exploration), `views` (Replicant hiccup,
+  the root composes the header, popover and one view per route from `views.*`: `template` (generic: icons, score
+  bars, zoom controls, the split divider; requires nothing of the app), `nav` (links and effects to places), `panes`
+  (split views, pannable drawings, full screen), `node`, `pdf`, `ideas`, `selection`, `ask`, `quiz`, `concept`,
+  `graph`, `home`, `explorations`; one flow, map ->
   cluster -> concept -> passage; a concept page's "Learn first": its prerequisite path not yet known, foundations
   first, hidden ones badged "background", and what it leads to; "Exercises from the book" (the quiz says it is from
   the book, counts double, links to its page, shows the exercise it builds on, grades against the author's solution); study-next cards mark prerequisites outside the topic; the header holds the map, the concept index and the clusters being learned; the top box suggests as you type the concepts and
@@ -93,7 +103,7 @@ Web stack follows flybot.sg (github.com/flybot-sg/lasagna-pattern, `examples/fly
   (incremental force layout on primitive arrays: broader-above and prerequisite-above are constraints (`above-edges`
   drops one that would close a loop), label boxes never overlap;
   unconnected parts laid out apart and packed in rows below the largest, else repulsion strands them far away; tween)
-- `src/cljs/robertluo/fly_learner/ui/` — `core` (dispatch-of effects `:db`/`:pull`/`:history`/`:animate`, transit fetch, render,
+- `src/cljs/robertluo/fly_learner/ui/` — `core` (dispatch-of effects `:db`/`:pull`/`:history`/`:animate`, requests via `api/send!`, render,
   mouseup -> text selection), `pdf` (pdf.js: render a page, its selectable text layer, highlight boxes; the source as one scrolling column of
   pages, drawn near the view only: `sync-scroll!` keeps it at the state's page (and at the same spot when pages change
   size: width, zoom), `find-each!` finds texts on a page one by one (key sentences, what is open), `watch-scroll!` turns the page as the learner scrolls; when it pauses the left pane follows: `db/node-at-page` via
@@ -132,8 +142,8 @@ Each layer knows the one below as little as possible, so any part can be reimple
     `concepts-items` = the items a set of concepts (a cluster) covers
 - **features** (`quiz`: generate questions from an item's material, or `authored`: the material's exercises, weight
   `authored-weight` 2, graded against the author's solution; grade free text into `:answer` evidence, one per item
-  tested; `attempts`: best grade per authored question) —
-  depend on learning only, never on knowledge
+  tested, `evidence`, which the caller records; `attempts`: best grade per authored question, from the evidence log) —
+  depend on learning only, never on knowledge nor the evidence store
 - **ideas** (`ideas.cljc`, depends on nothing) — the learner's own voice: an idea takes a stance
   (`:agree`/`:disagree`), is a `:note`, or marks something: `:highlight`, `:bookmark` (a node anchor with the PDF
   `:page`; `ui.core.db/bookmarks`, kept out of the idea lists), on one or more anchors (opaque maps), and may link to other ideas.

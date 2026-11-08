@@ -22,7 +22,6 @@
             [datalevin.core :as d]
             [robertluo.fly-learner.concept.graph :as graph]
             [robertluo.fly-learner.concept.prereq :as prereq]
-            [robertluo.fly-learner.concept.view :as view]
             [robertluo.fly-learner.db :as db]
             [robertluo.fly-learner.exercises :as exercises]
             [robertluo.fly-learner.learning :as learning]))
@@ -96,7 +95,7 @@
                                                                   (needs id)
                                                                   (:concept/broader c))))]))
         needed   (reduce-kv (fn [m b as] (reduce #(update %1 %2 (fnil conj []) b) m as)) {} needs)
-        rels     (->> (:edges (view/graph db))
+        rels     (->> (prereq/edge-list db)
                       (keep (fn [{:keys [from to kind shared]}]
                               (cond
                                 (= :broader kind) [(relation-item from to) {:weight 2 :narrower from :broader to}]

@@ -181,6 +181,12 @@
        {:claims cs :pages pages :dag (dag cs pages)
         :why (into {} (map (juxt (juxt :of :needs) :why)) cs)}))))
 
+(defn edge-list
+  "Every edge of the concept graph in `db`, prerequisites included (see
+  robertluo.fly-learner.concept.graph/edge-list)."
+  [db]
+  (graph/edge-list (graph/load-graph db) (derived db)))
+
 ;;=============================================================================
 ;; Judging (model-written)
 ;;=============================================================================

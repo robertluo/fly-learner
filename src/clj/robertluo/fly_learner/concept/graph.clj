@@ -15,7 +15,7 @@
 
   Operations: `neighbourhood` (k-hop subgraph), `path` (cheapest connection
   between two concepts, each step with its evidence), `related` (strongest
-  neighbours)."
+  neighbours), `edge-list` (every edge, prerequisites given, as data)."
   (:require [datalevin.core :as d]
             [robertluo.fly-learner.concept :as concept]
             [robertluo.fly-learner.db :as db]))
@@ -155,6 +155,43 @@
   [adj id n]
   (->> (adj id) (sort-by (comp - :weight val)) (take n) vec))
 
+(def related-limit 12)
+
+(defn strongest-related
+  "The concepts co-occurring with `id` most, at most `related-limit`:
+  [[concept-id edge] ..]. Pairs sharing one passage are noisy, so they are
+  kept only when nothing is shared more often."
+  [adj id]
+  (let [rel    (->> (adj id)
+                    (filter #(= :related (:kind (val %))))
+                    (sort-by (comp - :weight val)))
+        strong (filter #(<= 2 (count (:nodes (val %)))) rel)]
+    (take related-limit (if (seq strong) strong rel))))
+
+(defn edge-list
+  "Every edge of graph `g` with the prerequisites `dag` ({b #{a}}: a before
+  b) and their reasons `why` ({[b a] why}), as [{:from :to :kind ..} ..]:
+    :broader  :from the narrower concept :to its broader one
+    :related  each concept's `strongest-related`, once per pair, with
+              :weight (0, 1] and :shared passages
+    :requires :from a concept :to one to learn before it, with :why"
+  [g {:keys [dag why]}]
+  (let [adj (edges g)
+        ids (keys (:concepts g))
+        in? #(get-in g [:concepts %])]
+    (vec (concat
+          (for [id ids
+                p  (get-in g [:concepts id :concept/broader])
+                :when (in? p)]
+            {:from id :to p :kind :broader})
+          (->> ids
+               (mapcat (fn [id] (for [[cid e] (strongest-related adj id)] [(sort [id cid]) e])))
+               (into {})
+               (map (fn [[[a b] e]] {:from a :to b :kind :related
+                                     :weight (:weight e) :shared (count (:nodes e))})))
+          (for [[b as] dag, a as :when (and (in? b) (in? a))]
+            {:from b :to a :kind :requires :why (get why [b a])})))))
+
 ^:rct/test
 (comment
   ;; nodes :n1..:n4; :a and :b always together, :c with :b once, :d alone
@@ -176,4 +213,10 @@
 
   (:concepts (neighbourhood adj :a 1)) ;=> #{:a :b :d}
   (count (:edges (neighbourhood adj :a 1))) ;=> 2
+
+  (map first (strongest-related adj :a)) ;=> [:b]
+
+  (->> (edge-list g {:dag {:b #{:a} :c #{:gone}} :why {[:b :a] "builds on it"}})
+       (map (juxt :from :to :kind :why)) set)
+  ;=> #{[:d :a :broader nil] [:a :b :related nil] [:c :d :related nil] [:b :a :requires "builds on it"]}
   )

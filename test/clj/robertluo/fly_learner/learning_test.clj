@@ -38,6 +38,13 @@
                                         :answer "x, shown." :points ["x"] :context "Exercise 1.0: x is a toy."
                                         :items [:y] :anchor {:page 3}}])))))
 
+(defn- answer!
+  "Grade `response` to `q` and record its evidence, as the app does."
+  [q response]
+  (let [graded (quiz/grade nil q response {})]
+    (store/record! *conn* (quiz/evidence q graded (System/currentTimeMillis)))
+    graded))
+
 (deftest store-round-trip
   (store/record! *conn* {:item [:x :y] :kind :answer :grade 0.5 :at 1000 :source :q1})
   (store/record! *conn* [{:item :x :kind :seen :at 500}])
@@ -59,7 +66,7 @@
         (quiz/save! *conn* [q])
         (is (= :x (:question/item (quiz/question (d/db *conn*) (:question/id q)))))
         (is (zero? (score now)) "nothing known yet")
-        (is (= 0.9 (:grade (quiz/answer! *conn* nil q "A toy." {}))))
+        (is (= 0.9 (:grade (answer! q "A toy."))))
         (testing "a right answer raises the score; forgetting lowers it later"
           (let [after (score (System/currentTimeMillis))]
             (is (< 0.4 after))
@@ -86,6 +93,6 @@
                     {:grade 1.0 :feedback "Right."})]
       (quiz/save! *conn* [q])
       (is (= q (dissoc (quiz/question (d/db *conn*) (:question/id q)) :question/at)) "stored whole")
-      (quiz/answer! *conn* nil q "x." {})
+      (answer! q "x.")
       (is (= {:x 0.75 :y 0.75} (select-keys (score) [:x :y])) "as two answers, on each item")
-      (is (= {(:question/id q) 1.0} (quiz/attempts (d/db *conn*)))))))
+      (is (= {(:question/id q) 1.0} (quiz/attempts (d/db *conn*) (store/evidence (d/db *conn*))))))))

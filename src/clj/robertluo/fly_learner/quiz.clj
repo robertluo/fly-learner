@@ -4,7 +4,7 @@
 
   Built only on robertluo.fly-learner.learning: the item and its material
   come from a Curriculum, and the outcome is an :answer evidence for the
-  log. Questions are written by the model (`generate`) or by the sources'
+  log (the caller records it). Questions are written by the model (`generate`) or by the sources'
   authors (`authored`: the material's :exercises, graded against the
   author's answer); an author's counts `authored-weight` times, for each
   item it tests. Knows nothing of concepts, passages or how scores are computed.
@@ -12,7 +12,6 @@
   (:require [clojure.string :as str]
             [datalevin.core :as d]
             [robertluo.fly-learner.learning :as learning]
-            [robertluo.fly-learner.learning.store :as store]
             [robertluo.fly-learner.llm :as llm]))
 
 (def schema
@@ -114,12 +113,13 @@ something, not whether they recognise wording.
             [:question/id id])))
 
 (defn attempts
-  "{question-id best grade} of the authored questions answered."
-  [db]
-  (->> (d/q '[:find ?id ?g :where [?q :question/by :author] [?q :question/id ?id]
-              [?e :evidence/source ?id] [?e :evidence/grade ?g]]
-            db)
-       (reduce (fn [m [id g]] (update m id (fnil max 0.0) g)) {})))
+  "{question-id best grade} of the authored questions answered, from the
+  `evidence` log (see robertluo.fly-learner.learning)."
+  [db evidence]
+  (let [authored (set (d/q '[:find [?id ...] :where [?q :question/by :author] [?q :question/id ?id]] db))]
+    (reduce (fn [m {:keys [source grade]}]
+              (if (and grade (contains? authored source)) (update m source (fnil max 0.0) grade) m))
+            {} evidence)))
 
 ;;=============================================================================
 ;; Grading
@@ -165,10 +165,3 @@ answer and the key points a full answer covers.
   (vec (for [i (distinct (cons item items))]
          (cond-> {:item i :kind :answer :grade grade :at at :source id}
            weight (assoc :weight weight)))))
-
-(defn answer!
-  "Grade `response` to `question` and record it as evidence. Returns the grading."
-  [conn client question response opts]
-  (let [graded (grade client question response opts)]
-    (store/record! conn (evidence question graded (System/currentTimeMillis)))
-    graded))

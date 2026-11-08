@@ -19,7 +19,7 @@
   (:require [clojure.string :as str]
             [datalevin.core :as d]
             [robertluo.fly-learner.concept.graph :as graph]
-            [robertluo.fly-learner.concept.view :as view]
+            [robertluo.fly-learner.concept.prereq :as prereq]
             [robertluo.fly-learner.llm :as llm]))
 
 ;;=============================================================================
@@ -236,7 +236,7 @@
   ([conn namer {:keys [fresh?]}]
    (let [db     (d/db conn)
          g      (graph/load-graph db)
-         {:keys [edges]} (view/graph db)
+         edges  (prereq/edge-list db)
          old    (stored db)
          home   (into {} (for [{:cluster/keys [id] :keys [members]} old
                                c members :when (get-in g [:concepts c])]
@@ -337,7 +337,7 @@ Labels must be distinct from each other and from the topics already named.")
   two clusters."
   [db]
   (let [g       (graph/load-graph db)
-        {:keys [edges]} (view/graph db)
+        edges  (prereq/edge-list db)
         src-of  (into {} (map (fn [[n sid st]] [n {:source/id sid :source/title st}]))
                       (d/q '[:find ?nid ?sid ?st
                              :where [?n :node/id ?nid] [?n :node/source ?s]

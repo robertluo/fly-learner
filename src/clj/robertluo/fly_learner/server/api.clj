@@ -54,9 +54,19 @@
   (update! [_ _ _] {:error {:type :forbidden}})
   (delete! [_ _] {:error {:type :forbidden}}))
 
+(defn- concept-page
+  "Concept `id` for its page (concept.view/concept) with the exercises the
+  author wrote testing it (:concept/exercises: id, label, summary, page,
+  :node/id, :source/id)."
+  [db id]
+  (some-> (concept-view/concept db id)
+          (assoc :concept/exercises (mapv #(select-keys % [:exercise/id :exercise/label :exercise/summary
+                                                           :exercise/page :node/id :source/id])
+                                          (exercises/of-concept db id)))))
+
 (defrecord ConceptsDataSource [conn]
   coll/DataSource
-  (fetch [_ {:concept/keys [id]}] (when (uuid? id) (concept-view/concept (d/db conn) id)))
+  (fetch [_ {:concept/keys [id]}] (when (uuid? id) (concept-page (d/db conn) id)))
   (list-all [_] (concept-view/index (d/db conn)))
   (create! [_ _] {:error {:type :forbidden :message "concepts are made by resolution and curation"}})
   (update! [_ _ _] {:error {:type :forbidden}})

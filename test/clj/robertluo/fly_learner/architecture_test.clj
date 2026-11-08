@@ -9,7 +9,8 @@
                knows nothing of it
     adapter    learning.concepts: the one namespace where learning meets
                knowledge
-    features   quiz and the like: learning only, never knowledge
+    features   quiz and the like: learning only, never knowledge (nor the
+               evidence store: the caller records what they return)
     ideas      the learner's own voice; the core depends on nothing,
                ideas.knowledge is the one namespace where it meets knowledge
     explore    interactive views as data; the core depends on nothing,
@@ -49,7 +50,7 @@
    :decay          #{:learning}
    :learning-store #{:learning}
    :adapter        #{:learning :knowledge}
-   :features       #{:learning :learning-store :infra}
+   :features       #{:learning :infra}
    :infra          #{}
    :ideas          #{}
    :ideas-store    #{:ideas}
@@ -98,6 +99,38 @@
       (testing (str from " -> " to)
         (is (contains? (allowed lf) lt)
             (str (name lf) " may not depend on " (name lt)))))))
+
+(def display-only
+  "Namespaces shaping data for the API or the page: only the app requires them."
+  '#{robertluo.fly-learner.concept.view})
+
+(deftest views-are-for-the-app
+  (is (= #{} (set (for [[from tos] (app-deps)
+                        to (filter display-only tos)
+                        :when (not= :app (layer from))]
+                    [from to])))
+      "shaped for display: compute from what it is built on instead"))
+
+(def standalone
+  "Namespaces that require nothing of the app: generic templates, and the
+  one place that knows the backend's wire format."
+  '#{robertluo.fly-learner.ui.core.views.template robertluo.fly-learner.ui.core.api})
+
+(deftest standalone-parts-stand-alone
+  (let [deps (app-deps)]
+    (doseq [n standalone]
+      (is (contains? deps n) (str n " exists"))
+      (is (empty? (deps n)) (str n " requires nothing of the app")))))
+
+(deftest the-wire-format-is-in-one-place
+  (doseq [f (->> ["src/cljc/robertluo/fly_learner/ui" "src/cljs"]
+                 (mapcat #(file-seq (io/file %)))
+                 (filter #(re-find #"\.clj[cs]$" (.getName ^java.io.File %)))
+                 (remove #(= "api.cljc" (.getName ^java.io.File %))))
+          :let [text (slurp f)]]
+    (testing (str f)
+      (is (not (re-find #"cognitect\.transit|\"/api\"|\"/files/|:pattern" text))
+          "requests go through robertluo.fly-learner.ui.core.api"))))
 
 (deftest the-rule-is-checked
   (testing "a feature reaching into knowledge would be caught"

@@ -59,13 +59,14 @@
   any; :overall is always the whole graph's."
   [db learning]
   (let [[c scores] (scored db learning (now))
-        goals      (goal-clusters db)]
+        goals      (goal-clusters db)
+        evidence   (store/evidence db)]
     {:overall (learning/overall c scores)
      :scores  (into {} (filter (comp pos? val)) scores)
      :next    (next-refs c (focus db c goals) scores)
-     :answers   (count (distinct (keep #(when (= :answer (:kind %)) [(:source %) (:at %)]) (store/evidence db))))
+     :answers   (count (distinct (keep #(when (= :answer (:kind %)) [(:source %) (:at %)]) evidence)))
      :goals     goals
-     :exercises (quiz/attempts db)}))
+     :exercises (quiz/attempts db evidence)}))
 
 (defn universe
   "Every cluster with how well it is known and whether it is being learned:
@@ -133,7 +134,7 @@
         (if (and exercise (not chosen))
           {:error {:type :not-found :message "No such exercise on this"}}
           (let [q (or chosen
-                      (first (remove #(contains? (quiz/attempts db) (:question/id %)) authored))
+                      (first (remove #(contains? (quiz/attempts db (store/evidence db)) (:question/id %)) authored))
                       (first (quiz/generate client c item opts)))]
             (quiz/save! conn [q])
             (public-question c scores q)))))))
@@ -146,7 +147,8 @@
   (if-let [q (quiz/question (d/db conn) id)]
     (let [item   (:question/item q)
           [c s0] (scored (d/db conn) learning (now))
-          graded (quiz/answer! conn client q response opts)
+          graded (quiz/grade client q response opts)
+          _      (store/record! conn (quiz/evidence q graded (now)))
           db     (d/db conn)
           [_ s1] (scored db learning (now))]
       (merge graded
