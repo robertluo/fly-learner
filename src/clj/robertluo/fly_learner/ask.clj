@@ -5,7 +5,11 @@
   across every source, and the original documents are only referred to.
 
     retrieve   full-text search (titles, keywords, summaries, paragraph
-               text) seeds a ranking; scores spread along the graph to
+               text) seeds a ranking; a numbered label in the question
+               (\"Exercise 1.1\", \"Definition 1.8\") finds the paragraphs
+               starting with it first (and the few after them), then those
+               mentioning it (full-text sees only \"exercise 1 1\"); the
+               full-text scores spread along the graph to
                parents (a section whose parts match is relevant as a
                whole) and keyword links; each source's birdview is always
                included as overview
@@ -44,6 +48,67 @@
       (->> (d/fulltext-datoms db q {:top top})
            (map-indexed (fn [rank [e a _]] [e (* (attr-weight a 1.0) (/ 1.0 (+ 5 rank)))]))
            (reduce (fn [m [e s]] (update m e (fnil + 0.0) s)) {})))))
+
+(def ^:private label-kinds
+  "Words naming the numbered things of a text."
+  #{"exercise" "exercises" "problem" "definition" "theorem" "lemma" "proposition" "corollary" "example"
+    "remark" "table" "figure" "fig" "section" "chapter" "appendix" "equation" "eq" "axiom" "assumption"
+    "algorithm" "claim" "conjecture" "note"})
+
+(defn labels
+  "The numbered labels `q` names, as [kind [n ..]]: \"Exercise 1.1\" ->
+  [\"exercise\" [\"1\" \"1\"]]."
+  [q]
+  (vec (distinct (for [[_ kind num] (re-seq #"(?i)\b([a-z]+)\.?\s+(\d+(?:\s*\.\s*\d+)*)\b" q)
+                       :let [kind (str/lower-case kind)]
+                       :when (label-kinds kind)]
+                   [(str/replace kind #"s$" "") (re-seq #"\d+" num)]))))
+
+(defn- label-re
+  "Matches label [kind nums] where it starts a text (`start?`) or anywhere;
+  1.1 is not 1.10 nor 1.1.2."
+  [[kind nums] start?]
+  (re-pattern (str "(?i)" (if start? "^\\s*" "\\b") kind "s?\\.?\\s+" (str/join "\\s*\\.\\s*" nums)
+                   "(?!\\d|\\s*\\.\\s*\\d)")))
+
+^:rct/test
+(comment
+  (labels "what does exercise 1.1 ask? and Def. 2, Theorem 3.4") ;=> [["exercise" ["1" "1"]] ["theorem" ["3" "4"]]]
+  (labels "the 2 players") ;=> []
+  (mapv #(boolean (re-find (label-re ["exercise" ["1" "1"]] true) %))
+        ["Exercise 1.1. Antonia" "Exercise 1.10. Find" "Exercise 1 .1 (a)" "See Exercise 1.1." "Exercise 1.1.2"])
+  ;=> [true false true false false]
+  )
+
+(def ^:private label-limits {:mentions 10 :after 5})
+
+(defn- label-scores
+  "eid -> score for the labels `q` names: a paragraph or title starting with
+  one about 3 (earlier pages a little more), the paragraphs after it (its
+  continuation) about 2, one mentioning it 1: above full-text scores, so
+  they come first, in this order."
+  [db q]
+  (if-let [ls (seq (labels q))]
+    (let [texts (concat (d/datoms db :ave :node/text) (d/datoms db :ave :node/title))
+          hits  (fn [re] (distinct (keep (fn [[e _ v]] (when (re-find re v) e)) texts)))
+          after (fn [e]
+                  (when-let [parent (some-> (d/pull db [{:node/_children [:db/id]}] e) :node/_children first :db/id)]
+                    (let [sibs (->> (d/pull db [{:node/children [:db/id :node/order]}] parent)
+                                    :node/children (sort-by :node/order) (mapv :db/id))]
+                      (->> sibs (drop-while #(not= e %)) rest (take (:after label-limits))))))]
+      (reduce (fn [m l]
+                (let [starts  (sort-by #(:node/page (d/pull db [:node/page] %) 0) (hits (label-re l true)))
+                      starts? (set starts)]
+                  (as-> m m
+                    ;; earlier first: an exercise before its solution
+                    (reduce-kv (fn [m i e] (update m e (fnil max 0.0) (- 3.0 (* 0.02 (min i 10))))) m (vec starts))
+                    (reduce (fn [m e] (reduce-kv (fn [m i a] (update m a (fnil max 0.0) (- 2.0 (* 0.1 i))))
+                                                 m (vec (after e))))
+                            m starts)
+                    (reduce #(update %1 %2 (fnil max 0.0) 1.0) m
+                            (take (:mentions label-limits) (remove starts? (hits (label-re l false))))))))
+              {} ls))
+    {}))
 
 (def ^:private spread {:parent 0.35 :link 0.2})
 
@@ -86,6 +151,8 @@
         root?  (set roots)
         scores (->> (fulltext-scores db question top)
                     (spread-scores db)
+                    ;; after spreading: a section of labelled paragraphs is not the label
+                    (merge-with max (label-scores db question))
                     (remove (comp root? key))
                     (sort-by val >))]
     {:overview (mapv #(d/pull db node-pull %) roots)

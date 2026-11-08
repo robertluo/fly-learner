@@ -1,6 +1,7 @@
 (ns robertluo.fly-learner.concept.view
   "Concepts for display (robertluo.fly-learner.server.api :concepts)."
-  (:require [datalevin.core :as d]
+  (:require [clojure.string :as str]
+            [datalevin.core :as d]
             [robertluo.fly-learner.concept.graph :as graph]
             [robertluo.fly-learner.concept.prereq :as prereq]
             [robertluo.fly-learner.db :as db]
@@ -21,6 +22,41 @@
   [db]
   (let [g (graph/load-graph db)]
     (refs g (keys (:concepts g)))))
+
+(defn- match-rank
+  "How well name `n` matches query `q` (both lower case): 0 the same, 1 it
+  starts with q, 2 a word of it does, 3 it contains q; nil: no match."
+  [q n]
+  (cond (= q n)                                          0
+        (str/starts-with? n q)                           1
+        (re-find (re-pattern (str "\\b" (java.util.regex.Pattern/quote q))) n) 2
+        (str/includes? n q)                              3))
+
+(defn lookup
+  "Up to `n` concepts whose label or an alias matches `q`, best first (the
+  same name, a name starting with it, a word starting with it, containing it;
+  then the most mentioned): refs, with :concept/matched the alias matched
+  when it is not the label."
+  [db q n]
+  (let [q (str/lower-case (str/trim (str q)))]
+    (when (<= 2 (count q))
+      (let [g (graph/load-graph db)]
+        (->> (:concepts g)
+             (keep (fn [[id {:concept/keys [label aliases]}]]
+                     (when-let [[r name] (first (sort (keep (fn [a] (some-> (match-rank q (str/lower-case a)) (vector a)))
+                                                            (cons label aliases))))]
+                       [[r (- (count (get-in g [:mentions id]))) (count name)] id name label])))
+             (sort-by first)
+             (take n)
+             (mapv (fn [[_ id name label]]
+                     (cond-> (ref-of g id)
+                       (not= (str/lower-case name) (str/lower-case label)) (assoc :concept/matched name)))))))))
+
+^:rct/test
+(comment
+  (mapv #(match-rank "nash" %) ["nash" "nash equilibrium" "mixed nash equilibrium" "subnash" "core"])
+  ;=> [0 1 2 3 nil]
+  )
 
 (def related-limit 12)
 

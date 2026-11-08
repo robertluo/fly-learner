@@ -19,6 +19,7 @@
     {:questions {nil {:question/item item :question/exercise id}}} ; that exercise of the item
     {:answers {nil {:question/id .. :response \"..\"}}} ; grade an answer, record it, new scores
     '{:search {{:q \"function extensionality\"} ?hits}} ; full-text + graph ranking, no model
+    '{:goto {{:q \"nash\"} ?r}}                    ; {:concepts [..] :exercises [..]} the box names, as typed
     '{:asks ?recent}                                ; recent questions
     '{:asks {{:ask/id #uuid \"..\"} ?ask}}         ; an answer with its cited subgraph
     {:asks {nil {:ask/question \"..\"}}}           ; ask: answer with Claude, store, return it
@@ -36,6 +37,7 @@
             [datalevin.core :as d]
             [robertluo.fly-learner.ask :as ask]
             [robertluo.fly-learner.concept.view :as concept-view]
+            [robertluo.fly-learner.exercises :as exercises]
             [robertluo.fly-learner.db :as db]
             [robertluo.fly-learner.explore.knowledge :as explore]
             [robertluo.fly-learner.explore.store :as explore.store]
@@ -187,6 +189,10 @@
   (let [asks    (coll/collection (->AsksDataSource conn client ask-opts) {:id-key :ask/id})
         search  (query-lookup (fn [{:keys [q]}] (when (and (string? q) (not (str/blank? q)))
                                                   (ask/search (d/db conn) q 12))))
+        goto    (query-lookup (fn [{:keys [q]}] (when (string? q)
+                                                  (let [db (d/db conn)]
+                                                    {:concepts  (or (concept-view/lookup db q 8) [])
+                                                     :exercises (or (exercises/lookup db q 6) [])}))))
         sources (coll/read-only (coll/collection (->SourcesDataSource conn)
                                                  {:id-key :source/id}))
         concepts (coll/read-only (coll/collection (->ConceptsDataSource conn)
@@ -207,7 +213,7 @@
         kws     (query-lookup (fn [{:keys [keyword]}] (when (string? keyword)
                                                         (db/nodes-with-keyword (d/db conn) keyword))))]
     (fn [_request]
-      {:data   {:sources sources :nodes nodes :pages pages :keypoints kps :keywords kws :search search :asks asks
+      {:data   {:sources sources :nodes nodes :pages pages :keypoints kps :keywords kws :search search :goto goto :asks asks
                 :concepts concepts
                 :concept-graph (lazy-value #(concept-view/graph (d/db conn)))
                 :learning (lazy-value #(study/overview (d/db conn) learning))

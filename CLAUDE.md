@@ -18,7 +18,7 @@ Web stack follows flybot.sg (github.com/flybot-sg/lasagna-pattern, `examples/fly
   - `server/system` — fun-map `life-cycle-map` (db, api-fn, ring app, http-kit); `/files/sources/<id>` serves the PDF
   - `server/api` — lasagna-remote pull API on `/api`: `:sources`, `:asks` (collections; creating an ask runs the
     model), `:concepts` (read-only collection), `:nodes` (with `:node/concepts`; `:node/keywords` keeps only
-    keywords naming no concept), `:keywords`, `:search` (lookups), `:learning` (lazy overview), `:universe` (lazy:
+    keywords naming no concept), `:keywords`, `:search` (lookups), `:goto` (lookup: the concepts and book exercises the top box's text names, as typed), `:learning` (lazy overview), `:universe` (lazy:
     every cluster with its score), `:clusters` (read-only: a cluster's next items), `:goals` (create/delete: learn a
     cluster), `:questions` / `:answers` (creates: write a question, grade an answer), `:explorations` (create:
     make one of a node or remake one with feedback, runs the model; a node carries `:node/explore`: its proposal and
@@ -30,7 +30,9 @@ Web stack follows flybot.sg (github.com/flybot-sg/lasagna-pattern, `examples/fly
     `:learning?`), `cluster` (next items within one), `learn!`, `new-question!` (sent without its model answer),
     `answer!` (grading + scores before/after). `new-question!` serves the item's first book exercise not answered yet
     (or the one asked for, `:question/exercise`) before writing one; the overview's `:exercises` = best grades. A goal is the opaque scope `[:cluster id]`
-  - `ask` — graph RAG over the whole store: `retrieve` (Datalevin full-text + spread to parents/links),
+  - `ask` — graph RAG over the whole store: `retrieve` (Datalevin full-text + spread to parents/links; a numbered
+    label in the question, `labels` "Exercise 1.1" / "Definition 1.8", ranks the paragraphs starting with it first, then
+    the 5 after them, then those mentioning it: full-text sees only "exercise 1 1"),
     `ask!` (answer with the `:common` model from numbered entries, store as `:ask/*`), `view` (cited subgraph).
     `:focus {:quote :nodes}`: a question about a passage the learner selected; its nodes and the other
     paragraphs on their page come first, the passage is quoted, and background the entries lack may be
@@ -40,7 +42,7 @@ Web stack follows flybot.sg (github.com/flybot-sg/lasagna-pattern, `examples/fly
     (`:strong` model, a chapter's exercises 5 a call against the concepts the chapter mentions: 1-4 tested concepts,
     a one-line summary, key points from the solution) for sources not looked at (`:source/exercises-by`). Stored as
     `:exercise/*`, id from the source path + label (stable across re-ingests; `ingest/remove-source!` drops them);
-    `merge!` moves them. `of-concept`, `by-label`
+    `merge!` moves them. `of-concept`, `by-label`, `lookup` ("exercise 1.1", "ex 2": chapter 2's)
   - `concept` — concepts: ideas with an identity (`:concept/label`, `:concept/gloss`, `:concept/broader`), named by
     keywords (`:concept/aliases`, unique: a keyword names one concept). Mentions are derived: node keyword = alias.
     `resolve!` (model, add-only) assigns unresolved keywords in batches; curation fns (`merge!`, `split!`, `assign!`,
@@ -58,7 +60,8 @@ Web stack follows flybot.sg (github.com/flybot-sg/lasagna-pattern, `examples/fly
     `derived` (claims, pages, dag, reasons) once per db version; `audit` (model checks each claim's direction, stores nothing; run :common, then
     `:tier :strong :claims` the flagged for a second opinion); `claim!` / `unclaim!`: human corrections (edit log)
   - `concept/view` — `index`, `concept` (hierarchy, related with shared-passage counts, prerequisites: `:concept/needs`
-    with why, `:concept/before` in order, `:concept/needed-by`; `:concept/exercises`; mentions with paths) and `graph` (every concept +
+    with why, `:concept/before` in order, `:concept/needed-by`; `:concept/exercises`; mentions with paths), `lookup`
+    (by label or alias: same, prefix, word prefix, contains; then most mentioned) and `graph` (every concept +
     broader/related/requires edges; the API's lazy `:concept-graph`) for the API
   - `concept/cluster` — topics: `communities` (Louvain local moving over broader + co-occurrence weights; fragments
     under 6 join their most connected neighbour; `:keep` existing clusters fixed), `refresh!` (after an ingest:
@@ -79,7 +82,8 @@ Web stack follows flybot.sg (github.com/flybot-sg/lasagna-pattern, `examples/fly
   `history` (URL <-> state; `/` the map, `/g/<id>` a cluster, `/x/<id>` an exploration), `views` (Replicant hiccup: one flow, map ->
   cluster -> concept -> passage; a concept page's "Learn first": its prerequisite path not yet known, foundations
   first, hidden ones badged "background", and what it leads to; "Exercises from the book" (the quiz says it is from
-  the book, counts double, links to its page, shows the exercise it builds on, grades against the author's solution); study-next cards mark prerequisites outside the topic; the header holds the map and the clusters being learned; a quiz started anywhere docks at the top of the left
+  the book, counts double, links to its page, shows the exercise it builds on, grades against the author's solution); study-next cards mark prerequisites outside the topic; the header holds the map, the concept index and the clusters being learned; the top box suggests as you type the concepts and
+  book exercises its text names (`goto-list`: a concept opens, an exercise opens its passage with its quiz docked), Enter asks; a quiz started anywhere docks at the top of the left
   pane of split views, `quiz-dock`, and stays across pages), `highlight` (find a node's text among pdf.js text items), `viewport` (pan/zoom of a drawing: automatic
   until the learner pans or zooms: whole if readable, else readable names around a focus; names below `readable-px`
   are not drawn; `db/pane-*` for `:map` and `:graph`, which goes automatic again on another graph),

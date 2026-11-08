@@ -59,6 +59,8 @@
    :asks            {}     ; ask-id -> ask (see robertluo.fly-learner.ask/view)
    :ask-history     []     ; [{:ask/id :ask/question :ask/title :ask/at}], newest first
    :search-hits     {}     ; question -> [node-ref with :node/path] (full-text, no model)
+   :box             {:q "" :open? false} ; the top box: what is typed, suggestions shown?
+   :goto            {}     ; typed text -> {:concepts [ref ..] :exercises [..]} it names
    :pdf             {:page      nil   ; manual page (nil: follow the node)
                      :pages     {}    ; source-id -> page count
                      :aspect    {}    ; source-id -> width/height of a page (pages not yet drawn)
@@ -298,6 +300,33 @@
 
 (defn history-fetched [db asks]
   (assoc db :ask-history (vec asks)))
+
+(defn box-typed
+  "The learner typed `q` in the top box: suggest what it names."
+  [db q]
+  (assoc db :box {:q q :open? true}))
+
+(defn box-open [db open?] (assoc-in db [:box :open?] (boolean open?)))
+
+(defn box-cleared [db] (assoc db :box {:q "" :open? false}))
+
+(defn goto-query
+  "The top box's text to look up, nil when too short or closed."
+  [db]
+  (let [{:keys [q open?]} (:box db)
+        q (str/trim (str q))]
+    (when (and open? (<= 2 (count q))) q)))
+
+(defn goto-fetched [db q r] (assoc-in db [:goto q] r))
+
+(defn box-suggestions
+  "What the top box's text names: {:concepts :exercises}, nil when nothing
+  (yet): the last fetched for a prefix of it while its own is on the way."
+  [db]
+  (when-let [q (goto-query db)]
+    (let [r (or (get-in db [:goto q])
+                (some #(get-in db [:goto (subs q 0 %)]) (range (dec (count q)) 1 -1)))]
+      (when (or (seq (:concepts r)) (seq (:exercises r))) r))))
 
 (defn search-fetched [db q hits]
   (assoc-in db [:search-hits q] (vec hits)))
@@ -1378,6 +1407,13 @@
   (def scored (learning-fetched g1 {:scores {[:concept :t] 0.4 (relation-item :t :p) 0.2}}))
   (:score (first (filter #(= :t (:id %)) (:nodes (graph-scene scored))))) ;=> 0.4
   (set (map :score (:edges (graph-scene scored)))) ;=> #{0.2 0}
+
+  ;; the top box suggests what is typed names; until its own answer comes, a prefix's
+  (def typed (-> initial-state (box-typed "nas") (goto-fetched "nas" {:concepts [{:concept/label "nash"}]})))
+  (goto-query typed) ;=> "nas"
+  (:concepts (box-suggestions (box-typed typed "nash "))) ;=> [{:concept/label "nash"}]
+  (box-suggestions (box-open typed false)) ;=> nil
+  (goto-query (box-typed typed "n")) ;=> nil
 
   ;; a quiz: ask, answer, grade; new scores come with the grading
   (def asked (quiz-start initial-state [:concept :t]))

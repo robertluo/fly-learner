@@ -49,6 +49,13 @@
         {:pattern {:search {{:q q} '?hits}}
          :then    (fn [r] {:db #(db/search-fetched % q (get r 'hits))})}))
 
+    ;; what the top box's text names, as it is typed
+    :goto
+    (when-let [q (db/goto-query db)]
+      (when-not (contains? (:goto db) q)
+        {:pattern {:goto {{:q q} '?r}}
+         :then    (fn [r] {:db #(db/goto-fetched % q (get r 'r))})}))
+
     :node
     (let [id (:node-id db)]
       (when (and id (not (contains? (:nodes db) id)))

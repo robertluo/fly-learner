@@ -26,7 +26,12 @@
 ;; Finding them
 ;;=============================================================================
 
-(def ^:private start-re #"^\s*(?:Exercise|Problem)\s+(\d+(?:\.\d+)+)\s*[.:]")
+(def ^:private start-re #"^\s*(?:Exercise|Problem)\s+(\d+(?:\s*\.\s*\d+)+)\s*[.:]")
+
+(defn- tight
+  "A label as the PDF may space it (\"2. 1\") made plain: \"2.1\"."
+  [label]
+  (str/replace label #"\s+" ""))
 
 (def ^:private boundary-re
   #"(?i)^\s*(?:[\d\s.]*[A-Z]\s*\.[\d\s.]*)?(?:exercises\s+for\s+section|the\s+answers\s+to\s+the\s+following|appendix\b)")
@@ -61,7 +66,7 @@
 
                          :else
                          (if-let [[_ label] (re-find start-re line)]
-                           (-> st close (assoc :open {:label label :role (if (:solving? st) :solution :exercise)
+                           (-> st close (assoc :open {:label (tight label) :role (if (:solving? st) :solution :exercise)
                                                       :id id :page page :text [line]}))
                            (cond-> st (:open st) (update-in [:open :text] conj line)))))
                      st
@@ -92,8 +97,8 @@
 (defn refers
   "Labels of the other exercises `text` (exercise `label`'s) builds on."
   [label text]
-  (->> (re-seq #"Exercises?\s+(\d+(?:\.\d+)+)" text)
-       (map second)
+  (->> (re-seq #"Exercises?\s+(\d+(?:\s*\.\s*\d+)+)" text)
+       (map (comp tight second))
        (remove #{label})
        distinct
        vec))
@@ -111,14 +116,14 @@
      {:id 8 :page 58 :chapter :c1 :text "Appendix 1.S: Solutions to exercises"}
      {:id 9 :page 58 :chapter :c1 :text "Exercise 1.1. (a) The table is as follows."}
      {:id 10 :page 59 :chapter :c1 :text "Exercise 1.3. Each presses."}
-     {:id 11 :page 60 :chapter :c2 :text "Exercise 2.1. A new chapter."}])
+     {:id 11 :page 60 :chapter :c2 :text "Exercise 2. 1. A new chapter, spaced as PDFs do."}])
   (mapv (juxt :label :role :id :text) (segments paras))
   ;=> [["1.1" :exercise 3 "Exercise 1.1. Antonia and Bob cannot decide.\n(a) Represent it as a table."]
   ;    ["1.2" :exercise 5 "Exercise 1.2. Use the game of Exercise 1.1."]
   ;    ["1.3" :exercise 5 "Exercise 1.3: Three players.\n(c) Is it efficient?"]
   ;    ["1.1" :solution 9 "Exercise 1.1. (a) The table is as follows."]
   ;    ["1.3" :solution 10 "Exercise 1.3. Each presses."]
-  ;    ["2.1" :exercise 11 "Exercise 2.1. A new chapter."]]
+  ;    ["2.1" :exercise 11 "Exercise 2. 1. A new chapter, spaced as PDFs do."]]
   (mapv (juxt :label :solution) (pair (segments paras)))
   ;=> [["1.1" "Exercise 1.1. (a) The table is as follows."] ["1.2" nil]
   ;    ["1.3" "Exercise 1.3. Each presses."] ["2.1" nil]]
@@ -332,3 +337,22 @@ For each exercise:
   (into {} (d/q '[:find ?l ?t :in $ ?sid :where [?s :source/id ?sid] [?x :exercise/source ?s]
                   [?x :exercise/label ?l] [?x :exercise/text ?t]]
                 db source-id)))
+
+(defn lookup
+  "Up to `n` exercises a query names: \"exercise 1.1\" (or \"ex 1.1\",
+  \"problem 1.1\") that one first, then the ones it starts (1.10, 1.11 ..);
+  \"exercise 1\": chapter 1's. Each with :node/id, :source/id and its
+  concepts as [{:concept/id :concept/label}]. nil when it names none."
+  [db q n]
+  (when-let [[_ num] (re-find #"(?i)^\s*(?:exercises?|ex\.?|problems?)\s*(\d+(?:\.\d+)*)\.?\s*$" (str q))]
+    (->> (d/q '[:find ?x ?l :where [?x :exercise/label ?l]] db)
+         (keep (fn [[x l]] (cond (= l num) [0 x l]
+                                 (str/starts-with? l (if (str/includes? num ".") num (str num "."))) [1 x l])))
+         (sort-by (fn [[r _ l]] [r (label-key l)]))
+         (take n)
+         (mapv (fn [[_ x]]
+                 (let [{:exercise/keys [concepts] :as e}
+                       (d/pull db (conj (pop pull-spec) {:exercise/concepts [:concept/id :concept/label]}) x)]
+                   (-> (tidy e)
+                       (assoc :exercise/concepts (vec (sort-by :concept/label concepts)))
+                       (dissoc :exercise/text :exercise/solution :exercise/points :exercise/refers))))))))

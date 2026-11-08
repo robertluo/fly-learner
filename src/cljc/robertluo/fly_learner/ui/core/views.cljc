@@ -92,11 +92,13 @@
         {:class ["chip" "keyword"] :title "Keyword (names no concept)"}
         kw))
 
+(defn- concept-effects [id]
+  {:db #(db/open-concept % id) :pull [:concept :concept-graph :learning :ideas] :history :push :animate true})
+
 (defn- concept-link
   "Link to a concept page; the gloss shows on hover."
   [dispatch! {:concept/keys [id label gloss]} attrs & children]
-  (apply link dispatch! {:db #(db/open-concept % id) :pull [:concept :concept-graph :learning :ideas] :history :push
-                         :animate true}
+  (apply link dispatch! (concept-effects id)
          (history/state->path {:view :concept :concept-id id})
          (merge {:title (or gloss label)} attrs)
          (or (seq children) [label])))
@@ -147,7 +149,36 @@
 (defn- ask-effects
   "Ask `q`: show it, search at once, answer with the model."
   [q]
-  {:db #(db/ask-submitted % q) :pull [:search :ask-create]})
+  {:db #(-> % db/box-cleared (db/ask-submitted q)) :pull [:search :ask-create]})
+
+(defn- exercise-effects
+  "Open book exercise `x` (from the top box): its passage, the PDF at its
+  page beside, and its quiz docked above, on the first concept it tests."
+  [{:exercise/keys [id concepts] nid :node/id}]
+  (let [item (some-> concepts first :concept/id db/concept-item)]
+    {:db      #(cond-> (db/box-cleared %)
+                 nid  (db/open-node nid)
+                 item (db/quiz-start item id))
+     :pull    (cond-> [:learning] nid (conj :node :ideas) item (conj :question-create))
+     :history :push}))
+
+(defn- goto-list
+  "Under the top box: the concepts and book exercises its text names. Picked
+  on mousedown, before the box loses focus and closes."
+  [db dispatch!]
+  (when-let [{:keys [concepts exercises]} (db/box-suggestions db)]
+    (let [pick (fn [effects] {:mousedown (fn [e] (.preventDefault e) (dispatch! effects))})]
+      [:div.goto
+       (for [{:exercise/keys [id label summary page] :as x} exercises]
+         [:button.goto-item.exercise {:replicant/key (str id) :type "button" :on (pick (exercise-effects x))}
+          [:span.tag.authored "exercise"] [:strong "Exercise " label] [:span.muted summary]
+          [:span.where "p. " page " · try it"]])
+       (for [{:concept/keys [id label gloss matched]} concepts]
+         [:button.goto-item {:replicant/key (str id) :type "button" :on (pick (concept-effects id))}
+          [:span.tag "concept"] [:strong label] (when matched [:span.muted "(" matched ")"])
+          [:span.muted.gloss gloss]
+          [:span.where (score-bar (db/item-score db (db/concept-item id)))]])
+       [:div.goto-hint.muted "Enter: ask the knowledge base"]])))
 
 (defn- submit-ask
   "Form submit: ask the form's `q` input, then clear it."
@@ -169,13 +200,21 @@
    (link dispatch! map-effects "/" {:class "brand" :title "The map of everything you know"} "Fly Learner")
    [:nav.top-nav
     (link dispatch! map-effects "/" {:class (when (= :home (:view db)) "here")} "Map")
+    (link dispatch! {:db db/open-concepts :pull :concept-index :history :push} "/c"
+          {:class (when (= :concepts (:view db)) "here") :title "Every concept, A to Z"} "Concepts")
     (for [{:cluster/keys [id] :keys [score] :as c} (db/learning-clusters db)]
       (cluster-link dispatch! c {:replicant/key (str id)
                                  :class ["learning" (when (= id (:cluster-id db)) "here")]}
                     (:cluster/label c) [:span.count (percent score)]))]
    [:form.ask {:on {:submit #(submit-ask dispatch! %)}}
     [:input {:name "q" :type "search" :autocomplete "off" :disabled (boolean asking)
-             :placeholder (if asking "Answering…" "Ask the knowledge base…")}]]])
+             :value (get-in db [:box :q])
+             :placeholder (if asking "Answering…" "Find a concept or exercise, or ask…")
+             :on {:input   #(dispatch! {:db (fn [d] (db/box-typed d (.. % -target -value))) :pull :goto})
+                  :focus   #(dispatch! {:db (fn [d] (db/box-open d true)) :pull :goto})
+                  :blur    #(dispatch! {:db (fn [d] (db/box-open d false))})
+                  :keydown #(when (= "Escape" (.-key %)) (dispatch! {:db (fn [d] (db/box-open d false))}))}}]
+    (goto-list db dispatch!)]])
 
 (defn- error-banner [{:keys [error]} dispatch!]
   (when error

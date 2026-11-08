@@ -656,7 +656,22 @@ blockquote.asked-about {
 
 /* ask ------------------------------------------------------------------ */
 
-form.ask { flex: 1; max-width: 560px; margin-left: auto; }
+form.ask { flex: 1; max-width: 560px; margin-left: auto; position: relative; }
+.goto {
+  position: absolute; top: calc(100% + 4px); left: 0; right: 0; z-index: 50;
+  background: var(--panel); border: 1px solid var(--border); border-radius: 10px; box-shadow: var(--shadow);
+  max-height: 70vh; overflow: auto; padding: .3rem 0;
+}
+.goto-item {
+  display: grid; grid-template-columns: auto auto 1fr auto; align-items: baseline; gap: .5rem;
+  width: 100%; text-align: left; border: 0; background: none; color: var(--text); cursor: pointer;
+  padding: .45rem .8rem; font: inherit; font-size: .92rem;
+}
+.goto-item:hover { background: var(--accent-soft); }
+.goto-item .muted { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.goto-item .where { font-size: .8rem; color: var(--muted); white-space: nowrap; }
+.goto-item .where .score-bar { width: 48px; display: inline-block; }
+.goto-hint { font-size: .78rem; padding: .3rem .8rem 0; border-top: 1px solid var(--border); margin-top: .2rem; }
 form.ask input {
   width: 100%;
   padding: .4rem .8rem;
