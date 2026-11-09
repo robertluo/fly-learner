@@ -114,7 +114,13 @@
    (when (seq mentions)
      [:section
       [:h2 "Mentioned in"]
-      (node-ui/hit-cards dispatch! mentions)])])
+      (node-ui/hit-cards dispatch! mentions)])
+   [:div.curate
+    [:button.btn.quiet {:title "Not a concept: remove it; its names are ignored from now on, so no ingest brings it back"
+                        :on {:click #(when #?(:cljs (js/confirm (str "Remove the concept \"" label "\"? Its names will be ignored from now on."))
+                                              :clj true)
+                                       (dispatch! {:pull [(pull/concept-delete id)]}))}}
+     "Remove this concept"]]])
 
 (defn cluster-article [db {:cluster/keys [id label gloss] :keys [concepts source score] :as c} dispatch!]
   (let [ix     (get-in db [:graph :ix])
@@ -138,13 +144,47 @@
         [:div.chips
          (for [cid concepts :let [cc (get-in ix [:concepts cid])] :when cc]
            (nav/concept-chip dispatch! cc))]
-        [:p.muted "Loading…"])]]))
+        [:p.muted "Loading…"])]
+     [:div.curate
+      [:button.btn.quiet {:title "Not knowledge (an edition's colophon, say): remove the topic and its concepts; their names are ignored from now on"
+                          :on {:click #(when #?(:cljs (js/confirm (str "Remove the topic \"" label "\" and its " (count concepts)
+                                                                       " concepts? Their names will be ignored from now on."))
+                                                :clj true)
+                                         (dispatch! {:pull [(pull/topic-delete id)]}))}}
+       "Remove this topic"]]]))
+
+(defn- add-concept-form
+  "Add a concept the model missed: a name, other names, a gloss (written
+  from the passages naming it when left empty)."
+  [{{:keys [label aliases gloss adding?]} :concept-form :as db} dispatch!]
+  (let [typed (fn [k] {:input #(dispatch! {:db (fn [d] (db/concept-form-typed d k (.. % -target -value)))})})]
+    [:details.add-concept {:open (or adding? (not (str/blank? label)))}
+     [:summary "Add a concept the model missed"]
+     [:form {:on {:submit (fn [e]
+                            (.preventDefault e)
+                            (when (db/concept-form-value db)
+                              (dispatch! {:db db/concept-adding :pull :concept-create})))}}
+      [:label "Name" [:input {:type "text" :value label :disabled adding? :placeholder "e.g. tail recursion"
+                              :required true :maxlength 80 :on (typed :label)}]]
+      [:label "Other names" [:input {:type "text" :value aliases :disabled adding?
+                                     :placeholder "comma-separated, e.g. tail call, iterative process"
+                                     :on (typed :aliases)}]]
+      [:label "Gloss" [:textarea {:rows 2 :value gloss :disabled adding? :maxlength 500
+                                  :placeholder "One sentence fixing its sense (optional: written from the passages naming it)"
+                                  :on (typed :gloss)}]]
+      [:div.actions
+       [:button.btn.primary {:type "submit" :disabled (or adding? (str/blank? label))}
+        (if adding? "Adding…" "Add")]
+       [:span.muted (if adding?
+                      "Finding the passages that name it, its topic and what it needs first…"
+                      "It is found in every passage that names it (whole words, any case).")]]]]))
 
 (defn concepts-view [{:keys [concept-index concept-filter loading?] :as db} dispatch!]
   (let [shown (db/filtered-concepts db)]
     [:main.single.concepts
      [:h1 "Concepts"]
      [:p.muted "The ideas the knowledge base is about, across sources. Each passage's keywords name them."]
+     (add-concept-form db dispatch!)
      [:input.filter {:type "search" :placeholder "Filter by name or gloss…" :value concept-filter
                      :autocomplete "off"
                      :on {:input #(dispatch! {:db (fn [d] (db/set-concept-filter d (.. % -target -value)))})}}]

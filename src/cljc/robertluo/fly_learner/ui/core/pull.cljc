@@ -5,7 +5,7 @@
   (robertluo.fly-learner.ui.core.api, which alone knows the wire format);
   :then is (fn [answer] effect-map). Named operations (`resolve-pull`) read
   what to fetch from the state; the rest take arguments (`idea-create`,
-  `idea-delete`, `goal`). Pure data functions, testable on the JVM."
+  `idea-delete`, `goal`, `concept-delete`, `topic-delete`). Pure data functions, testable on the JVM."
   (:require [robertluo.fly-learner.ui.core.api :as api]
             [robertluo.fly-learner.ui.core.db :as db]))
 
@@ -56,6 +56,13 @@
     ;; what the top box's text names, as it is typed
     :goto
     (when-let [q (db/goto-query db)]
+      (when-not (contains? (:goto db) q)
+        {:request (api/fetch :goto {:q q})
+         :then    (fn [found] {:db #(db/goto-fetched % q found)})}))
+
+    ;; concepts a [[link]] being written may name (the top box's lookup)
+    :wiki
+    (when-let [q (db/wiki-query db)]
       (when-not (contains? (:goto db) q)
         {:request (api/fetch :goto {:q q})
          :then    (fn [found] {:db #(db/goto-fetched % q found)})}))
@@ -152,6 +159,13 @@
       {:request (api/fetch :ideas)
        :then    (fn [all] {:db #(db/ideas-fetched % all)})})
 
+    ;; add the concept the form holds (a create: finds its passages, its topic; may run the model)
+    :concept-create
+    (when-let [c (and (get-in db [:concept-form :adding?]) (db/concept-form-value db))]
+      {:request (api/create :concepts c)
+       :then    (fn [concept] {:db #(db/concept-added % concept) :history :push
+                               :pull [:universe :concept-graph :learning :ideas]})})
+
     :concept-index
     (when-not (:concept-index db)
       {:request (api/fetch :concepts)
@@ -182,6 +196,18 @@
   [id on?]
   {:request (if on? (api/create :goals {:cluster/id id}) (api/delete :goals {:cluster/id id}))
    :then    (fn [_] {:pull :learning})})
+
+(defn concept-delete
+  "Concept `id` is no concept: remove it (its names are ignored from then on)."
+  [id]
+  {:request (api/delete :concepts {:concept/id id})
+   :then    (fn [_] {:db #(db/concept-removed % id) :history :push :pull [:concept-index :universe]})})
+
+(defn topic-delete
+  "Topic `id` is no knowledge: remove it and its concepts."
+  [id]
+  {:request (api/delete :clusters {:cluster/id id})
+   :then    (fn [_] {:db #(db/go-home (db/knowledge-changed %)) :history :push :pull [:universe :learning :ideas]})})
 
 (defn for-route
   "Pull operation needed after navigating to a parsed route."

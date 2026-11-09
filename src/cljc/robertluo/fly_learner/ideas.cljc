@@ -1,7 +1,7 @@
 (ns robertluo.fly-learner.ideas
   "Ideas: the learner's own voice on what they study. An idea takes a
-  stance on something (agree, disagree), adds a note to it, or just marks
-  it: worth keeping (a highlight), or where to go on reading (a bookmark),
+  stance on something (agree, restate it in their own words, disagree),
+  adds a note to it, or just marks it: worth keeping (a highlight), or where to go on reading (a bookmark),
   as in any reading app. It may link
   to other ideas, so the learner's ideas form a graph of their own over
   the knowledge.
@@ -11,8 +11,10 @@
   robertluo.fly-learner.ideas.knowledge) says what an anchor points at now.
 
     {:idea/id      uuid
-     :idea/stance  :agree | :disagree | :note | :highlight | :bookmark
-     :idea/text    str (required for a note, optional otherwise)
+     :idea/stance  :agree | :restate | :disagree | :note | :highlight | :bookmark
+     :idea/text    Markdown (required for a note or a restatement, optional
+                   otherwise); `[[a term]]` (or `[[a term|shown]]`) links to
+                   what the term names, `wikilinks`
      :idea/anchors [anchor ..]   what it is about (one or more)
      :idea/links   [idea-id ..]  other ideas it relates to
      :idea/at      epoch ms}
@@ -20,10 +22,17 @@
   Text quotes (`quote-selector`, `find-quote`) anchor ideas to a span of
   text so that they can be found again when the text around them changes:
   the quote with a little context on both sides, as W3C Web Annotation's
-  TextQuoteSelector."
+  TextQuoteSelector.
+
+  What the learner writes is theirs: it never moves their scores (learning
+  knows nothing of ideas)."
   (:require [clojure.string :as str]))
 
-(def stances #{:agree :disagree :note :highlight :bookmark})
+(def stances #{:agree :restate :disagree :note :highlight :bookmark})
+
+(def ^:private worded
+  "Stances that are words: nothing without them."
+  #{:note :restate})
 
 (defprotocol Anchors
   (target [a anchor]
@@ -38,9 +47,9 @@
   [{:keys [stance text anchors links]} id at]
   (let [text (some-> text str)]
     (cond
-      (not (stances stance))                    {:error "Agree, disagree or note"}
-      (and (= :note stance) (empty? (some-> text str/trim)))
-      {:error "A note needs some words"}
+      (not (stances stance))                    {:error "Agree, restate, disagree or note"}
+      (and (worded stance) (empty? (some-> text str/trim)))
+      {:error (if (= :restate stance) "Say it in your own words" "A note needs some words")}
       (> (count text) max-text)                 {:error (str "Up to " max-text " characters")}
       (not (and (sequential? anchors) (seq anchors) (every? map? anchors)))
       {:error "What is it about?"}
@@ -63,6 +72,33 @@
   [ideas]
   (let [ids (set (map :idea/id ideas))]
     (into #{} (for [{:idea/keys [id links]} ideas, l links :when (and (ids l) (not= l id))] #{id l}))))
+
+;;=============================================================================
+;; Links in what the learner writes
+;;=============================================================================
+
+(defn- without-code
+  "Markdown `s` with its code (fenced blocks, spans) blanked: no links there."
+  [s]
+  (-> s
+      (str/replace #"(?s)```.*?(```|$)" "")
+      (str/replace #"`[^`\n]*`" "")))
+
+(defn wikilink
+  "[target shown] of the inside of a `[[..]]` link (`a term|shown`)."
+  [inside]
+  (let [[t shown] (str/split (str inside) #"\|" 2)
+        t (str/trim t)]
+    [t (if (str/blank? shown) t (str/trim shown))]))
+
+(defn wikilinks
+  "The terms `[[..]]` links in Markdown `text` point at, in order, once each."
+  [text]
+  (->> (re-seq #"\[\[([^\[\]\n]+)\]\]" (without-code (or text "")))
+       (map (comp first wikilink second))
+       (remove str/blank?)
+       distinct
+       vec))
 
 ;;=============================================================================
 ;; Text quotes
@@ -143,6 +179,9 @@
 (comment
   ;; a note needs words; a stance does not
   (:error (idea {:stance :note :text "  " :anchors [{:a 1}]} 1 0)) ;=> "A note needs some words"
+  (:error (idea {:stance :restate :anchors [{:a 1}]} 1 0)) ;=> "Say it in your own words"
+  (:idea/text (idea {:stance :restate :text " In short, [[closure]]s. " :anchors [{:a 1}]} 1 0))
+  ;=> "In short, [[closure]]s."
   (idea {:stance :agree :anchors [{:a 1}] :links [7 7]} 1 0)
   ;=> {:idea/id 1 :idea/stance :agree :idea/anchors [{:a 1}] :idea/links [7] :idea/at 0}
   (:error (idea {:stance :agree :anchors []} 1 0)) ;=> "What is it about?"
@@ -167,4 +206,11 @@
   (mark-segments "one two three" [{:selector {:quote "two"} :mark :m}])
   ;=> [["one " nil] ["two" :m] [" three" nil]]
   (mark-segments "abc" [{:selector {:quote "zz"} :mark :m}]) ;=> [["abc" nil]]
+
+  ;; links: not in code, once each, the shown text apart
+  (wikilinks "A [[closure|closures]] needs [[ lambda ]], `[[x]]`, [[closure]]\n```\n[[y]]\n```")
+  ;=> ["closure" "lambda"]
+  (wikilinks nil) ;=> []
+  (wikilink "closure|closures") ;=> ["closure" "closures"]
+  (wikilink "lambda") ;=> ["lambda" "lambda"]
   )

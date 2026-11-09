@@ -1,16 +1,38 @@
 (ns robertluo.fly-learner.ui.core.views.ideas
-  "The learner's own voice (robertluo.fly-learner.ideas): reactions, notes,
-  quotes marked in text, and bookmarks."
+  "The learner's own voice (robertluo.fly-learner.ideas): reactions, notes
+  (Markdown, one stance each: a note, agreeing, restating, disagreeing;
+  `[[a term]]` links the concept it names), quotes marked in text, and
+  bookmarks."
   (:require [clojure.string :as str]
             [robertluo.fly-learner.ideas :as ideas]
             [robertluo.fly-learner.ui.core.db :as db]
             [robertluo.fly-learner.ui.core.pull :as pull]
+            [robertluo.fly-learner.ui.core.views.markdown :as md]
             [robertluo.fly-learner.ui.core.views.nav :as nav]
             [robertluo.fly-learner.ui.core.views.template :as t]))
 
-(def stance-mark {:agree "✓" :disagree "✗" :note "✎" :highlight "▍" :bookmark "🔖"})
+(def stance-mark {:agree "✓" :restate "≈" :disagree "✗" :note "✎" :highlight "▍" :bookmark "🔖"})
 
-(def stance-label {:agree "Agree" :disagree "Disagree" :note "Note" :highlight "Highlight" :bookmark "Bookmark"})
+(def stance-label {:agree "Agree" :restate "Restate" :disagree "Disagree" :note "Note" :highlight "Highlight"
+                   :bookmark "Bookmark"})
+
+(def ^:private stance-prompt
+  {:note     "Your idea, in your own words…"
+   :agree    "Why you agree, what it adds up to…"
+   :restate  "Say it again, in your own words…"
+   :disagree "Why you disagree, what you would say instead…"})
+
+(defn written
+  "What the learner wrote, Markdown: a `[[term]]` link opens the concept it
+  names (`refs` {term concept}), or shows it names none yet; nil refs (not
+  known yet: a preview) says neither."
+  [dispatch! text refs]
+  (md/rich text {:wikilink (fn [term shown]
+                             (if-let [c (get refs term)]
+                               (nav/concept-link dispatch! c {:class "wikilink"} shown)
+                               [:span.wikilink {:class (when refs "unresolved")
+                                                :title (when refs (str "“" term "” names no concept yet"))}
+                                shown]))}))
 
 (defn anchored-text
   "Element `tag` with `text` of node `id`'s `field`: selectable to react to
@@ -27,14 +49,62 @@
                    :title (or (:idea/text m) (stance-label (:idea/stance m)))} s]
            [:span {:replicant/key i} s])))]))
 
+(defn- pick-wiki!
+  "The `[[` link being typed becomes `[[label]]`; the caret goes after it."
+  [db dispatch! label]
+  (let [[_ caret] (db/wiki-picked db label)]
+    (dispatch! {:db #(first (db/wiki-picked % label))})
+    #?(:cljs (js/requestAnimationFrame
+              #(when-let [^js ta (js/document.querySelector ".composer textarea")]
+                 (.focus ta)
+                 (when caret (.setSelectionRange ta caret caret))))
+       :clj caret)))
+
+(defn- wiki-keys
+  "Tab takes the first suggestion, Escape closes them."
+  [db dispatch! suggestions]
+  (fn [e]
+    (when (seq suggestions)
+      (case (.-key e)
+        "Tab"    (do (.preventDefault e) (pick-wiki! db dispatch! (:concept/label (first suggestions))))
+        "Escape" (do (.preventDefault e) (.stopPropagation e) (dispatch! {:db db/draft-wiki-closed}))
+        nil))))
+
 (defn composer
-  "The note being written, with ideas it may link to."
+  "The idea being written: its stance, its text in Markdown (written or
+  previewed; `[[` suggests concepts), ideas it may link to."
   [db dispatch!]
-  (let [{:keys [anchors text links]} (get-in db [:ideas :draft])
+  (let [{:keys [anchors stance text links preview?]} (get-in db [:ideas :draft])
+        stance (or stance :note)
+        suggestions (when-not preview? (take 6 (db/wiki-suggestions db)))
         others (->> (get-in db [:ideas :all]) (filter :idea/text) (take-last 10) reverse)]
-    [:div.composer
-     [:textarea {:value text :rows (if (> (count text) 200) 9 3) :placeholder "Your idea, in your own words…"
-                 :on {:input #(dispatch! {:db (fn [d] (db/draft-typed d (.. % -target -value)))})}}]
+    [:div.composer {:class (name stance)}
+     [:div.composer-bar
+      [:div.stance-picker {:role "radiogroup" :aria-label "Stance"}
+       (for [st db/draft-stances]
+         [:button.chip {:replicant/key (name st) :class [(name st) (when (= st stance) "on")]
+                        :role "radio" :aria-checked (str (= st stance))
+                        :on {:click #(dispatch! {:db (fn [d] (db/draft-stance d st))})}}
+          (stance-mark st) " " (stance-label st)])]
+      [:div.write-preview
+       [:button.btn.quiet {:class (when-not preview? "on") :on {:click #(dispatch! {:db (fn [d] (db/draft-preview d false))})}} "Write"]
+       [:button.btn.quiet {:class (when preview? "on") :disabled (str/blank? text)
+                           :on {:click #(dispatch! {:db (fn [d] (db/draft-preview d true))})}} "Preview"]]]
+     (if preview?
+       [:div.preview (written dispatch! text nil)]
+       [:textarea {:value text :rows (if (> (count text) 200) 9 4) :placeholder (stance-prompt stance)
+                   :on {:input   #(let [v (.. % -target -value) caret (.. % -target -selectionStart)]
+                                    (dispatch! {:db (fn [d] (db/draft-typed d v caret)) :pull :wiki}))
+                        :keydown (wiki-keys db dispatch! suggestions)}}])
+     (if (seq suggestions)
+       [:ul.wiki-suggest {:role "listbox"}
+        (for [[i {:concept/keys [id label gloss]}] (map-indexed vector suggestions)]
+          [:li {:replicant/key (str id)}
+           [:button {:type "button" :class (when (zero? i) "first") :title gloss
+                     :on {:mousedown #(.preventDefault %) ; keep the caret in the text
+                          :click #(pick-wiki! db dispatch! label)}}
+            [:span.label label] (when gloss [:span.gloss (t/snippet gloss 70)])]])]
+       [:p.composer-hint.muted "Markdown; formulas in " [:code "$..$"] "; " [:code "[[a concept]]"] " links it."])
      (when (seq others)
        [:div.link-picker
         [:span.muted "Links to "]
@@ -45,10 +115,10 @@
            (stance-mark stance) " " (t/snippet text 40)])])
      [:div.actions
       [:button.btn.primary {:disabled (str/blank? text)
-                            :on {:click #(dispatch! {:pull (pull/idea-create {:idea/stance :note :idea/text text
+                            :on {:click #(dispatch! {:pull (pull/idea-create {:idea/stance stance :idea/text text
                                                                             :idea/anchors anchors
                                                                             :idea/links (vec links)})})}}
-       "Save note"]
+       "Save"]
       [:button.btn.quiet {:on {:click #(dispatch! {:db db/draft-cancel})}} "Cancel"]]]))
 
 (defn- reaction-buttons
@@ -65,14 +135,14 @@
                                                                                                   :idea/anchors [anchor]}))))}}
        (stance-mark stance) " " (stance-label stance)])))
 
-(defn- idea-item [db dispatch! {:idea/keys [id stance text anchors links targets]} show-target?]
+(defn- idea-item [db dispatch! {:idea/keys [id stance text anchors links targets refs]} show-target?]
   (let [by-id (into {} (map (juxt :idea/id identity)) (get-in db [:ideas :all]))]
     [:li.idea {:replicant/key (str id) :class (name stance)}
      [:span.stance {:title (stance-label stance)} (stance-mark stance)]
      [:div.idea-body
       (for [[i a] (map-indexed vector anchors) :when (:quote a)]
         [:blockquote {:replicant/key i} (t/snippet (:quote a) 300)])
-      (if text [:p text] [:p.muted (stance-label stance)])
+      (if text (written dispatch! text refs) [:p.muted (stance-label stance)])
       (when show-target?
         [:span.meta "On " (str/join ", " (map :title targets))])
       (when (seq links)
@@ -89,14 +159,14 @@
      [:h2 "Your ideas"]
      [:div.reactions
       (reaction-buttons db dispatch! anchor)
-      [:button.btn {:on {:click #(dispatch! {:db (fn [d] (db/draft-start d [anchor] false))})}} "✎ Add a note"]]
+      [:button.btn {:on {:click #(dispatch! {:db (fn [d] (db/draft-start d [anchor] false))})}} "✎ Write"]]
      (when (and draft (not (:from-selection? draft)) (= [anchor] (:anchors draft)))
        (composer db dispatch!))
      (let [shown (remove #(and (nil? (:idea/text %)) (= [anchor] (:idea/anchors %))) ideas)]
        (if (seq shown)
          [:ul.idea-list (for [i (reverse shown)]
                           (idea-item db dispatch! i (not= [anchor] (:idea/anchors i))))]
-         [:p.hint.muted "Agree, disagree or add a note. Select any sentence to highlight it or react to just that."]))]))
+         [:p.hint.muted "Agree, disagree, or write: a note, why you agree or disagree, or the idea in your own words. Select any sentence to highlight it or react to just that."]))]))
 
 (defn- bookmark-icon [on?]
   [:svg.icon {:viewBox "0 0 16 16" :width 16 :height 16 :aria-hidden "true"}

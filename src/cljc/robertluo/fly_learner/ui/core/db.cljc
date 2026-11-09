@@ -30,6 +30,7 @@
    :concepts        {}     ; concept-id -> concept (see robertluo.fly-learner.concept.view/concept)
    :concept-index   nil    ; [concept-ref] by label, once fetched (:concepts view)
    :concept-filter  ""     ; text filtering the index
+   :concept-form    {:label "" :aliases "" :gloss "" :adding? false} ; a concept being added by hand
    :graph           {:ix       nil  ; indexed concept graph (ui.core.graph/index), once fetched
                      :focus    nil  ; concept the shown graph grows from
                      :expanded #{}  ; concepts whose neighbours are shown
@@ -46,7 +47,7 @@
    :ideas           {:all       nil   ; [idea with :idea/targets] once fetched (server.ideas/all)
                      :selection nil   ; {:anchor quote-anchor :x :y :top :vh}: selected text offered a
                                       ; reaction or a question; :ask {:question :status :answer} once asked
-                     :draft     nil   ; {:anchors [..] :text "" :links #{}}: a note being written
+                     :draft     nil   ; {:anchors [..] :stance :text "" :links #{} :preview? :wiki}: an idea being written
                      :layer?    true} ; show my ideas on the concept graph
    :exploration-id  nil    ; exploration shown in :explore view (nil: the list): a uuid (kept) or an example's name
    :explore-states  {}     ; exploration-id -> its state (robertluo.fly-learner.explore/act)
@@ -96,6 +97,7 @@
       ;; a failed model call: back to where the learner can try again
       (update-in [:quiz :status] {:asking nil :grading :answering})
       (assoc :exploring nil)
+      (assoc-in [:concept-form :adding?] false)
       (cond-> (= :asking (get-in db [:ideas :selection :ask :status]))
         (update-in [:ideas :selection] dissoc :ask))))
 
@@ -156,6 +158,52 @@
 
 (defn open-concepts [db]
   (assoc db :view :concepts :asking nil :loading? (nil? (:concept-index db))))
+
+(defn knowledge-changed
+  "Concepts or topics were added or removed: what was fetched of them is
+  fetched again (the index, the graph, the map, what to study)."
+  [db]
+  (-> db
+      (assoc :concept-index nil :concepts {} :clusters {} :learning nil)
+      (assoc-in [:graph :ix] nil)
+      (cond-> (:universe db) (assoc-in [:universe :stale?] true))))
+
+(defn concept-form-typed
+  "The learner typed `v` in field `k` (:label, :aliases, :gloss) of the form adding a concept."
+  [db k v]
+  (assoc-in db [:concept-form k] v))
+
+(defn concept-form-value
+  "What the form adds: {:concept/label :concept/gloss :concept/aliases}, nil without a name."
+  [{{:keys [label aliases gloss]} :concept-form}]
+  (when-not (str/blank? label)
+    (cond-> {:concept/label (str/trim label)
+             :concept/aliases (vec (remove str/blank? (map str/trim (str/split (or aliases "") #"[,;]"))))}
+      (not (str/blank? gloss)) (assoc :concept/gloss (str/trim gloss)))))
+
+^:rct/test
+(comment
+  (concept-form-value {:concept-form {:label " Tabulation " :aliases "table lookup; memo table, " :gloss ""}})
+  ;=> {:concept/label "Tabulation" :concept/aliases ["table lookup" "memo table"]}
+  (concept-form-value {:concept-form {:label "  " :aliases "x"}}) ;=> nil
+  )
+
+(defn concept-adding [db] (-> db (assoc-in [:concept-form :adding?] true) (assoc :error nil)))
+
+(defn concept-added
+  "Concept `c` (its page) was added: show it, the form emptied."
+  [db {:concept/keys [id] :as c}]
+  (-> (knowledge-changed db)
+      (assoc :concept-form (:concept-form initial-state))
+      (assoc-in [:concepts id] c)
+      (open-concept id)))
+
+(defn concept-removed
+  "Concept `id` was removed: back to the index of the others."
+  [db id]
+  (-> (knowledge-changed db)
+      (update :concepts dissoc id)
+      (assoc :view :concepts :concept-id nil :loading? true)))
 
 (defn current-concept [db]
   (get-in db [:concepts (:concept-id db)]))
@@ -552,9 +600,64 @@
   "Write a note about `anchors` (starting from `text`)."
   ([db anchors from-selection?] (draft-start db anchors from-selection? ""))
   ([db anchors from-selection? text]
-   (assoc-in db [:ideas :draft] {:anchors (vec anchors) :text text :links #{} :from-selection? from-selection?})))
+   (assoc-in db [:ideas :draft] {:anchors (vec anchors) :stance :note :text text :links #{}
+                                 :from-selection? from-selection?})))
 
-(defn draft-typed [db s] (assoc-in db [:ideas :draft :text] s))
+(def draft-stances
+  "What the learner may write: one stance a note."
+  [:note :agree :restate :disagree])
+
+(defn draft-stance [db stance]
+  (cond-> db (some #{stance} draft-stances) (assoc-in [:ideas :draft :stance] stance)))
+
+(defn draft-preview [db on?] (assoc-in db [:ideas :draft :preview?] (boolean on?)))
+
+(defn wiki-term
+  "The `[[` link being typed in `text` at `caret`: {:from i :term t}, i where
+  the term starts (after the brackets), t what is typed of it; nil when the
+  caret is not inside an open link."
+  [text caret]
+  (let [before (subs text 0 (min (count text) (max 0 (or caret 0))))
+        i      (str/last-index-of before "[[")]
+    (when i
+      (let [t (subs before (+ i 2))]
+        (when-not (re-find #"[\[\]\n|]" t)
+          {:from (+ i 2) :term t})))))
+
+(defn draft-typed
+  "The note's text is `s`, the caret at `caret` (where a `[[` link may be
+  being typed, `wiki-term`)."
+  ([db s] (draft-typed db s nil))
+  ([db s caret]
+   (update-in db [:ideas :draft] assoc :text s :wiki (when caret (wiki-term s caret)))))
+
+(defn draft-wiki-closed [db] (assoc-in db [:ideas :draft :wiki] nil))
+
+(defn wiki-query
+  "The `[[` term being typed to look up, nil when none."
+  [db]
+  (let [t (some-> (get-in db [:ideas :draft :wiki :term]) str/trim)]
+    (when (seq t) t)))
+
+(defn wiki-suggestions
+  "Concepts the `[[` term being typed may name (refs), the last fetched for
+  a prefix of it while its own is on the way."
+  [db]
+  (when-let [q (wiki-query db)]
+    (some #(seq (get-in db [:goto (subs q 0 %) :concepts])) (range (count q) 0 -1))))
+
+(defn wiki-picked
+  "The `[[` link being typed becomes `[[label]]`: [db caret], the caret after
+  the link."
+  [db label]
+  (let [{:keys [text wiki]} (get-in db [:ideas :draft])]
+    (if-let [{:keys [from term]} wiki]
+      (let [end   (+ from (count term))
+            after (subs text end)
+            after (if (str/starts-with? after "]]") (subs after 2) after)
+            head  (str (subs text 0 from) label "]]")]
+        [(update-in db [:ideas :draft] assoc :text (str head after) :wiki nil) (count head)])
+      [db nil])))
 
 (defn draft-link
   "Link the note being written to idea `id`, or unlink it."
@@ -1475,6 +1578,18 @@
   (get-in (selection-cleared drafting) [:ideas :selection :x]) ;=> 1
   (get-in (-> drafting (draft-link :i1) (draft-link :i2) (draft-link :i1)) [:ideas :draft :links]) ;=> #{:i2}
   (get-in (idea-added drafting {:idea/id :i3}) [:ideas :draft]) ;=> nil
+  ;; one stance a note; a [[link]] being typed is looked up and completed
+  (get-in (draft-stance drafting :restate) [:ideas :draft :stance]) ;=> :restate
+  (get-in (draft-stance drafting :bookmark) [:ideas :draft :stance]) ;=> :note
+  (wiki-term "A [[clo" 7) ;=> {:from 4 :term "clo"}
+  (wiki-term "A [[closure]] b" 15) ;=> nil
+  (wiki-term "A [[x\ny" 8) ;=> nil
+  (def typing (-> drafting (draft-typed "See [[clo]] now" 9) (goto-fetched "cl" {:concepts [{:concept/label "closure"}]})))
+  (wiki-query typing) ;=> "clo"
+  (wiki-suggestions typing) ;=> [{:concept/label "closure"}]
+  (let [[d caret] (wiki-picked typing "closure")] [(get-in d [:ideas :draft :text]) caret])
+  ;=> ["See [[closure]] now" 15]
+  (get-in (first (wiki-picked (draft-typed drafting "[[a" 3) "lambda")) [:ideas :draft :text]) ;=> "[[lambda]]"
   (map :idea/id (get-in (idea-removed withi :i1) [:ideas :all])) ;=> [:i2]
   ;; asking about a selection keeps it; the answer shows there and joins the asks
   (def asking (-> withi (selection-made {:anchor q :x 1 :y 2}) (selection-ask " Explain it ")))

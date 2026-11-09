@@ -1,19 +1,37 @@
 (ns robertluo.fly-learner.server.ideas
   "Ideas, composed for the API: the ideas layer, its store and its anchors
   over the knowledge. App layer."
-  (:require [datalevin.core :as d]
+  (:require [clojure.string :as str]
+            [datalevin.core :as d]
+            [robertluo.fly-learner.concept :as concept]
             [robertluo.fly-learner.db :as db]
             [robertluo.fly-learner.ideas :as ideas]
             [robertluo.fly-learner.ideas.knowledge :as anchors]
             [robertluo.fly-learner.ideas.store :as store]))
 
+(defn- singular [term]
+  (some #(when (str/ends-with? term %) (subs term 0 (- (count term) (count %)))) ["es" "s"]))
+
+(defn refs
+  "The concepts the `[[term]]` links in `text` name now: {term {:concept/id
+  :concept/label :concept/gloss}}; a plural names the concept of its
+  singular. A term naming nothing is left out (not a concept, yet)."
+  [dbv text]
+  (into {} (for [t (ideas/wikilinks text)
+                 :let [c (or (concept/taken dbv [t]) (some->> (singular t) vector (concept/taken dbv)))]
+                 :when c]
+             [t (merge (select-keys c [:concept/id :concept/label])
+                       (d/pull dbv [:concept/gloss] [:concept/id (:concept/id c)]))])))
+
 (defn- resolved
   "`idea` with what it points at now: :idea/targets [{:key .. :kind .. :title ..} ..],
-  and :idea/within, the nodes containing the nodes it is on (so a section
-  shows the ideas on anything inside it)."
+  :idea/within, the nodes containing the nodes it is on (so a section
+  shows the ideas on anything inside it), and :idea/refs, the concepts its
+  `[[..]]` links name (`refs`)."
   [dbv a idea]
   (let [ks (ideas/targets a idea)]
     (assoc idea
+           :idea/refs    (refs dbv (:idea/text idea))
            :idea/targets (vec (for [k ks] (assoc (ideas/describe a k) :key k)))
            :idea/within  (vec (distinct (for [[kind id] ks :when (= :node kind)
                                               :let [e (d/entid dbv [:node/id id])] :when e

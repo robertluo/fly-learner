@@ -25,8 +25,10 @@
                 their label and gloss stay as they are.
     curation    `rename!` `set-gloss!` `merge!` `split!` `assign!` `ignore!`
                 `unignore!` `add-broader!` `remove-broader!` `retag!` (a
-                homonym: one keyword, different ideas in different nodes):
-                human corrections.
+                homonym: one keyword, different ideas in different nodes),
+                `add!` (a concept the model missed, tagged on the passages
+                naming it: `naming-nodes`), `remove!` (not a concept: its
+                keywords ignored from then on): human corrections.
                 Each is one atomic change.
   Either writer can be wrong, so every change is logged as an :edit/* entity
   (op, args, by, at). That is the audit trail, and the args are enough to
@@ -307,6 +309,27 @@ Assign every new keyword to exactly one concept, or ignore it.
                                         :schema     reply-schema})
              :by model))))
 
+;; A concept added by hand without a gloss gets one from the passages naming it.
+
+(def ^:private gloss-system
+  "You write the gloss of a concept in a personal knowledge base: one sentence
+fixing its sense as the given passages use it, as a textbook glossary would
+(\"A strategy profile from which no player gains by deviating alone.\").
+Do not start with the concept's name; no citations.")
+
+(defn llm-gloss
+  "(fn [label passages] gloss) backed by Claude (the :common tier): the sense
+of `label` in `passages` (texts), in one sentence. opts: :models"
+  [client {:keys [models]}]
+  (let [model (llm/model-for models :common)]
+    (fn [label passages]
+      (-> (llm/complete client {:system     gloss-system
+                                :prompt     (str "Concept: " label "\n\nPassages:\n\n"
+                                                 (str/join "\n\n" (map #(str "- " %) passages)))
+                                :model      model
+                                :max-tokens 300})
+          str/trim))))
+
 ;;=============================================================================
 ;; Curation (human-written)
 ;;=============================================================================
@@ -398,6 +421,41 @@ Assign every new keyword to exactly one concept, or ignore it.
     (let [[id parent-id] args]
       [[[:db/retract (eid! db id) :concept/broader (eid! db parent-id)]]])
 
+    :add
+    (let [[{:concept/keys [id label gloss aliases]} node-ids] args
+          names (distinct (cons (norm label) (map norm aliases)))]
+      (when (str/blank? label) (throw (ex-info "A concept needs a name" {})))
+      (doseq [a names]
+        (when-let [o (owner db a)]
+          (throw (ex-info (str "\"" a "\" already names " (:concept/label (d/pull db [:concept/label] o)))
+                          {:alias a :concept/id (:concept/id (d/pull db [:concept/id] o))}))))
+      ;; a name ignored before (too generic, say) names this concept now
+      [(vec (for [a names :let [ign (d/entid db [:ignored/keyword a])] :when ign] [:db/retractEntity ign]))
+       (into [(cond-> {:db/id "new" :concept/id id :concept/label (str/trim label)
+                       :concept/aliases (vec names) :concept/by human}
+                (not (str/blank? gloss)) (assoc :concept/gloss (str/trim gloss)))]
+             ;; its mentions: the passages naming it carry its label as a keyword
+             (for [nid node-ids :let [e (d/entid db [:node/id nid])] :when e]
+               [:db/add e :node/keywords (norm label)]))])
+
+    :remove
+    (let [[ids {:keys [ignore?] :or {ignore? true}}] args
+          es    (mapv #(eid! db %) ids)
+          names (distinct (for [e es
+                                :let [{:concept/keys [label aliases]} (d/pull db [:concept/label :concept/aliases] e)]
+                                a (cons (norm label) aliases)]
+                            a))]
+      ;; claims of and on them go too (concept.prereq); exercises and narrower
+      ;; concepts just lose the reference
+      [(concat
+        (for [e es, attr [:prereq/of :prereq/needs]
+              p (d/q '[:find [?p ...] :in $ ?a ?c :where [?p ?a ?c]] db attr e)]
+          [:db/retractEntity p])
+        (for [e es] [:db/retractEntity e]))
+       ;; their keywords name nothing from now on: a later resolve! leaves them alone
+       (when ignore?
+         (for [a names :when (not (d/entid db [:ignored/keyword a]))] {:ignored/keyword a}))])
+
     :retag
     (let [[node-ids from to] args, from (norm from), to (norm to)]
       [(vec (for [nid node-ids
@@ -431,6 +489,71 @@ Assign every new keyword to exactly one concept, or ignore it.
   keyword naming it, which an existing concept has as alias, or the next
   `resolve!` gives one. See `keyword-nodes`."
   [conn node-ids from to]              (curate! conn human :retag (vec node-ids) from to))
+
+(defn taken
+  "The first of `names` another concept has: {:alias :concept/id :concept/label}, else nil."
+  [db names]
+  (some (fn [a] (when-let [o (owner db (norm a))]
+                  (assoc (d/pull db [:concept/id :concept/label] o) :alias (norm a))))
+        names))
+
+(defn add!
+  "A concept the model missed: {:concept/label, optional :concept/gloss and
+  :concept/aliases (other names)}, tagged (its label as a keyword) on the
+  nodes `node-ids` (see `naming-nodes`). Fails when one of its names is
+  another concept's. Returns its id."
+  [conn {:concept/keys [label] :as concept} node-ids]
+  {:pre [(not (str/blank? label))]}
+  (let [id (or (:concept/id concept) (random-uuid))]
+    (curate! conn human :add (assoc concept :concept/id id) (vec node-ids))
+    id))
+
+(defn remove!
+  "Not concepts: remove concepts `ids`, with the prerequisite claims of and on
+  them; their names become ignored keywords (unless `:ignore? false`: the
+  background they alone needed, which a source may still teach)."
+  ([conn ids] (remove! conn ids {:ignore? true}))
+  ([conn ids opts] (curate! conn human :remove (vec ids) opts)))
+
+(defn background-of
+  "Ids of the hidden concepts (background the sources assume, concept.prereq)
+  that concepts `ids` need."
+  [db ids]
+  (d/q '[:find [?nid ...] :in $ [?id ...]
+         :where [?c :concept/id ?id] [?p :prereq/of ?c] [?p :prereq/needs ?n]
+         [?n :concept/origin :inferred] [?n :concept/id ?nid]]
+       db ids))
+
+(defn needed-by-none
+  "Those of concepts `ids` no prerequisite claim names as needed."
+  [db ids]
+  (filterv (fn [id] (when-let [e (d/entid db [:concept/id id])]
+                      (empty? (d/q '[:find [?p ...] :in $ ?n :where [?p :prereq/needs ?n]] db e))))
+           ids))
+
+(defn- phrase-re
+  "Matches `term` as whole words, any case, a plural ending allowed."
+  [term]
+  (re-pattern (str "(?iu)(?<![\\p{L}\\p{N}])"
+                   (str/join "\\s+" (map #(java.util.regex.Pattern/quote %) (str/split (str/trim term) #"\s+")))
+                   "(?:s|es)?(?![\\p{L}\\p{N}])")))
+
+(defn naming-nodes
+  "Ids of the nodes whose text or title names one of `terms` (whole words,
+  any case): the passages about a concept known by those names."
+  [db terms]
+  (let [res (mapv phrase-re (remove str/blank? terms))]
+    (when (seq res)
+      (->> (d/q '[:find ?id ?t ?x :where [?n :node/id ?id] [?n :node/title ?t] [(get-else $ ?n :node/text "") ?x]] db)
+           (filter (fn [[_ t x]] (some #(or (re-find % t) (re-find % x)) res)))
+           (mapv first)))))
+
+^:rct/test
+(comment
+  (re-find (phrase-re "lambda  calculus") "The Lambda calculi and Lambda calculus.") ;=> "Lambda calculus"
+  (re-find (phrase-re "type") "typed terms") ;=> nil
+  (re-find (phrase-re "stream") "infinite streams.") ;=> "streams"
+  )
 
 (defn keyword-nodes
   "Ids of the nodes with keyword `kw`, of source `source-id` (any when nil)."

@@ -1069,3 +1069,49 @@ details.paragraphs .cards { margin-top: .6rem; }
 span.rich { display: inline; }
 .quiz .prompt .rich p { margin-bottom: .6rem; }
 .quiz .feedback .rich p { margin: .4rem 0; }
+
+/* curation: adding a concept the model missed, removing a topic or concept that is no knowledge */
+.add-concept { margin: .5rem 0 1rem; border: 1px solid var(--border); border-radius: 8px; padding: .5rem .8rem; }
+.add-concept summary { cursor: pointer; color: var(--accent); font-weight: 600; }
+.add-concept form { display: grid; gap: .6rem; margin-top: .7rem; }
+.add-concept label { display: grid; gap: .2rem; font-size: .85rem; color: var(--muted); }
+.add-concept input, .add-concept textarea {
+  font: inherit; font-size: 1rem; color: inherit; padding: .4rem .5rem;
+  border: 1px solid var(--border); border-radius: 6px; background: var(--panel);
+}
+.add-concept .actions { display: flex; align-items: center; gap: .8rem; }
+.curate { margin-top: 2.5rem; padding-top: .8rem; border-top: 1px solid var(--border); }
+.curate .btn.quiet { color: var(--muted); }
+.curate .btn.quiet:hover { color: #b5523b; border-color: #b5523b; }
+
+/* writing an idea: one stance a note, Markdown, [[ suggests concepts */
+:root { --restate: #3b6fb5; }
+@media (prefers-color-scheme: dark) { :root { --restate: #8db3e8; } }
+.idea.restate { border-left-color: var(--restate); }
+.idea.restate .stance { color: var(--restate); }
+mark.restate { border-bottom-color: var(--restate); background: color-mix(in srgb, var(--restate) 10%, transparent); }
+.idea-mark.restate { background: rgb(59 111 181 / .2); border-bottom-color: #3b6fb5; }
+.cgraph .idea-dot.restate rect { fill: var(--restate); }
+.composer-bar { display: flex; justify-content: space-between; align-items: center; gap: .5rem; flex-wrap: wrap; margin-bottom: .4rem; }
+.stance-picker { display: flex; gap: .3rem; flex-wrap: wrap; }
+.stance-picker .chip { border: 1px solid var(--border); background: var(--panel); cursor: pointer; font: inherit; font-size: .8rem; color: var(--muted); }
+.stance-picker .chip.on { color: var(--panel); border-color: var(--note); background: var(--note); }
+.stance-picker .chip.agree.on { border-color: var(--agree); background: var(--agree); }
+.stance-picker .chip.restate.on { border-color: var(--restate); background: var(--restate); }
+.stance-picker .chip.disagree.on { border-color: var(--disagree); background: var(--disagree); }
+.write-preview { display: flex; gap: .1rem; }
+.write-preview .btn { font-size: .8rem; padding: .15rem .5rem; }
+.write-preview .btn.on { color: var(--text); text-decoration: underline; text-underline-offset: 3px; }
+.composer .preview { min-height: 4.5rem; padding: .55rem .75rem; border: 1px dashed var(--border); border-radius: 8px; }
+.composer-hint { margin: .25rem 0 0; font-size: .78rem; }
+.wiki-suggest { list-style: none; margin: .25rem 0 0; padding: .2rem; border: 1px solid var(--border); border-radius: 8px; background: var(--panel); }
+.wiki-suggest button { display: flex; gap: .6rem; align-items: baseline; width: 100%; padding: .25rem .5rem; border: 0; border-radius: 5px; background: none; color: var(--text); font: inherit; font-size: .88rem; text-align: left; cursor: pointer; }
+.wiki-suggest button:hover, .wiki-suggest button.first { background: var(--accent-soft); }
+.wiki-suggest .gloss { color: var(--muted); font-size: .78rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.idea-body .rich > :first-child { margin-top: 0; }
+.idea-body .rich > :last-child { margin-bottom: 0; }
+.idea-body .rich p { white-space: normal; margin: 0 0 .4rem; }
+a.wikilink { color: var(--accent); text-decoration: none; border-bottom: 1px solid var(--accent-soft); }
+a.wikilink:hover { border-bottom-color: var(--accent); }
+.wikilink.unresolved { border-bottom: 1px dashed var(--muted); cursor: help; }
+.composer .preview .wikilink { border-bottom: 1px solid var(--accent-soft); color: var(--accent); }

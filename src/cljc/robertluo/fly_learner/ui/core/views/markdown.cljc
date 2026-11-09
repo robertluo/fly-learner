@@ -4,11 +4,14 @@
   writes (answers, questions, model answers, grading) comes in it.
 
   Citations [n] become what `:cite` makes of n (hiccup) when given, else
-  stay text. Formulas are drawn by KaTeX in the browser; on the JVM they
+  stay text. With `:wikilink`, what the learner writes: `[[a term]]` (or
+  `[[a term|shown]]`) becomes what (wikilink term shown) makes of it.
+  Formulas are drawn by KaTeX in the browser; on the JVM they
   stay TeX. Requires nothing of the app."
   (:require [clojure.string :as str]
             [nextjournal.markdown :as md]
             [nextjournal.markdown.transform :as md.transform]
+            [nextjournal.markdown.utils :as md.utils]
             #?(:cljs ["katex" :as katex])))
 
 (def ^:private cite-href "#cite-")
@@ -30,8 +33,18 @@
       #?(:cljs [tag {:innerHTML (katex-html text display?)}]
          :clj  [tag text]))))
 
-(defn- renderers [{:keys [cite]}]
+(defn- wikilink-parts
+  "[term shown] of a `[[..]]` link's inside, `a term|shown`."
+  [inside]
+  (let [[t shown] (str/split (str inside) #"\|" 2)
+        t (str/trim t)]
+    [t (if (str/blank? shown) t (str/trim shown))]))
+
+(defn- renderers [{:keys [cite wikilink]}]
   (assoc md.transform/default-hiccup-renderers
+         :internal-link (fn [_ {:keys [text]}]
+                          (let [[t shown] (wikilink-parts text)]
+                            (if wikilink (wikilink t shown) (str "[[" text "]]"))))
          :doc (partial md.transform/into-markup [:div.rich])
          :formula (formula false)
          :block-formula (formula true)
@@ -47,11 +60,15 @@
                      :else        (md.transform/into-markup [:a {:href href :target "_blank" :rel "noopener"}] ctx node))))))
 
 (defn rich
-  "Markdown text `s` as hiccup ([:div.rich ..]); `opts` {:cite (fn [n] hiccup)}."
+  "Markdown text `s` as hiccup ([:div.rich ..]); `opts` {:cite (fn [n] hiccup)
+  :wikilink (fn [term shown] hiccup)}."
   ([s] (rich s nil))
   ([s opts]
    (when-not (str/blank? s)
-     (md.transform/->hiccup (renderers opts) (md/parse (mark-citations s))))))
+     (md.transform/->hiccup (renderers opts)
+                            (if (:wikilink opts)
+                              (md/parse {:text-tokenizers [md.utils/internal-link-tokenizer]} (mark-citations s))
+                              (md/parse (mark-citations s)))))))
 
 (defn inline
   "A line of Markdown (a key point, a label) as inline hiccup: [:span.rich ..]
@@ -84,5 +101,8 @@
   (rich "[3] without cite") ;=> [:div.rich [:p "[3]" " without cite"]]
   (rich "- **c** [1][2]" {:cite (fn [n] [:a n])}) ;=> [:div.rich [:ul [:li [[:strong "c"] " " [:a 1] [:a 2]]]]]
   (rich "  ") ;=> nil
+  ;; what the learner writes: [[..]] links, none in code
+  (rich "Is [[closure|closures]] like `[[x]]`?" {:wikilink (fn [t shown] [:a {:data-term t} shown])})
+  ;=> [:div.rich [:p "Is " [:a {:data-term "closure"} "closures"] " like " [:code "[[x]]"] "?"]]
   (inline "Payoff $u_1$ is **2**") ;=> [:span.rich "Payoff " [:span.formula "u_1"] " is " [:strong "2"]]
   )

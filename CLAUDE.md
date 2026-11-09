@@ -29,14 +29,19 @@ Web stack follows flybot.sg (github.com/flybot-sg/lasagna-pattern, `examples/fly
   - `server/files` — `/files/sources/<id>` the original file; an EPUB's `/pages` (JSON array of page HTML, cached per
     file version) and `/res/<entry>` (its images)
   - `server/api` — lasagna-remote pull API on `/api`: `:sources`, `:asks` (collections; creating an ask runs the
-    model), `:concepts` (read-only collection), `:nodes` (with `:node/concepts`; `:node/keywords` keeps only
+    model), `:concepts` (collection: create adds a concept the model missed, delete removes one: `server/curation`), `:nodes` (with `:node/concepts`; `:node/keywords` keeps only
     keywords naming no concept), `:keywords`, `:search` (lookups), `:goto` (lookup: the concepts and book exercises the top box's text names, as typed), `:learning` (lazy overview), `:universe` (lazy:
-    every cluster with its score), `:clusters` (read-only: a cluster's next items), `:goals` (create/delete: learn a
+    every cluster with its score), `:clusters` (a cluster's next items; delete removes a topic and its concepts), `:goals` (create/delete: learn a
     cluster), `:questions` / `:answers` (creates: write a question, grade an answer), `:explorations` (create:
     make one of a node or remake one with feedback, runs the model; a node carries `:node/explore`: its proposal and
     explorations)
-  - `server/ideas` — ideas resolved for the API (`:idea/targets`, `:idea/within` = ancestor nodes); `focus`: a
+  - `server/ideas` — ideas resolved for the API (`:idea/targets`, `:idea/within` = ancestor nodes, `:idea/refs`: the
+    concepts its `[[term]]` links name now, by alias, a plural by its singular; a term naming none is left out); `focus`: a
     selected passage (quote anchor) -> the nodes it is in, for asking about it (`{:asks {nil {.. :ask/anchor a}}}`)
+  - `server/curation` — the learner correcting the knowledge base (API): `add-concept!` (names taken -> error; passages
+    naming it; a missing gloss written by the `:common` model from them, `concept/llm-gloss`; prerequisites judged, then
+    `cluster/refresh!`: judged first, since with few passages the claims are what connects it), `remove-concept!`,
+    `remove-topic!` (and its goal)
   - `server/study` — app-layer composition of learning + store + quiz + clusters for the API: `overview` (overall,
     scores, next — from the clusters being learned, if any — and goals), `universe` (clusters with score and
     `:learning?`), `cluster` (next items within one), `learn!`, `new-question!` (sent without its model answer),
@@ -60,7 +65,9 @@ Web stack follows flybot.sg (github.com/flybot-sg/lasagna-pattern, `examples/fly
   - `concept` — concepts: ideas with an identity (`:concept/label`, `:concept/gloss`, `:concept/broader`), named by
     keywords (`:concept/aliases`, unique: a keyword names one concept). Mentions are derived: node keyword = alias.
     `resolve!` (model, add-only) assigns unresolved keywords in batches; curation fns (`merge!`, `split!`, `assign!`,
-    `rename!`, `retag!`: a homonym, one keyword naming different ideas in different nodes, gets a keyword per sense
+    `rename!`, `add!`: a concept the model missed, tagged on the passages naming it (`naming-nodes`: whole words, any
+    case, a plural allowed), `remove!`: not a concept, its names ignored from then on (`:ignore? false` for background
+    nothing needs any more), `retag!`: a homonym, one keyword naming different ideas in different nodes, gets a keyword per sense
     on chosen nodes; `merge!` moves prerequisite claims too, ...) are atomic multi-stage edits (Datalevin checks unique values against the pre-tx state, so an
     alias must leave one concept before joining another, inside `with-transaction`). Every change is an `:edit/*`.
   - `concept/graph` — pure over `load-graph`: `edges` (broader/narrower + NPMI co-occurrence, evidence = shared
@@ -85,7 +92,8 @@ Web stack follows flybot.sg (github.com/flybot-sg/lasagna-pattern, `examples/fly
     never reshuffles other topics; `{:fresh? true}` clusters from scratch, a cluster mostly an old one, by Jaccard,
     keeping its id and name; returns `:successors` {gone-id new-id}), `universe` (clusters with members, dominant
     source, links). Stored as `:cluster/*`; `bb ingest` refreshes them and moves goals on a gone cluster to its
-    successor (`study/clusters-replaced!`)
+    successor (`study/clusters-replaced!`); `remove!` a topic that is no knowledge and its concepts,
+    `remove-concepts!` concepts and the background only they needed (they leave their clusters)
   - `keypoints` — key sentences: `extract!` (`:common` model, a few passages per call, 4 calls at a time) quotes
     1-3 sentences per passage verbatim with a 2-6 word label (the passage's hidden headings); `locate` keeps a quote
     only when found in its paragraph, as the paragraph's own text. Stored on the passage as `:node/keypoints`
@@ -165,10 +173,13 @@ Each layer knows the one below as little as possible, so any part can be reimple
   tested, `evidence`, which the caller records; `attempts`: best grade per authored question, from the evidence log) —
   depend on learning only, never on knowledge nor the evidence store
 - **ideas** (`ideas.cljc`, depends on nothing) — the learner's own voice: an idea takes a stance
-  (`:agree`/`:disagree`), is a `:note`, or marks something: `:highlight`, `:bookmark` (a node anchor with the source
+  (`:agree`/`:restate`/`:disagree`), is a `:note`, or marks something: `:highlight`, `:bookmark` (a node anchor with the source
   `:page`; `ui.core.db/bookmarks`, kept out of the idea lists), on one or more anchors (opaque maps), and may link to other ideas.
   `Anchors` protocol (`target` -> a key ideas are grouped by, `describe`); W3C-style text quotes
-  (`quote-selector`, `find-quote`, `mark-segments`) re-find a span after the text changes.
+  (`quote-selector`, `find-quote`, `mark-segments`) re-find a span after the text changes. What the learner writes
+  (`:idea/text`) is Markdown, one stance a note; `[[a term]]` / `[[a term|shown]]` links what the term names
+  (`wikilinks`; UI: the composer suggests concepts as `[[` is typed, `db/wiki-*`, and `views.markdown` `:wikilink` draws
+  them). Writing never moves scores: ideas and learning stay independent (a design decision, not a gap).
   - `ideas.store` — Datalevin, own schema
   - `ideas.knowledge` — the only bridge: anchors on concepts (follows merges), relations, nodes (re-found by
     title after re-ingest) and quotes in node text/summary or on a page of the source, `:field :page` (re-found by text; a page quote no

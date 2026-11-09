@@ -14,10 +14,16 @@
                  learn carries over); the others are named by the model. An
                  old cluster that is gone has a successor: the new cluster
                  holding most of its concepts.
+    remove!      a topic that is no knowledge (an edition's colophon, say):
+                 it and its concepts go (concept/remove!: their keywords are
+                 ignored from then on, so no ingest brings them back).
+    remove-concepts!  concepts removed one by one, and the background only
+                 they needed; they leave their clusters (`drop-concepts!`).
     universe     the stored clusters for display: members, the source most of
                  their passages come from, links between clusters."
   (:require [clojure.string :as str]
             [datalevin.core :as d]
+            [robertluo.fly-learner.concept :as concept]
             [robertluo.fly-learner.concept.graph :as graph]
             [robertluo.fly-learner.concept.prereq :as prereq]
             [robertluo.fly-learner.llm :as llm]))
@@ -188,6 +194,42 @@
               :where [?c :cluster/id]]
             db)
        (mapv (fn [c] (-> c (assoc :members (set (:cluster/concepts c))) (dissoc :cluster/concepts))))))
+
+(defn drop-concepts!
+  "Concepts `ids` (removed) leave the clusters holding them; a cluster left
+  empty goes."
+  [conn ids]
+  (let [gone (set ids)
+        tx   (vec (for [{:cluster/keys [id] :keys [members]} (stored (d/db conn))
+                        :when (some gone members)
+                        :let [left (remove gone members)]]
+                    (if (seq left)
+                      {:cluster/id id :cluster/concepts (vec (sort-by str left))}
+                      [:db/retractEntity [:cluster/id id]])))]
+    (when (seq tx) (d/transact! conn tx))
+    nil))
+
+(defn remove-concepts!
+  "Remove concepts `ids` (concept/remove!), and the background they alone
+  needed (hidden concepts nothing needs any more; their names stay free);
+  they leave their clusters. Returns the ids of the background removed."
+  [conn ids]
+  (let [bg (concept/background-of (d/db conn) ids)]
+    (concept/remove! conn ids)
+    (let [orphans (concept/needed-by-none (d/db conn) (remove (set ids) bg))]
+      (when (seq orphans) (concept/remove! conn orphans {:ignore? false}))
+      (drop-concepts! conn (concat ids orphans))
+      orphans)))
+
+(defn remove!
+  "Remove cluster `id` and its concepts (concept/remove!). Returns the ids of
+  the concepts removed, nil when there is no such cluster."
+  [conn id]
+  (when-let [{:keys [members]} (some #(when (= id (:cluster/id %)) %) (stored (d/db conn)))]
+    (let [live (filterv #(d/entid (d/db conn) [:concept/id %]) members)]
+      (d/transact! conn [[:db/retractEntity [:cluster/id id]]])
+      (when (seq live) (remove-concepts! conn live))
+      live)))
 
 (def ^:private namer-limit 15)
 

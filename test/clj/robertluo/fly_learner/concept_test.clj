@@ -2,6 +2,7 @@
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [datalevin.core :as d]
             [robertluo.fly-learner.concept :as concept]
+            [robertluo.fly-learner.concept.cluster :as cluster]
             [robertluo.fly-learner.concept.graph :as graph]
             [robertluo.fly-learner.db :as db]))
 
@@ -132,3 +133,50 @@
     (concept/retag! *conn* [nid] "no such keyword" "x")
     (is (not (contains? (set (:node/keywords (d/pull (d/db *conn*) [:node/keywords] [:node/id nid]))) "x"))
         "a node without the keyword is left alone")))
+
+(deftest added-by-hand-and-removed
+  (concept/resolve! *conn* (reply first-reply))
+  (let [conn  *conn*
+        para  (random-uuid)
+        _     (d/transact! conn [{:node/id para :node/title "On paths" :node/level 3 :node/kind :paragraph
+                                  :node/text "Paths between terms: a path type is a kind of equality."}
+                                 {:ignored/keyword "path"}])
+        nodes (concept/naming-nodes (d/db conn) ["path type" "path"])
+        id    (concept/add! conn {:concept/label "Path type" :concept/aliases ["path"]} nodes)
+        db    (d/db conn)
+        c     (get (by-label db) "Path type")]
+    (testing "a concept the model missed: on the passages naming it, its names no longer ignored"
+      (is (= [para] nodes))
+      (is (= id (:concept/id c)))
+      (is (= #{"path type" "path"} (:concept/aliases c)))
+      (is (= "human" (:concept/by c)))
+      (is (some #{"path type"} (:node/keywords (d/pull db [:node/keywords] [:node/id para]))))
+      (is (nil? (d/entid db [:ignored/keyword "path"]))))
+    (testing "a name another concept has is refused"
+      (is (thrown-with-msg? clojure.lang.ExceptionInfo #"already names"
+                            (concept/add! conn {:concept/label "Untyped equality"} []))))
+    (testing "not a concept: gone, its names ignored, logged"
+      (let [ut (get-in (by-label (d/db conn)) ["untyped equality" :concept/id])]
+        (concept/remove! conn [id ut])
+        (let [db (d/db conn)]
+          (is (nil? (d/entid db [:concept/id id])))
+          (is (every? #(d/entid db [:ignored/keyword %]) ["path type" "path" "untyped equality"]))
+          (is (= [:add :remove] (map :edit/op (take-last 2 (concept/edits db))))))))))
+
+(deftest background-goes-with-what-alone-needed-it
+  (let [[a b bg shared] (repeatedly 4 random-uuid)]
+    (d/transact! *conn* [{:db/id "a" :concept/id a :concept/label "html5" :concept/aliases ["html5"]}
+                         {:db/id "b" :concept/id b :concept/label "stream" :concept/aliases ["stream"]}
+                         {:db/id "bg" :concept/id bg :concept/label "html" :concept/aliases ["html"] :concept/origin :inferred}
+                         {:db/id "sh" :concept/id shared :concept/label "procedure" :concept/aliases ["procedure"]
+                          :concept/origin :inferred}
+                         {:prereq/of "a" :prereq/needs "bg"} {:prereq/of "a" :prereq/needs "sh"}
+                         {:prereq/of "b" :prereq/needs "sh"}
+                         {:cluster/id (random-uuid) :cluster/label "Edition" :cluster/concepts [a bg]}])
+    (is (= [bg] (cluster/remove-concepts! *conn* [a])) "only what it alone needed")
+    (let [db (d/db *conn*)]
+      (is (nil? (d/entid db [:concept/id bg])))
+      (is (d/entid db [:concept/id shared]) "still needed by another")
+      (is (d/entid db [:ignored/keyword "html5"]))
+      (is (nil? (d/entid db [:ignored/keyword "html"])) "background keeps its name free: a source may teach it")
+      (is (empty? (cluster/stored db)) "a cluster left empty goes"))))

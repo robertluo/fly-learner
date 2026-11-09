@@ -7,11 +7,15 @@
     '{:keywords {{:keyword \"confluence\"} ?nodes}} ; nodes tagged with a keyword
     '{:concepts ?all}                              ; every concept (refs, by label)
     '{:concepts {{:concept/id #uuid \"..\"} ?c}}   ; a concept: hierarchy, related, mentions
+    {:concepts {nil {:concept/label \"..\" :concept/gloss \"..\" :concept/aliases [..]}}} ; add one the model
+                                                    ; missed (tagged on the passages naming it)
+    {:concepts {{:concept/id id} nil}}             ; not a concept: remove it, its names ignored
     '{:concept-graph ?g}                           ; every concept and edge, explored client-side
     '{:learning ?l}                                ; what the learner knows: overall, scores, next, goals
     '{:universe ?u}                                ; every cluster (topic) with its score; links between them
     {:goals {nil {:cluster/id id}}}                ; learn a cluster now; {:goals {{:cluster/id id} nil}} stops
     '{:clusters {{:cluster/id #uuid \"..\"} ?c}}   ; a cluster's page: what to study next in it
+    {:clusters {{:cluster/id id} nil}}             ; not a topic: remove it and its concepts
     '{:ideas ?all}                                 ; the learner's ideas, resolved to what they are about
     {:ideas {nil {:idea/stance :note ..}}}         ; add one; {:ideas {{:idea/id id} nil}} removes it
     {:questions {nil {:question/item item}}}       ; a question (item nil: what to study next): the
@@ -42,6 +46,7 @@
             [robertluo.fly-learner.explore.knowledge :as explore]
             [robertluo.fly-learner.explore.store :as explore.store]
             [robertluo.fly-learner.keypoints :as keypoints]
+            [robertluo.fly-learner.server.curation :as curation]
             [robertluo.fly-learner.server.ideas :as ideas]
             [robertluo.fly-learner.server.study :as study]
             [sg.flybot.pullable.collection :as coll]))
@@ -64,17 +69,26 @@
                                                            :exercise/page :node/id :source/id])
                                           (exercises/of-concept db id)))))
 
-(defrecord ConceptsDataSource [conn]
-  coll/DataSource
-  (fetch [_ {:concept/keys [id]}] (when (uuid? id) (concept-page (d/db conn) id)))
-  (list-all [_] (concept-view/index (d/db conn)))
-  (create! [_ _] {:error {:type :forbidden :message "concepts are made by resolution and curation"}})
-  (update! [_ _ _] {:error {:type :forbidden}})
-  (delete! [_ _] {:error {:type :forbidden}}))
-
 (defn- ask-error [e]
   {:error {:type    (if (= :refusal (:stop-reason (ex-data e))) :refused :llm-error)
            :message (or (ex-message e) "The model call failed")}})
+
+(defrecord ConceptsDataSource [conn client opts]
+  coll/DataSource
+  (fetch [_ {:concept/keys [id]}] (when (uuid? id) (concept-page (d/db conn) id)))
+  (list-all [_] (concept-view/index (d/db conn)))
+  (create! [_ {:concept/keys [label gloss aliases]}]
+    (if (and (string? label) (or (nil? gloss) (string? gloss))
+             (or (nil? aliases) (and (sequential? aliases) (every? string? aliases))))
+      (try
+        (let [r (curation/add-concept! conn client opts {:concept/label label :concept/gloss gloss
+                                                         :concept/aliases aliases})]
+          (if (:error r) r (assoc (concept-page (d/db conn) (:concept/id r)) :mentions (:mentions r))))
+        (catch Exception e (ask-error e)))
+      {:error {:type :invalid :message "A concept is a name, maybe a gloss and other names"}}))
+  (update! [_ _ _] {:error {:type :forbidden}})
+  (delete! [_ {:concept/keys [id]}]
+    (boolean (and (uuid? id) (curation/remove-concept! conn id)))))
 
 (defrecord AsksDataSource [conn client opts]
   coll/DataSource
@@ -163,7 +177,8 @@
   (list-all [_] [])
   (create! [_ _] {:error {:type :forbidden :message "clusters are made from the concept graph"}})
   (update! [_ _ _] {:error {:type :forbidden}})
-  (delete! [_ _] {:error {:type :forbidden}}))
+  (delete! [_ {:cluster/keys [id]}]
+    (boolean (and (uuid? id) (curation/remove-topic! conn id)))))
 
 (defrecord GoalsDataSource [conn learning]
   coll/DataSource
@@ -205,14 +220,13 @@
                                                      :exercises (or (exercises/lookup db q 6) [])}))))
         sources (coll/read-only (coll/collection (->SourcesDataSource conn)
                                                  {:id-key :source/id}))
-        concepts (coll/read-only (coll/collection (->ConceptsDataSource conn)
-                                                  {:id-key :concept/id}))
+        concepts (coll/collection (->ConceptsDataSource conn client ask-opts) {:id-key :concept/id})
         questions (coll/collection (->QuestionsDataSource conn client learning ask-opts) {:id-key :question/id})
         answers   (coll/collection (->AnswersDataSource conn client learning ask-opts) {:id-key :question/id})
         idea-coll (coll/collection (->IdeasDataSource conn) {:id-key :idea/id})
         explorations (coll/collection (->ExplorationsDataSource conn client ask-opts) {:id-key :exploration/id})
         goals     (coll/collection (->GoalsDataSource conn learning) {:id-key :cluster/id})
-        clusters  (coll/read-only (coll/collection (->ClustersDataSource conn learning) {:id-key :cluster/id}))
+        clusters  (coll/collection (->ClustersDataSource conn learning) {:id-key :cluster/id})
         node-of (fn [db id] (some-> (db/node db id) (assoc :node/explore (explore/for-node db id))))
         nodes   (query-lookup (fn [{:node/keys [id]}] (when (uuid? id) (node-of (d/db conn) id))))
         pages   (query-lookup (fn [{:keys [page near] :source/keys [id]}]
