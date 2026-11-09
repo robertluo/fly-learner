@@ -1,9 +1,11 @@
 (ns robertluo.fly-learner.ui.pdf
   "pdf.js interop. The library is self-hosted under /vendor/pdfjs (bb vendor)
   and loaded by a module script in index.html, which sets window.pdfjsLib and
-  fires `pdfjs:ready`."
-  (:require [clojure.string :as str]
-            [robertluo.fly-learner.ui.core.highlight :as hl]))
+  fires `pdfjs:ready`.
+
+  Draws a PDF source's pages (robertluo.fly-learner.ui.core.views.document):
+  a page on a canvas, its selectable text layer over it, and its text items
+  for robertluo.fly-learner.ui.pages to find texts among.")
 
 (defn- lib
   "Promise of the pdf.js module."
@@ -102,7 +104,7 @@
                     (js/console.error "pdf.js text layer:" e)))))))
 
 ;;=============================================================================
-;; Highlights
+;; Text: where a page's text is, for robertluo.fly-learner.ui.pages
 ;;=============================================================================
 
 (defn- span-rect
@@ -126,178 +128,18 @@
          :w (/ (abs (- vx1 vx0)) (.-width vp))
          :h (/ (abs (- vy1 vy0)) (.-height vp))}))))
 
-(defn- find-highlight
-  "Promise of {:aspect w/h :rects [...]}: where `texts` are on page `p`."
-  [url p texts]
+(defn page-text
+  "Promise of page `p` of `url`'s text: {:strs [..] :rects (fn [i from to]
+  [rect ..]) :aspect w/h}, :strs its text items (pdf.js text content), rects
+  of chars [from, to) of item i in page fractions."
+  [url p]
   (-> (document url)
       (.then (fn [^js doc] (.getPage doc p)))
       (.then (fn [^js page]
-               (-> (.getTextContent page)
-                   (.then (fn [^js tc]
-                            (let [vp    (.getViewport page #js {:scale 1})
-                                  items (.-items tc)
-                                  runs  (hl/find-spans (mapv #(.-str ^js %) items) texts)]
-                              {:aspect (/ (.-width vp) (.-height vp))
-                               :rects  (vec (mapcat (fn [run]
-                                                      (hl/merge-rects
-                                                       (keep (fn [{:keys [item from to]}]
-                                                               (span-rect vp (aget items item) from to))
-                                                             run)))
-                                                    runs))}))))))))
-
-(defonce ^:private finding (atom #{}))
-
-(defn find-each!
-  "Where each of `texts` is on page `p` of `url`: calls (on-found {:rects
-  [rects-or-nil ..] :left x}), rects one per text, in order (key sentences,
-  each with its own label), x the left edge of the page's text (its margin
-  ends there). Once at a time for the same page and texts."
-  [url p texts on-found]
-  (let [k [url p texts]]
-    (when-not (@finding k)
-      (swap! finding conj k)
-      (-> (document url)
-      (.then (fn [^js doc] (.getPage doc p)))
-      (.then (fn [^js page]
-               (-> (.getTextContent page)
-                   (.then (fn [^js tc]
-                            (let [vp    (.getViewport page #js {:scale 1})
-                                  items (.-items tc)
-                                  strs  (mapv #(.-str ^js %) items)]
-                              (on-found
-                               {:left  (->> items
-                                            (keep (fn [^js it]
-                                                    (when-not (str/blank? (.-str it))
-                                                      (:x (span-rect vp it 0 (count (.-str it)))))))
-                                            ;; the margin: where lines start, past a stray item hanging left
-                                            hl/text-left)
-                                :rects
-                               (mapv (fn [t]
-                                       (when-let [run (hl/best-run strs t)]
-                                         (not-empty
-                                          (hl/merge-rects
-                                           (keep (fn [{:keys [item from to]}]
-                                                   (span-rect vp (aget items item) from to))
-                                                 run)))))
-                                     texts)})))))))
-          (.catch (fn [e] (js/console.error "pdf.js key sentences:" e)))
-          (.finally #(swap! finding disj k))))))
-
-(defonce ^:private pending (atom nil))
-
-(defn ensure-highlight!
-  "Compute the highlight for `key` ([url page node-id]) unless it is done or
-  under way; calls (on-found key result)."
-  [key texts on-found]
-  (when (not= key @pending)
-    (reset! pending key)
-    (let [[url p] key]
-      (-> (find-highlight url p texts)
-          (.then (fn [result] (on-found key result)))
-          (.catch (fn [e]
-                    (when (= key @pending) (reset! pending nil))
-                    (js/console.error "pdf.js highlight:" e)))))))
-
-;;=============================================================================
-;; Scrolling: every page in one column (.pdf-page, of .pdf-sheet[data-page])
-;;=============================================================================
-
-(def ^:private probe
-  "How far below the pane's top edge the line is whose page is the current one."
-  56)
-
-(defn- sheet [^js pane p] (.querySelector pane (str ".pdf-sheet[data-page=\"" p "\"]")))
-
-(defn- page-at
-  "The page under the probe line: the first sheet ending below it."
-  [^js pane]
-  (let [y (+ (.-scrollTop pane) probe)]
-    (some (fn [^js s]
-            (when (> (+ (.-offsetTop s) (.-offsetHeight s)) y)
-              (parse-long (.. s -dataset -page))))
-          (js/Array.from (.querySelectorAll pane ".pdf-sheet")))))
-
-(defn- remember-spot!
-  "Where in its page the pane is (a fraction of the page at the probe line)
-  and across (the middle, as a fraction of the width), to return there when
-  the pages change size."
-  [^js pane]
-  (when-let [^js s (sheet pane (.. pane -dataset -at))]
-    (set! (.. pane -dataset -fy) (/ (- (+ (.-scrollTop pane) probe) (.-offsetTop s)) (max 1 (.-offsetHeight s))))
-    (set! (.. pane -dataset -fx) (/ (+ (.-scrollLeft pane) (/ (.-clientWidth pane) 2)) (max 1 (.-scrollWidth pane))))))
-
-(defn- scroll-pane!
-  "Scroll `pane` to `top`; the scroll events this causes are not the learner's."
-  [^js pane top smooth?]
-  (set! (.-ignoreUntil pane) (+ (js/performance.now) (if smooth? 700 120)))
-  (.scrollTo pane #js {:top (max 0 top) :behavior (if smooth? "smooth" "instant")})
-  (remember-spot! pane))
-
-(defn sync-scroll!
-  "Keep `pane` at page `page`. Scrolls there when the page was changed other
-  than by scrolling (pane.dataset.at is the page the scroll position is at);
-  when the pages changed size (`layout`, a string: the document, its page
-  count, the pane's width, the zoom), back to the same spot of the page.
-  `y`, a fraction of the page, is where the highlight `key` (a string) is
-  when it should be in view: scrolled to once, smoothly when already on its
-  page."
-  [^js pane {:keys [page y key layout]}]
-  (let [ds       (.-dataset pane)
-        turned?  (not= (str page) (.-at ds))
-        resized? (not= layout (.-layout ds))
-        new-y?   (and y (not= key (.-placed ds)))]
-    (when-let [^js s (and (or turned? resized? new-y?) (sheet pane page))]
-      (set! (.-layout ds) layout)
-      (cond
-        (or turned? (and new-y? (not resized?)))
-        (do (set! (.-at ds) (str page))
-            (when y (set! (.-placed ds) key))
-            (scroll-pane! pane
-                          (if y
-                            (- (+ (.-offsetTop s) (* y (.-clientHeight s))) 48)
-                            (- (.-offsetTop s) 16))
-                          (not turned?)))
-
-        :else
-        (let [fy (js/parseFloat (.-fy ds)), fx (js/parseFloat (.-fx ds))]
-          (when y (set! (.-placed ds) key))
-          (when-not (js/isNaN fx)
-            (set! (.-scrollLeft pane) (- (* fx (.-scrollWidth pane)) (/ (.-clientWidth pane) 2))))
-          (scroll-pane! pane
-                        (if (js/isNaN fy)
-                          (- (.-offsetTop s) 16)
-                          (- (+ (.-offsetTop s) (* fy (.-offsetHeight s))) probe))
-                        false))))))
-
-(defn watch-scroll!
-  "Once per pane: as the learner scrolls, (on-page p) when another page
-  reaches the probe line, and (on-settle following?) once those changes
-  pause; following? says whether the pane followed the node (its
-  data-following) when the first of them happened."
-  [^js pane on-page on-settle]
-  (when-not (.-watching pane)
-    (set! (.-watching pane) true)
-    (let [frame (volatile! nil), settle (volatile! nil), following (volatile! nil)]
-      (.addEventListener
-       pane "scroll"
-       (fn []
-         (when-not @frame
-           (vreset! frame
-                    (js/requestAnimationFrame
-                     (fn []
-                       (vreset! frame nil)
-                       (when (> (js/performance.now) (or (.-ignoreUntil pane) 0))
-                         (when-let [p (page-at pane)]
-                           (when (not= (str p) (.. pane -dataset -at))
-                             (set! (.. pane -dataset -at) (str p))
-                             (when (nil? @following)
-                               (vreset! following (= "true" (.. pane -dataset -following))))
-                             (on-page p)
-                             (js/clearTimeout @settle)
-                             (vreset! settle (js/setTimeout (fn []
-                                                              (on-settle @following)
-                                                              (vreset! following nil))
-                                                            400))))))
-                       ;; after the page it is on may have changed
-                       (remember-spot! pane)))))
-       #js {:passive true}))))
+               (.then (.getTextContent page)
+                      (fn [^js tc]
+                        (let [vp    (.getViewport page #js {:scale 1})
+                              items (.-items tc)]
+                          {:strs   (mapv #(.-str ^js %) items)
+                           :rects  (fn [i from to] (some-> (span-rect vp (aget items i) from to) vector))
+                           :aspect (/ (.-width vp) (.-height vp))})))))))

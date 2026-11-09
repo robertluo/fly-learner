@@ -27,7 +27,8 @@
    :question/items   {}                                ; [item ..] every item it tests
    :question/weight  {:db/valueType :db.type/double}  ; how much an answer counts
    :question/context {:db/valueType :db.type/string}  ; text the grader needs besides the prompt
-   :question/anchor  {}})                              ; where it is (opaque)
+   :question/anchor  {}                                ; where it is (opaque)
+   :question/verbatim? {:db/valueType :db.type/boolean}}) ; plain text as found, not Markdown
 
 (defn- render-material
   [{:keys [about sources]}]
@@ -49,7 +50,11 @@ something, not whether they recognise wording.
 - Keep the sources' notation and terms. Do not mention \"the sources\" or
   section numbers in the question.
 - Give a model answer, and the key points (2-4, short) a full answer covers;
-  grading checks the points, not the wording.")
+  grading checks the points, not the wording.
+- Write the question, the model answer and the points in Markdown: a table
+  for a game's payoffs, a matrix or anything in rows and columns; lists for
+  steps; TeX for formulas, $..$ inline and $$..$$ displayed; a dollar sign
+  that is money as \\$. No headings.")
 
 (def ^:private questions-schema
   {:type "object"
@@ -89,7 +94,7 @@ something, not whether they recognise wording.
   "The questions the sources' authors wrote on `item` of `curriculum` (its
   material's :exercises), in their order."
   [curriculum item]
-  (vec (for [{:keys [id title prompt answer points context items anchor]} (:exercises (learning/material curriculum item))]
+  (vec (for [{:keys [id title prompt answer points context items anchor verbatim?]} (:exercises (learning/material curriculum item))]
          (cond-> {:question/id     id
                   :question/item   item
                   :question/items  (vec (distinct (cons item items)))
@@ -99,8 +104,9 @@ something, not whether they recognise wording.
                   :question/by     :author
                   :question/title  title
                   :question/weight authored-weight}
-           context (assoc :question/context context)
-           anchor  (assoc :question/anchor anchor)))))
+           context   (assoc :question/context context)
+           anchor    (assoc :question/anchor anchor)
+           verbatim? (assoc :question/verbatim? true)))))
 
 (defn save! [conn questions]
   (d/transact! conn (mapv #(assoc % :question/at (java.util.Date.)) questions))
@@ -132,11 +138,14 @@ answer and the key points a full answer covers.
 - grade: from 0 to 1, the share of the key points the answer gets right in
   substance, in any wording. Wrong statements lower it. A blank, off-topic
   or \"I don't know\" answer is 0.
-- A question from a book comes with the author's solution, as text taken
-  from the PDF: tables and formulas may be flattened into runs of numbers.
-  Read them as best you can; a learner may describe a table in words.
+- A question from a book comes with the author's solution, transcribed into
+  Markdown or as text taken from the book's file (a PDF, an EPUB), where tables and formulas may be
+  flattened into runs of numbers. Read them as best you can; a learner may
+  describe a table in words or write formulas in TeX.
 - feedback: two or three sentences to the learner: what was right, what was
-  missing or wrong, and the idea to remember. Address them as \"you\".")
+  missing or wrong, and the idea to remember. Address them as \"you\".
+  Markdown, TeX for formulas ($..$); a small table only when it shows the
+  point best.")
 
 (def ^:private grade-schema
   {:type "object"

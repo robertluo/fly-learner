@@ -8,7 +8,6 @@
   (:require [clojure.edn :as edn]
             [clojure.java.io :as io]
             [clojure.string :as str]
-            [datalevin.core :as d]
             [robertluo.fly-learner.db :as db]
             [robertluo.fly-learner.ideas.store :as ideas.store]
             [robertluo.fly-learner.explore.store :as explore.store]
@@ -19,6 +18,7 @@
             [robertluo.fly-learner.llm :as llm]
             [robertluo.fly-learner.quiz :as quiz]
             [robertluo.fly-learner.server.api :as api]
+            [robertluo.fly-learner.server.files :as files]
             [malli.core :as m]
             [malli.error :as me]
             [org.httpkit.server :as http-kit]
@@ -56,21 +56,10 @@
   [uri]
   (or (#{"/" "/c" "/q" "/x"} uri) (some #(str/starts-with? uri %) ["/n/" "/k/" "/a/" "/c/" "/g/" "/x/"])))
 
-(defn- source-file
-  "GET /files/sources/<uuid> -> the source's original file (only paths stored
-  by ingest are ever served)."
-  [conn uri]
-  (when-let [id (some-> (re-matches #"/files/sources/([0-9a-f-]{36})" uri) second parse-uuid)]
-    (when-let [path (:source/path (db/source (d/db conn) id))]
-      (when (.isFile (io/file path))
-        (-> (resp/file-response path)
-            (resp/content-type "application/pdf")
-            (resp/header "Cache-Control" "private, max-age=3600"))))))
-
 (defn make-ring-app [conn api-fn]
   (-> (fn [{:keys [uri request-method]}]
         (or (when (= :get request-method)
-              (or (source-file conn uri)
+              (or (files/response conn uri)
                   (when (spa-route? uri)
                     (-> (resp/resource-response "public/index.html")
                         (resp/content-type "text/html; charset=utf-8")))))

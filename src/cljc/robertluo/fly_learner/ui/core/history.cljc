@@ -24,10 +24,10 @@
 
 (defn state->path
   "URL for db; nil while a question waits for its answer (no URL yet)."
-  [{:keys [view node-id keyword ask-id concept-id cluster-id pdf exploration-id]}]
+  [{:keys [view node-id keyword ask-id concept-id cluster-id doc exploration-id]}]
   (case view
     :cluster  (str "/g/" cluster-id)
-    :node     (str "/n/" node-id (when-let [p (:page pdf)] (str "?page=" p)))
+    :node     (str "/n/" node-id (when-let [p (:page doc)] (str "?page=" p)))
     :concept  (str "/c/" concept-id)
     :concepts "/c"
     :study    "/q"
@@ -90,7 +90,7 @@
   ;=> {:view :node :id #uuid "00000000-0000-0000-0000-000000000001"}
   (path->state "/k/system%20f%CF%89") ;=> {:view :keyword :keyword "system fω"}
   ;; the source on another page than the node's
-  (state->path {:view :node :node-id #uuid "00000000-0000-0000-0000-000000000001" :pdf {:page 88}})
+  (state->path {:view :node :node-id #uuid "00000000-0000-0000-0000-000000000001" :doc {:page 88}})
   ;=> "/n/00000000-0000-0000-0000-000000000001?page=88"
   (path->state "/n/00000000-0000-0000-0000-000000000001?page=88")
   ;=> {:view :node :id #uuid "00000000-0000-0000-0000-000000000001" :page 88}

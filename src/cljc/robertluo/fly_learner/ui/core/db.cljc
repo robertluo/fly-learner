@@ -61,21 +61,21 @@
    :search-hits     {}     ; question -> [node-ref with :node/path] (full-text, no model)
    :box             {:q "" :open? false} ; the top box: what is typed, suggestions shown?
    :goto            {}     ; typed text -> {:concepts [ref ..] :exercises [..]} it names
-   :pdf             {:page      nil   ; manual page (nil: follow the node)
+   :doc             {:page      nil   ; manual page (nil: follow the node)
                      :pages     {}    ; source-id -> page count
                      :aspect    {}    ; source-id -> width/height of a page (pages not yet drawn)
                      :highlight nil   ; {:key [url page node-id] :aspect w/h :rects [{:x :y :w :h}]}
                      :text-ready #{}  ; "url#page" whose text layer has been laid out
                      :draft     nil   ; the page number being typed in the toolbar, nil when not typing
                      :zoom      1.0   ; page width / the pane's
-                     :placed    {}}   ; quotes key (pdf-quotes-key) -> {idea-id [{:x :y :w :h}]}
+                     :placed    {}}   ; quotes key (doc-quotes-key) -> {idea-id [{:x :y :w :h}]}
    :keypoints       {}     ; source-id -> [{:page :para :node :quote :label}]: key sentences (robertluo.fly-learner.keypoints)
-   :source-only?    false  ; split views: the left pane hidden, the source (PDF, graph) full width
+   :source-only?    false  ; split views: the left pane hidden, the source (its document, the graph) full width
    :split           0.5    ; split views: the left pane's share of the width (kept in localStorage)
    :cards           {:all? false  ; drill-down summaries read in full (kept in localStorage)
                      :open #{}}   ; node ids whose summary is read in full (the others not, when not all?)
    :split-drag      nil    ; that share while the divider is being dragged
-   :fullscreen?     false  ; the browser is full screen, showing only the pane (map, graph, PDF)
+   :fullscreen?     false  ; the browser is full screen, showing only the pane (map, graph, source document)
    :map-view        {}     ; the map's pan and zoom (robertluo.fly-learner.ui.core.viewport)
    :loading?        false
    :error           nil})  ; {:code :reason} or nil
@@ -124,7 +124,7 @@
   [db id]
   (-> db
       (assoc :view :node :node-id id :keyword nil :asking nil)
-      (assoc-in [:pdf :page] nil)
+      (assoc-in [:doc :page] nil)
       (assoc :loading? (not (contains? (:nodes db) id)))))
 
 (defn open-keyword [db kw]
@@ -250,7 +250,7 @@
   "Apply a parsed URL ({:view .. :id .. :keyword .. :page ..}, see history) to db."
   [db {:keys [view id keyword page]}]
   (case view
-    :node    (cond-> (open-node db id) page (assoc-in [:pdf :page] (max 1 page)))
+    :node    (cond-> (open-node db id) page (assoc-in [:doc :page] (max 1 page)))
     :keyword (open-keyword db keyword)
     :ask      (open-ask db id)
     :concept  (open-concept db id)
@@ -428,24 +428,24 @@
   [db keys]
   (filterv #(some keys (target-keys %)) (get-in db [:ideas :all])))
 
-(defn- on-pdf-page?
-  "Is `idea` on text selected on the PDF page `page-key` ([:page source-id page]),
+(defn- on-doc-page?
+  "Is `idea` on text selected on the source page `page-key` ([:page source-id page]),
   whatever paragraph that text was found in?"
   [page-key idea]
-  (some #(and (= :pdf (:field %)) (= page-key [:page (:source/id %) (:page %)])) (:idea/anchors idea)))
+  (some #(and (= :page (:field %)) (= page-key [:page (:source/id %) (:page %)])) (:idea/anchors idea)))
 
 (defn ideas-in-node
-  "Ideas on node `id`, on anything inside it, or on the PDF page `page-key`
+  "Ideas on node `id`, on anything inside it, or on the source page `page-key`
   ([:page source-id page]) shown beside it (marked there). Bookmarks are
   not ideas to read here (see bookmarks)."
   [db id page-key]
   (filterv #(and (not= :bookmark (:idea/stance %))
                  (or (some #{[:node id] page-key} (target-keys %))
                      (some #{id} (:idea/within %))
-                     (on-pdf-page? page-key %)))
+                     (on-doc-page? page-key %)))
            (get-in db [:ideas :all])))
 
-(declare pdf-page)
+(declare doc-page)
 
 ;;=============================================================================
 ;; Bookmarks: where to go on reading (ideas of stance :bookmark on a node)
@@ -454,7 +454,7 @@
 (defn bookmarks
   "The learner's bookmarks, newest first, on nodes still there:
   [{:idea/id :node-id :title :page :source/id :source/title :at}], page the
-  PDF page it was made on (else the node's)."
+  source page it was made on (else the node's)."
   ([db] (bookmarks db nil))
   ([db source-id]
    (->> (get-in db [:ideas :all])
@@ -474,15 +474,15 @@
   (some #(when (= id (:node-id %)) %) (bookmarks db)))
 
 (defn bookmark-anchor
-  "Anchor of a bookmark on `node` at the PDF page shown."
+  "Anchor of a bookmark on `node` at the source page shown."
   [db node]
-  (assoc (node-anchor node) :page (pdf-page db)))
+  (assoc (node-anchor node) :page (doc-page db)))
 
 (defn open-bookmark
-  "Go on reading at bookmark `b`: its node, the PDF at its page."
+  "Go on reading at bookmark `b`: its node, the source at its page."
   [db {:keys [node-id page]}]
   (cond-> (open-node db node-id)
-    page (assoc-in [:pdf :page] page)))
+    page (assoc-in [:doc :page] page)))
 
 (defn ideas-about-concept
   "Ideas on concept `id` and on its relations."
@@ -950,7 +950,7 @@
       (assoc :loading? false)))
 
 ;;=============================================================================
-;; Source pane (pdf.js)
+;; Source pane: the source document's pages (a PDF's, an EPUB's)
 ;;=============================================================================
 
 (defn node-page
@@ -960,31 +960,43 @@
       (some :node/page (:node/children node))
       1))
 
-(defn pdf-page
+(defn doc-page
   "Page shown in the source pane."
   [db]
-  (or (get-in db [:pdf :page])
+  (or (get-in db [:doc :page])
       (some-> (current-node db) node-page)
       1))
 
-(defn pdf-pages [db source-id] (get-in db [:pdf :pages source-id]))
+(defn doc-pages [db source-id] (get-in db [:doc :pages source-id]))
 
-(defn pdf-loaded
+(defn doc-loaded
   "Source `source-id` has `n` pages; `aspect` (width/height of one) sizes
   the pages not drawn yet."
-  ([db source-id n] (pdf-loaded db source-id n nil))
+  ([db source-id n] (doc-loaded db source-id n nil))
   ([db source-id n aspect]
-   (cond-> (assoc-in db [:pdf :pages source-id] n)
-     (and aspect (not (get-in db [:pdf :aspect source-id])))
-     (assoc-in [:pdf :aspect source-id] aspect))))
+   (cond-> (assoc-in db [:doc :pages source-id] n)
+     (and aspect (not (get-in db [:doc :aspect source-id])))
+     (assoc-in [:doc :aspect source-id] aspect))))
 
-(defn pdf-aspect [db source-id] (get-in db [:pdf :aspect source-id]))
+(defn doc-aspect [db source-id] (get-in db [:doc :aspect source-id]))
 
-(def pdf-zooms
+(defn doc-html-loaded
+  "The pages of source `source-id` at `url` came, as HTML: [html ..]."
+  [db source-id url pages]
+  (-> db
+      (assoc-in [:doc :html url] (vec pages))
+      (assoc-in [:doc :pages source-id] (count pages))))
+
+(defn doc-html
+  "The HTML of page `p` at `url`, once loaded."
+  [db url p]
+  (get-in db [:doc :html url (dec p)]))
+
+(def doc-zooms
   "Zoom steps of the source's pages (1: the pane's width)."
   [0.5 0.67 0.8 1.0 1.25 1.5 2.0 2.5 3.0])
 
-(defn pdf-zoom [db] (get-in db [:pdf :zoom] 1.0))
+(defn doc-zoom [db] (get-in db [:doc :zoom] 1.0))
 
 (defn card-open?
   "Whether the summary of the card of node `id` is read in full."
@@ -1022,25 +1034,25 @@
         f (or f (:split-drag db) (:split db) 0.5)]
     (assoc db :split (-> (/ (Math/round (* 1000.0 f)) 1000.0) (max lo) (min hi)) :split-drag nil)))
 
-(defn pdf-zoomed
+(defn doc-zoomed
   "Pages at `z` x the pane's width (rounded, within the steps' range)."
   [db z]
-  (assoc-in db [:pdf :zoom] (-> (/ (Math/round (* 100.0 z)) 100.0)
-                                (max (first pdf-zooms)) (min (peek pdf-zooms)))))
+  (assoc-in db [:doc :zoom] (-> (/ (Math/round (* 100.0 z)) 100.0)
+                                (max (first doc-zooms)) (min (peek doc-zooms)))))
 
-(defn pdf-zoom-step
+(defn doc-zoom-step
   "One step in (`dir` 1) or out (-1) from the zoom shown."
   [db dir]
-  (let [z (pdf-zoom db)
+  (let [z (doc-zoom db)
         to (if (pos? dir)
-             (or (first (filter #(> % (+ z 0.001)) pdf-zooms)) (peek pdf-zooms))
-             (or (last (filter #(< % (- z 0.001)) pdf-zooms)) (first pdf-zooms)))]
-    (pdf-zoomed db to)))
+             (or (first (filter #(> % (+ z 0.001)) doc-zooms)) (peek doc-zooms))
+             (or (last (filter #(< % (- z 0.001)) doc-zooms)) (first doc-zooms)))]
+    (doc-zoomed db to)))
 
-(defn pdf-scrolled
+(defn doc-scrolled
   "The learner scrolled the source to page `p`: it no longer follows the node."
   [db p]
-  (assoc-in db [:pdf :page] p))
+  (assoc-in db [:doc :page] p))
 
 (declare wide?)
 
@@ -1049,7 +1061,7 @@
   was scrolled to (the left pane follows the source), or nil: not on a node
   page, the left pane hidden, or the source following the node."
   [db]
-  (let [node (current-node db) p (get-in db [:pdf :page])]
+  (let [node (current-node db) p (get-in db [:doc :page])]
     (when (and (= :node (:view db)) node p (not (wide? db)))
       {:source/id (get-in node [:node/source :source/id]) :page p :near (:node/id node)})))
 
@@ -1058,42 +1070,42 @@
   staying where the learner scrolled it. Nothing when it is the node shown,
   or the learner has scrolled on or gone elsewhere meanwhile."
   [db p id]
-  (if (and id (= :node (:view db)) (not= id (:node-id db)) (= p (get-in db [:pdf :page])))
-    (-> db (open-node id) (assoc-in [:pdf :page] p))
+  (if (and id (= :node (:view db)) (not= id (:node-id db)) (= p (get-in db [:doc :page])))
+    (-> db (open-node id) (assoc-in [:doc :page] p))
     db))
 
-(defn pdf-window
+(defn doc-window
   "Whether page `q` is near page `p` (the one at the top of the pane), so
   worth drawing: the others are blank sheets of the right size. Fewer when
   zoomed in (pages are big, and costly to keep drawn)."
-  ([p q] (pdf-window p q 1.0))
+  ([p q] (doc-window p q 1.0))
   ([p q zoom]
    (if (> zoom 1.5)
      (<= (- p 1) q (+ p 1))
      (<= (- p 2) q (+ p 3)))))
 
-(defn pdf-goto
+(defn doc-goto
   "Show page `p` (clamped to the document) regardless of the selected node."
   [db source-id p]
-  (let [n (or (pdf-pages db source-id) p)]
-    (assoc-in db [:pdf :page] (-> p (max 1) (min n)))))
+  (let [n (or (doc-pages db source-id) p)]
+    (assoc-in db [:doc :page] (-> p (max 1) (min n)))))
 
-(defn pdf-page-typed
+(defn doc-page-typed
   "The learner is typing `s` as the page to go to."
   [db s]
-  (assoc-in db [:pdf :draft] s))
+  (assoc-in db [:doc :draft] s))
 
-(defn pdf-page-entered
+(defn doc-page-entered
   "Go to the page typed (clamped to the document), if it is a number; the
   typing ends either way."
   [db source-id]
-  (let [p (some->> (get-in db [:pdf :draft]) (re-find #"\d+") parse-long)]
-    (cond-> (assoc-in db [:pdf :draft] nil)
-      p (pdf-goto source-id p))))
+  (let [p (some->> (get-in db [:doc :draft]) (re-find #"\d+") parse-long)]
+    (cond-> (assoc-in db [:doc :draft] nil)
+      p (doc-goto source-id p))))
 
-(defn pdf-follow [db] (assoc-in db [:pdf :page] nil))
+(defn doc-follow [db] (assoc-in db [:doc :page] nil))
 
-(defn following? [db] (nil? (get-in db [:pdf :page])))
+(defn following? [db] (nil? (get-in db [:doc :page])))
 
 (defn source-only
   "Hide the left pane of split views (the source gets the whole width), or show it."
@@ -1113,7 +1125,7 @@
   (boolean (or (:source-only? db) (:fullscreen? db))))
 
 (defn highlight-texts
-  "Source text of `node` to mark on its PDF page: a paragraph's text, a
+  "Source text of `node` to mark on its source page: a paragraph's text, a
   passage's paragraphs, a section's heading."
   [{:node/keys [kind text title children]}]
   (case kind
@@ -1131,19 +1143,19 @@
 (defn highlight
   "The highlight for `key` once computed (rects as fractions of the page)."
   [db key]
-  (let [h (get-in db [:pdf :highlight])]
+  (let [h (get-in db [:doc :highlight])]
     (when (= key (:key h)) h)))
 
 (defn highlight-found [db key result]
-  (assoc-in db [:pdf :highlight] (assoc result :key key)))
+  (assoc-in db [:doc :highlight] (assoc result :key key)))
 
-(defn pdf-quotes
-  "Ideas on text selected in the PDF of source `sid` on page `p`:
+(defn doc-quotes
+  "Ideas on text selected on page `p` of source `sid`:
   [{:idea .. :anchor quote-anchor}]."
   [db sid p]
   (vec (for [i (get-in db [:ideas :all])
              a (:idea/anchors i)
-             :when (and (= :quote (:anchor/kind a)) (= :pdf (:field a))
+             :when (and (= :quote (:anchor/kind a)) (= :page (:field a))
                         (= sid (:source/id a)) (= p (:page a)))]
          {:idea i :anchor a})))
 
@@ -1157,17 +1169,18 @@
 
 (defn keypoints-placed
   "Where the key sentences `kps` are on page `p` ({:rects [rects-or-nil ..]
-  :left margin}, rects in order): kept by page, with the sentences they are of."
-  [db url p kps {:keys [rects left]}]
-  (assoc-in db [:pdf :key-rects (str url "#" p)] {:kps kps :rects rects :left left}))
+  :left margin :aspect w/h}, rects in order): kept by page, with the
+  sentences they are of."
+  [db url p kps {:keys [rects left aspect]}]
+  (assoc-in db [:doc :key-rects (str url "#" p)] {:kps kps :rects rects :left left :aspect aspect}))
 
 (defn keypoint-rects
-  "{:found [[keypoint rects] ..] :left margin} on page `p` of `url`, once
-  placed for these `kps`; nil while not."
+  "{:found [[keypoint rects] ..] :left margin :aspect w/h} on page `p` of
+  `url`, once placed for these `kps`; nil while not."
   [db url p kps]
-  (let [{placed-kps :kps :keys [rects left]} (get-in db [:pdf :key-rects (str url "#" p)])]
+  (let [{placed-kps :kps :keys [rects left aspect]} (get-in db [:doc :key-rects (str url "#" p)])]
     (when (= placed-kps kps)
-      {:found (vec (keep (fn [[k r]] (when r [k r])) (map vector kps rects))) :left left})))
+      {:found (vec (keep (fn [[k r]] (when r [k r])) (map vector kps rects))) :left left :aspect aspect})))
 
 (defn keypoint-at
   "Where key sentence `kp` ({:para :quote}) was found: [page y] (y a fraction
@@ -1179,17 +1192,17 @@
                 (:found (keypoint-rects db url q (page-keypoints db sid q)))))
         [page (inc page)]))
 
-(defn pdf-goto-target
+(defn doc-goto-target
   "Show page `p` with `y` (a fraction of it, or nil: its top) at the top of
   the pane: a key sentence clicked on the left."
   [db source-id p y]
-  (-> (pdf-goto db source-id p)
-      (assoc-in [:pdf :target] {:page p :y y :n (inc (get-in db [:pdf :target :n] 0))})))
+  (-> (doc-goto db source-id p)
+      (assoc-in [:doc :target] {:page p :y y :n (inc (get-in db [:doc :target :n] 0))})))
 
-(defn pdf-target
+(defn doc-target
   "{:y :key} to scroll page `p` to, when a key sentence there was clicked."
   [db p]
-  (let [{:keys [page y n]} (get-in db [:pdf :target])]
+  (let [{:keys [page y n]} (get-in db [:doc :target])]
     (when (and y (= page p)) {:y y :key (str "target-" n)})))
 
 (defn open-texts
@@ -1211,34 +1224,34 @@
   "Where the texts of node `id` open on page `p` of `url` are: a bar spans
   from the first to the last rect."
   [db url p id texts rects]
-  (assoc-in db [:pdf :open-rects (str url "#" p)] {:id id :texts texts :rects (vec (mapcat identity rects))}))
+  (assoc-in db [:doc :open-rects (str url "#" p)] {:id id :texts texts :rects (vec (mapcat identity rects))}))
 
 (defn open-span
   "[top bottom left] of node `id`'s `texts` on page `p` (fractions), once
   placed; :pending while not."
   [db url p id texts]
-  (let [{pid :id ptexts :texts rects :rects} (get-in db [:pdf :open-rects (str url "#" p)])]
+  (let [{pid :id ptexts :texts rects :rects} (get-in db [:doc :open-rects (str url "#" p)])]
     (if (and (= pid id) (= ptexts texts))
       (when (seq rects)
         [(apply min (map :y rects)) (apply max (map #(+ (:y %) (:h %)) rects)) (apply min (map :x rects))])
       :pending)))
 
-(defn pdf-quotes-key
+(defn doc-quotes-key
   "Identifies where `quotes` are on page `p` of `sid`: boxes are fractions of
   the page, the same at any width."
   [sid p quotes]
   [sid p (vec (sort (map (comp str :idea/id :idea) quotes)))])
 
-(defn text-layer-ready [db url p] (update-in db [:pdf :text-ready] (fnil conj #{}) (str url "#" p)))
+(defn text-layer-ready [db url p] (update-in db [:doc :text-ready] (fnil conj #{}) (str url "#" p)))
 
-(defn text-layer-ready? [db url p] (contains? (get-in db [:pdf :text-ready]) (str url "#" p)))
+(defn text-layer-ready? [db url p] (contains? (get-in db [:doc :text-ready]) (str url "#" p)))
 
-(defn pdf-quotes-placed
+(defn doc-quotes-placed
   "Boxes of the quotes keyed `k` were found: {idea-id [{:x :y :w :h}]}."
   [db k placed]
-  (assoc-in db [:pdf :placed k] placed))
+  (assoc-in db [:doc :placed k] placed))
 
-(defn pdf-quotes-placed? [db k] (contains? (get-in db [:pdf :placed]) k))
+(defn doc-quotes-placed? [db k] (contains? (get-in db [:doc :placed]) k))
 
 ^:rct/test
 (comment
@@ -1251,17 +1264,17 @@
   (:loading? (-> initial-state (node-fetched n) (open-node id))) ;=> false
 
   ;; the pane follows the node's page, a section falls back to its first child's
-  (pdf-page (-> initial-state (open-node id) (node-fetched n))) ;=> 7
-  ;; a note on text selected on page 28 of the PDF is drawn on that page
-  (def pq {:anchor/kind :quote :field :pdf :source/id :s :page 28 :quote "Bool"})
+  (doc-page (-> initial-state (open-node id) (node-fetched n))) ;=> 7
+  ;; a note on text selected on page 28 of the source is drawn on that page
+  (def pq {:anchor/kind :quote :field :page :source/id :s :page 28 :quote "Bool"})
   (def with-pq (ideas-fetched initial-state [{:idea/id :q1 :idea/stance :note :idea/anchors [pq]}
                                              {:idea/id :q2 :idea/stance :agree
                                               :idea/anchors [(assoc pq :field :text)]}]))
-  (map (comp :idea/id :idea) (pdf-quotes with-pq :s 28)) ;=> [:q1]
-  (pdf-quotes with-pq :s 29) ;=> []
-  (pdf-quotes-key :s 28 (pdf-quotes with-pq :s 28)) ;=> [:s 28 [":q1"]]
+  (map (comp :idea/id :idea) (doc-quotes with-pq :s 28)) ;=> [:q1]
+  (doc-quotes with-pq :s 29) ;=> []
+  (doc-quotes-key :s 28 (doc-quotes with-pq :s 28)) ;=> [:s 28 [":q1"]]
   (text-layer-ready? (text-layer-ready initial-state "/f" 28) "/f" 28) ;=> true
-  (pdf-quotes-placed? (pdf-quotes-placed initial-state [:k] {}) [:k]) ;=> true
+  (doc-quotes-placed? (doc-quotes-placed initial-state [:k] {}) [:k]) ;=> true
   ;; what is open, page by page: a passage's paragraphs and the one running over
   (def g {:node/kind :group :node/page 4 :node/children [{:node/text "a" :node/page 4} {:node/text "b" :node/page 4}
                                                          {:node/text "c" :node/page 5}]})
@@ -1270,7 +1283,7 @@
   (open-span (open-placed initial-state "/f" 5 :g ["b" "c"] [[{:x 0.1 :y 0.2 :w 0.5 :h 0.02}] [{:x 0.12 :y 0.4 :w 0.5 :h 0.02}]])
              "/f" 5 :g ["b" "c"]) ;=> [0.2 0.42000000000000004 0.1]
   (open-span initial-state "/f" 5 :g ["b"]) ;=> :pending
-  (pdf-target (pdf-goto-target (pdf-loaded initial-state :s 9) :s 5 0.3) 5) ;=> {:y 0.3 :key "target-1"}
+  (doc-target (doc-goto-target (doc-loaded initial-state :s 9) :s 5 0.3) 5) ;=> {:y 0.3 :key "target-1"}
   ;; key sentences: those of the page and the one before, placed once per set
   (def kd (keypoints-fetched initial-state :s [{:page 4 :quote "a"} {:page 5 :quote "b"} {:page 7 :quote "c"}]))
   (map :quote (page-keypoints kd :s 5)) ;=> ["a" "b"]
@@ -1281,18 +1294,18 @@
   (:source-only? (-> initial-state source-only-toggle source-only-toggle)) ;=> false
   (:source-only? (source-only initial-state "yes")) ;=> true
   ;; typing a page number in the toolbar
-  (let [d (-> initial-state (pdf-loaded :s 120) (pdf-page-typed "88"))]
-    [(get-in d [:pdf :draft]) (get-in (pdf-page-entered d :s) [:pdf :page])]) ;=> ["88" 88]
-  (get-in (-> initial-state (pdf-loaded :s 120) (pdf-page-typed "999") (pdf-page-entered :s)) [:pdf :page]) ;=> 120
-  (get-in (-> initial-state (pdf-page-typed "abc") (pdf-page-entered :s)) [:pdf]) ;=> (:pdf initial-state)
+  (let [d (-> initial-state (doc-loaded :s 120) (doc-page-typed "88"))]
+    [(get-in d [:doc :draft]) (get-in (doc-page-entered d :s) [:doc :page])]) ;=> ["88" 88]
+  (get-in (-> initial-state (doc-loaded :s 120) (doc-page-typed "999") (doc-page-entered :s)) [:doc :page]) ;=> 120
+  (get-in (-> initial-state (doc-page-typed "abc") (doc-page-entered :s)) [:doc]) ;=> (:doc initial-state)
   ;; the left pane follows the source scrolled to another page
   (let [a #uuid "00000000-0000-0000-0000-00000000000a" b #uuid "00000000-0000-0000-0000-00000000000b"
         d (-> initial-state (open-node a)
               (assoc-in [:nodes a] {:node/id a :node/source {:source/id :s} :node/page 3})
-              (pdf-scrolled 9))]
-    [(page-sync d) (page-sync (pdf-follow d)) (page-sync (source-only d true))
-     (let [d2 (page-synced d 9 b)] [(:node-id d2) (pdf-page d2)])
-     (:node-id (page-synced (pdf-scrolled d 10) 9 b))])
+              (doc-scrolled 9))]
+    [(page-sync d) (page-sync (doc-follow d)) (page-sync (source-only d true))
+     (let [d2 (page-synced d 9 b)] [(:node-id d2) (doc-page d2)])
+     (:node-id (page-synced (doc-scrolled d 10) 9 b))])
   ;=> [{:source/id :s :page 9 :near #uuid "00000000-0000-0000-0000-00000000000a"} nil nil
   ;    [#uuid "00000000-0000-0000-0000-00000000000b" 9] #uuid "00000000-0000-0000-0000-00000000000a"]
   ;; bookmarks: newest first, at the page they were made on; not among the ideas of a node
@@ -1302,7 +1315,7 @@
                                                   :source/id :s :source/title "Book"}]})
         d  (ideas-fetched initial-state [(bm :b1 :n1 1 12) (bm :b2 :n2 2 nil)])]
     [(mapv (juxt :node-id :page) (bookmarks d)) (:idea/id (bookmark-on d :n1)) (ideas-in-node d :n1 nil)
-     (let [o (open-bookmark d (first (bookmarks d :s)))] [(:node-id o) (pdf-page o)])])
+     (let [o (open-bookmark d (first (bookmarks d :s)))] [(:node-id o) (doc-page o)])])
   ;=> [[[:n2 1] [:n1 12]] :b1 [] [:n2 1]]
   ;; drill-down cards: one by one, or all (then a toggle folds one)
   [(card-open? (card-toggled initial-state :a) :a) (card-open? (cards-all initial-state true) :a)
@@ -1318,21 +1331,21 @@
 
   ;; manual paging is clamped and survives until the next node is opened
   (def shown-n (-> initial-state (open-node id) (node-fetched n)))
-  (def paged (-> initial-state (open-node id) (node-fetched n) (pdf-loaded :s 10) (pdf-goto :s 42)))
-  (pdf-page paged) ;=> 10
+  (def paged (-> initial-state (open-node id) (node-fetched n) (doc-loaded :s 10) (doc-goto :s 42)))
+  (doc-page paged) ;=> 10
   (following? paged) ;=> false
-  (pdf-page (open-node paged id)) ;=> 7
+  (doc-page (open-node paged id)) ;=> 7
   ;; scrolling the source turns its page; the first page drawn sizes the rest
-  (pdf-page (pdf-scrolled shown-n 9)) ;=> 9
-  (following? (pdf-scrolled shown-n 9)) ;=> false
-  (pdf-aspect (-> initial-state (pdf-loaded :s 10 0.7) (pdf-loaded :s 10 0.8)) :s) ;=> 0.7
-  (filter #(pdf-window 5 %) (range 1 12)) ;=> [3 4 5 6 7 8]
-  (filter #(pdf-window 5 % 2.0) (range 1 12)) ;=> [4 5 6]
+  (doc-page (doc-scrolled shown-n 9)) ;=> 9
+  (following? (doc-scrolled shown-n 9)) ;=> false
+  (doc-aspect (-> initial-state (doc-loaded :s 10 0.7) (doc-loaded :s 10 0.8)) :s) ;=> 0.7
+  (filter #(doc-window 5 %) (range 1 12)) ;=> [3 4 5 6 7 8]
+  (filter #(doc-window 5 % 2.0) (range 1 12)) ;=> [4 5 6]
   ;; zoom: steps in and out, kept within range
-  (pdf-zoom (pdf-zoom-step initial-state 1)) ;=> 1.25
-  (pdf-zoom (pdf-zoom-step (pdf-zoomed initial-state 1.1) -1)) ;=> 1.0
-  (pdf-zoom (pdf-zoom-step (pdf-zoomed initial-state 3.0) 1)) ;=> 3.0
-  (pdf-zoom (pdf-zoomed initial-state 9)) ;=> 3.0
+  (doc-zoom (doc-zoom-step initial-state 1)) ;=> 1.25
+  (doc-zoom (doc-zoom-step (doc-zoomed initial-state 1.1) -1)) ;=> 1.0
+  (doc-zoom (doc-zoom-step (doc-zoomed initial-state 3.0) 1)) ;=> 3.0
+  (doc-zoom (doc-zoomed initial-state 9)) ;=> 3.0
 
   ;; what gets highlighted
   (highlight-texts {:node/kind :paragraph :node/text "Some text."}) ;=> ["Some text."]
@@ -1347,7 +1360,7 @@
   (:aspect (highlight (highlight-found shown k {:aspect 0.7 :rects []}) k)) ;=> 0.7
   (highlight (highlight-found shown k {:aspect 0.7 :rects []}) ["/f" 8 id]) ;=> nil
   ;; the node's page, wherever the source is scrolled to
-  (highlight-key (pdf-scrolled shown 12) "/f") ;=> ["/f" 7 #uuid "00000000-0000-0000-0000-000000000001"]
+  (highlight-key (doc-scrolled shown 12) "/f") ;=> ["/f" 7 #uuid "00000000-0000-0000-0000-000000000001"]
 
   ;; missing node -> error
   (:code (:error (node-fetched initial-state nil))) ;=> :not-found
@@ -1445,10 +1458,10 @@
   (def on-page {:idea/id :i6 :idea/targets [{:key [:page :s 28]}]})
   (map :idea/id (ideas-in-node (ideas-fetched g1 [inside on-page ag]) :chap [:page :s 28])) ;=> [:i5 :i6]
   (map :idea/id (ideas-in-node (ideas-fetched g1 [inside on-page ag]) :other [:page :s 3])) ;=> []
-  ;; text selected on the PDF page shown, found in another paragraph: listed (and marked) there
-  (def from-pdf {:idea/id :i7 :idea/targets [{:key [:node :elsewhere]}]
-                 :idea/anchors [{:anchor/kind :quote :field :pdf :source/id :s :page 3 :quote "x"}]})
-  (map :idea/id (ideas-in-node (ideas-fetched g1 [from-pdf]) :other [:page :s 3])) ;=> [:i7]
+  ;; text selected on the source page shown, found in another paragraph: listed (and marked) there
+  (def from-page {:idea/id :i7 :idea/targets [{:key [:node :elsewhere]}]
+                 :idea/anchors [{:anchor/kind :quote :field :page :source/id :s :page 3 :quote "x"}]})
+  (map :idea/id (ideas-in-node (ideas-fetched g1 [from-page]) :other [:page :s 3])) ;=> [:i7]
   (= ag (reaction withi (concept-anchor :t))) ;=> true
   (reaction withi (concept-anchor :p)) ;=> nil
   (map :mark (quote-marks withi :n :text)) ;=> [nt]
@@ -1483,5 +1496,5 @@
   (:view (apply-route initial-state {:view :keyword :keyword "confluence"})) ;=> :keyword
   (:view (apply-route (open-node initial-state id) {:view :home})) ;=> :home
   ;; back to a page of the source, or to the node's own page
-  (get-in (apply-route initial-state {:view :node :id id :page 88}) [:pdf :page]) ;=> 88
-  (get-in (apply-route (pdf-goto (open-node initial-state id) :s 9) {:view :node :id id}) [:pdf :page])) ;=> nil
+  (get-in (apply-route initial-state {:view :node :id id :page 88}) [:doc :page]) ;=> 88
+  (get-in (apply-route (doc-goto (open-node initial-state id) :s 9) {:view :node :id id}) [:doc :page])) ;=> nil

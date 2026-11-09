@@ -355,8 +355,8 @@ input.filter:focus { outline: 2px solid var(--accent-soft); border-color: var(--
 }
 
 .textLayer ::selection { background: rgb(47 111 94 / .3); }
-.pdf-sheet .textLayer { z-index: 1; }
-.pdf-marks { z-index: 2; }
+.doc-sheet .textLayer { z-index: 1; }
+.doc-marks { z-index: 2; }
 
 /* concept graph ------------------------------------------------------- */
 
@@ -725,7 +725,7 @@ form.ask input:focus { outline: 2px solid var(--accent-soft); border-color: var(
 
 /* source pane --------------------------------------------------------- */
 
-.pdf-toolbar, .graph-toolbar {
+.doc-toolbar, .graph-toolbar {
   display: flex;
   align-items: center;
   gap: .5rem;
@@ -735,7 +735,7 @@ form.ask input:focus { outline: 2px solid var(--accent-soft); border-color: var(
   font-size: .9rem;
 }
 
-.pdf-toolbar button {
+.doc-toolbar button {
   border: 1px solid var(--border);
   background: var(--panel);
   color: var(--text);
@@ -744,36 +744,74 @@ form.ask input:focus { outline: 2px solid var(--accent-soft); border-color: var(
   cursor: pointer;
   font: inherit;
 }
-.pdf-toolbar button:disabled { opacity: .4; cursor: default; }
-.pdf-toolbar .follow { margin-left: auto; color: var(--accent); }
-.pdf-toolbar .page { display: inline-flex; align-items: center; gap: .35rem; margin: 0; }
-.pdf-toolbar .page input {
+.doc-toolbar button:disabled { opacity: .4; cursor: default; }
+.doc-toolbar .follow { margin-left: auto; color: var(--accent); }
+.doc-toolbar .page { display: inline-flex; align-items: center; gap: .35rem; margin: 0; }
+.doc-toolbar .page input {
   font: inherit; font-variant-numeric: tabular-nums; text-align: center;
   padding: .1rem .25rem; border: 1px solid var(--border); border-radius: 6px;
   background: var(--bg); color: var(--text);
 }
-.pdf-toolbar .page input:focus { outline: 2px solid var(--accent-soft); border-color: var(--accent); }
+.doc-toolbar .page input:focus { outline: 2px solid var(--accent-soft); border-color: var(--accent); }
 
-/* every page in one column; pages away from the view are blank sheets of the same size */
-.pdf-page { flex: 1; overflow: auto; padding: 1rem; position: relative; }
-.pdf-sheet { position: relative; margin-left: auto; margin-right: auto; background: #fff; box-shadow: 0 1px 4px rgba(0, 0, 0, .15); }
-.pdf-sheet + .pdf-sheet { margin-top: 1rem; }
-.pdf-layers { position: relative; }
-.pdf-sheet canvas { display: block; width: 100%; height: auto; }
-.pdf-marks { position: absolute; inset: 0; pointer-events: none; mix-blend-mode: multiply; }
+/* every page in one column; PDF pages away from the view are blank sheets of the same size */
+.doc-pages { flex: 1; overflow: auto; padding: 1rem; position: relative; }
+.doc-sheet { position: relative; margin-left: auto; margin-right: auto; background: #fff; box-shadow: 0 1px 4px rgba(0, 0, 0, .15); }
+.doc-sheet + .doc-sheet { margin-top: 1rem; }
+.doc-layers { position: relative; }
+.doc-sheet canvas { display: block; width: 100%; height: auto; }
+.doc-marks { position: absolute; inset: 0; pointer-events: none; mix-blend-mode: multiply; }
 /* multiply the whole layer (it has a z-index, so it is its own stacking context: a blend on
    each mark would only see the layer): the glyphs stay black, overlapping boxes do not darken */
 /* what is open on the left: a bar in the page's margin along it */
-.pdf-marks .open-bar { position: absolute; width: 4px; border-radius: 2px; background: #2f6f5e; opacity: .75; }
-/* your ideas on text selected in the PDF: tinted and underlined in the stance's colour
+.doc-marks .open-bar { position: absolute; width: 4px; border-radius: 2px; background: #2f6f5e; opacity: .75; }
+/* your ideas on text selected on a page: tinted and underlined in the stance's colour
    (fixed colours: the page is white in either theme) */
-.pdf-idea-marks { position: absolute; inset: 0; pointer-events: none; mix-blend-mode: multiply; z-index: 2; }
+.doc-idea-marks { position: absolute; inset: 0; pointer-events: none; mix-blend-mode: multiply; z-index: 2; }
 .idea-mark { position: absolute; background: rgb(160 122 42 / .22); border-bottom: 2px solid #a07a2a; }
 .idea-mark.agree { background: rgb(47 143 91 / .2); border-bottom-color: #2f8f5b; }
 .idea-mark.disagree { background: rgb(181 82 59 / .2); border-bottom-color: #b5523b; }
 /* key sentences: a light tint, their label in the page's margin, sized with the page */
-.pdf-sheet { container-type: inline-size; }
-.pdf-key-marks { position: absolute; inset: 0; pointer-events: none; z-index: 1; }
+.doc-sheet { container-type: inline-size; }
+.doc-key-marks { position: absolute; inset: 0; pointer-events: none; z-index: 1; }
+
+/* an HTML page (an EPUB's, cut into pages by the server): the book's own text, which is its
+   text layer too. Its type is sized with the page, as a PDF page's is, so it lays out the same
+   at any zoom (marks are fractions of the page); a margin wide enough for key sentences' labels.
+   Fixed colours: the page is white in either theme. */
+.doc-sheet.html .html-page {
+  padding: 6cqw 8cqw 6cqw 14cqw; color: #1d1d1b; overflow-wrap: break-word;
+  font: 1.85cqw/1.55 Georgia, "Iowan Old Style", "Times New Roman", serif;
+}
+.html-page ::selection { background: rgb(47 111 94 / .3); }
+.html-page h1, .html-page h2, .html-page h3, .html-page h4, .html-page h5, .html-page h6 {
+  font-family: var(--font); line-height: 1.25; margin: 1.1em 0 .5em; color: #1d1d1b;
+}
+.html-page h1 { font-size: 1.85em; } .html-page h2 { font-size: 1.55em; } .html-page h3 { font-size: 1.3em; }
+.html-page h4 { font-size: 1.12em; } .html-page h5, .html-page h6 { font-size: 1em; }
+.html-page :is(h1, h2, h3, h4, h5, h6) > span + span { margin-left: .45em; }
+.html-page > :first-child { margin-top: 0; }
+.html-page p { margin: 0 0 .7em; hyphens: auto; }
+.html-page ul, .html-page ol { margin: 0 0 .7em; padding-left: 1.6em; }
+.html-page pre { font: .86em/1.4 ui-monospace, Menlo, Consolas, monospace; white-space: pre-wrap; margin: .2em 0 .9em 1.5em; }
+.html-page code, .html-page tt, .html-page kbd { font-family: ui-monospace, Menlo, Consolas, monospace; font-size: .9em; }
+.html-page img { max-width: 100%; height: auto; vertical-align: middle; }
+.html-page figure { margin: 1em 0; text-align: center; }
+.html-page figcaption { font-size: .9em; color: #555; margin-top: .4em; }
+.html-page blockquote { margin: .8em 2em; color: #444; }
+.html-page table { border-collapse: collapse; margin: .8em auto; }
+.html-page th, .html-page td { border: 1px solid #ccc; padding: .2em .5em; }
+.html-page hr { border: none; border-top: 1px solid #ddd; margin: 1em 0; }
+.html-page a { color: #2f6f5e; text-decoration: none; }
+.html-page a[data-goto]:hover, .html-page a[target]:hover { text-decoration: underline; }
+.html-page sup { line-height: 0; }
+.html-page math[display="block"] { margin: .6em 0; }
+/* footnotes, where the book puts them */
+.html-page .note { font-size: .88em; border-top: 1px solid #ddd; padding-top: .5em; margin-top: .8em; }
+.html-page .note + .note { border-top: none; padding-top: 0; margin-top: 0; }
+/* code coloured as the book does (prettify's classes, prefixed b- as all the book's classes are) */
+.html-page .b-kwd { color: #7a3e9d; } .html-page .b-str { color: #2f6f5e; } .html-page .b-lit { color: #a0522d; }
+.html-page .b-com { color: #6b6b6b; font-style: italic; } .html-page .b-typ { color: #3566b0; }
 .key-mark { position: absolute; background: rgb(70 130 220 / .13); mix-blend-mode: multiply; border-radius: 2px; }
 .key-label {
   position: absolute; left: .4cqw; text-align: right; pointer-events: auto; cursor: default;
@@ -971,8 +1009,8 @@ details.paragraphs summary { cursor: pointer; color: var(--muted); font-size: .9
 details.paragraphs .cards { margin-top: .6rem; }
 
 /* bookmarks */
-.pdf-toolbar .bookmark { display: inline-flex; align-items: center; padding: .2rem .4rem; color: var(--muted); }
-.pdf-toolbar .bookmark.on { color: #c2410c; border-color: #c2410c; }
+.doc-toolbar .bookmark { display: inline-flex; align-items: center; padding: .2rem .4rem; color: var(--muted); }
+.doc-toolbar .bookmark.on { color: #c2410c; border-color: #c2410c; }
 .bookmarks { list-style: none; padding: 0; margin: .4rem 0 0; display: grid; gap: .45rem; }
 .bookmarks li { display: grid; gap: .1rem; }
 .bookmark-link { display: inline-flex; gap: .4rem; align-items: baseline; font-weight: 600; }
@@ -1009,3 +1047,25 @@ details.paragraphs .cards { margin-top: .6rem; }
 .prereq-path .why { flex-basis: 100%; padding-left: 1.45rem; font-size: .82rem; line-height: 1.3; }
 .known-prereqs { margin: .7rem 0 0; display: flex; flex-wrap: wrap; gap: .35rem; align-items: center; font-size: .9rem; }
 .leads-to h3 { font-size: .95rem; margin: 1rem 0 .4rem; }
+
+/* Rich text (ui.core.views.markdown): what the model writes, Markdown with TeX */
+.rich > :first-child { margin-top: 0; }
+.rich > :last-child { margin-bottom: 0; }
+.rich p { margin: 0 0 .75rem; }
+.rich ul, .rich ol { margin: .25rem 0 .75rem; padding-left: 1.4rem; }
+.rich li { margin: .15rem 0; }
+.rich li > p { margin: 0; }
+.rich code { font-size: .9em; background: var(--quote); padding: 0 .25em; border-radius: 3px; }
+.rich pre { background: var(--quote); padding: .5rem .75rem; border-radius: 6px; overflow-x: auto; }
+.rich pre code { background: none; padding: 0; }
+.rich blockquote { margin: .5rem 0; padding: .1rem .8rem; border-left: 3px solid var(--border); color: var(--muted); }
+.table-wrap { overflow-x: auto; max-width: 100%; margin: .5rem 0 1rem; }
+.rich table { border-collapse: collapse; font: .95rem/1.4 var(--font); font-variant-numeric: tabular-nums; }
+.rich th, .rich td { border: 1px solid var(--border); padding: .3rem .7rem; text-align: center; }
+.rich th { background: var(--quote); font-weight: 600; }
+.rich td:first-child, .rich th:first-child { text-align: left; font-weight: 600; }
+.formula.display { display: block; overflow-x: auto; overflow-y: hidden; margin: .5rem 0 .9rem; }
+.katex { font-size: 1.05em; }
+span.rich { display: inline; }
+.quiz .prompt .rich p { margin-bottom: .6rem; }
+.quiz .feedback .rich p { margin: .4rem 0; }

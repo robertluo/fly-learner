@@ -2,7 +2,7 @@
 (ns robertluo.fly-learner.cli
   "Command-line tasks. App layer: the system's db, ingest and concepts.
 
-    bb ingest data/sources/<file>.pdf ...
+    bb ingest data/sources/<file>.pdf|.epub ...
 
   runs `ingest!` inside the dev REPL when one is up (the db is the running
   system's), else as `clojure -M:ingest` (see bb.edn)."
@@ -42,7 +42,7 @@
   (- (:total (llm/cost) 0) (:total before 0)))
 
 (defn ingest!
-  "Ingest the PDFs at `paths`: extract, fold with Claude and store each
+  "Ingest the sources (PDF or EPUB files) at `paths`: extract, fold with Claude and store each
   (replacing an earlier ingest of the same document, wherever the file is now), then resolve the keywords
   no concept covers yet into concepts and cluster them into topics again,
   judge what new concepts need first (concept.prereq), then find the key sentences of new passages and judge which could become
@@ -51,9 +51,12 @@
   cost. Returns {:sources [..] :concepts totals}."
   [& paths]
   (let [paths   (map source-path paths)
-        missing (remove #(.isFile (io/file %)) paths)]
+        missing (remove #(.isFile (io/file %)) paths)
+        unknown (remove ingest/source-type paths)]
     (when (empty? paths)
-      (throw (ex-info "Which PDF? bb ingest data/sources/<file>.pdf" {})))
+      (throw (ex-info "Which source? bb ingest data/sources/<file>.pdf (or .epub)" {})))
+    (when (seq unknown)
+      (throw (ex-info (str "Not a PDF or EPUB: " (str/join ", " unknown)) {:unknown (vec unknown)})))
     (when (seq missing)
       (throw (ex-info (str "No such file: " (str/join ", " missing)) {:missing (vec missing)})))
     (let [cfg    (sys/load-config)
@@ -65,7 +68,7 @@
       (try
         (let [sources (vec (for [p paths]
                              (do (println "Ingesting" p)
-                                 (let [r (ingest/ingest-pdf! conn client p {:models models})]
+                                 (let [r (ingest/ingest-source! conn client p {:models models})]
                                    (println (format "  %d nodes; fold saved to %s" (:nodes r) (:fold-file r)))
                                    r))))
               _        (println "Resolving new keywords into concepts")
@@ -90,6 +93,9 @@
           (println "Finding the exercises of new sources")
           (let [{:keys [exercises solutions]} (exercises/extract! conn client {:models models})]
             (println (format "  %d exercises, %d with the author's solution" exercises solutions)))
+          (println "Transcribing new exercises: tables and formulas as the book shows them")
+          (let [{:keys [transcribed]} (exercises/transcribe! conn client {:models models})]
+            (println (format "  %d exercises transcribed" transcribed)))
           (println "Finding passages to explore")
           (let [{:keys [judged proposed]} (explore/propose! conn client {:models models})]
             (println (format "  %d passages judged, %d can be explored" judged proposed)))

@@ -42,7 +42,7 @@
 
 (defn- key-points
   "The key sentences of a passage: label and sentence; a click shows it in
-  the source (the PDF scrolled to it)."
+  the source (its document scrolled to it)."
   [db {:node/keys [keypoints children source]} dispatch!]
   (let [sid    (:source/id source)
         url    (api/source-url sid)
@@ -56,7 +56,7 @@
          {:title (str "Show it in the source" (when page (str ", p. " page)))
           :on {:click #(when page
                          (let [[p y] (or found [page nil])]
-                           (dispatch! {:db (fn [d] (db/pdf-goto-target d sid p y))
+                           (dispatch! {:db (fn [d] (db/doc-goto-target d sid p y))
                                        :history (if (db/following? db) :push :replace)})))}}
          [:span.key-label-l label]
          [:span.key-quote "“" quote "”"]
@@ -132,7 +132,7 @@
               (if all? "Collapse all" "Expand all")]]))
         [:ol.cards (for [c children] (card dispatch! c in))]])
      (ideas-ui/ideas-panel db dispatch! (db/node-anchor node)
-                           (db/ideas-in-node db id [:page (:source/id source) (db/pdf-page db)]))
+                           (db/ideas-in-node db id [:page (:source/id source) (db/doc-page db)]))
      (when (seq links)
        [:section
         [:h2 "Related"]

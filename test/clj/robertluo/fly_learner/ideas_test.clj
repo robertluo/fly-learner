@@ -58,7 +58,7 @@
     (is (= [:node (nid "Confluence is...")] (target q)) "found again by its text")))
 
 (deftest pdf-quotes
-  (let [pdf (fn [text page] (merge {:anchor/kind :quote :source/id sid :field :pdf :page page}
+  (let [pdf (fn [text page] (merge {:anchor/kind :quote :source/id sid :field :page :page page}
                                    (ideas/quote-selector text 0 (count text))))]
     (is (= [:node (nid "Confluence is...")] (target (pdf "standard parallel reduction" 29)))
         "a paragraph on the page or next to it")

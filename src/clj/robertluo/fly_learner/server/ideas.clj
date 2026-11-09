@@ -49,7 +49,7 @@
 (defn focus
   "What a selected passage (a quote anchor) is in, for asking about it:
   {:quote text :nodes [node-id ..]}: its paragraph, or the paragraphs of the
-  PDF page it was selected on. nil unless `anchor` is a quote."
+  source page it was selected on. nil unless `anchor` is a quote."
   [db anchor]
   (when (and (map? anchor) (= :quote (:anchor/kind anchor)) (string? (:quote anchor)))
     (let [[kind a b] (ideas/target (anchors/anchors db) anchor)]

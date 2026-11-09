@@ -7,7 +7,7 @@
 (def schema
   {;; sources -----------------------------------------------------------
    :source/id       {:db/valueType :db.type/uuid :db/unique :db.unique/identity}
-   :source/type     {:db/valueType :db.type/keyword} ; :pdf, later :web, :epub ...
+   :source/type     {:db/valueType :db.type/keyword} ; :pdf, :epub (ingest/formats); later :web ...
    :source/title    {:db/valueType :db.type/string}
    :source/path     {:db/valueType :db.type/string}  ; where the file is now (may move)
    :source/hash     {:db/valueType :db.type/string :db/unique :db.unique/identity} ; SHA-256 of the file's bytes
@@ -67,6 +67,10 @@
    :exercise/points   {}                              ; [key point ..] a full answer covers
    :exercise/concepts {:db/valueType :db.type/ref :db/cardinality :db.cardinality/many} ; what it tests
    :exercise/by       {:db/valueType :db.type/string} ; the model that linked it
+   ;; the text and solution as Markdown with TeX, tables rebuilt (exercises/transcribe!)
+   :exercise/text-md     {:db/valueType :db.type/string}
+   :exercise/solution-md {:db/valueType :db.type/string}
+   :exercise/md-by       {:db/valueType :db.type/string} ; the model that wrote them
 
    ;; edits: every change to concepts, by a model or a human, in order
    :edit/op         {:db/valueType :db.type/keyword}
@@ -174,7 +178,7 @@
     (let [n (d/pull db [:node/id :node/kind :node/level :node/order :node/title :node/summary
                         :node/text :node/keywords :node/page :node/keypoints
                         {:node/children node-ref} {:node/links node-ref}
-                        {:node/source [:source/id :source/title]}]
+                        {:node/source [:source/id :source/title :source/type]}]
                     eid)]
       (-> n
           (update :node/children #(vec (sort-by :node/order %)))
@@ -197,7 +201,7 @@
           [:source/id source-id]))
 
 (defn nodes-on-page
-  "Ids of the paragraphs of source `source-id` on PDF page `page`."
+  "Ids of the paragraphs of source `source-id` on page `page`."
   [db source-id page]
   (d/q '[:find [?id ...]
          :in $ ?sid ?p

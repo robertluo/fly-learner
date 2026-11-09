@@ -16,7 +16,7 @@
   posted as transit+json to `endpoint`. `pattern` spells a request, `answer`
   reads the server's reply back, `failure` its errors; `send!` (browser)
   does the round trip. Moving to another API format changes this namespace
-  only. Files are served apart: `source-url`."
+  only. Files are served apart: `source-url`, `source-pages-url`."
   #?(:cljs (:require [cognitect.transit :as t])))
 
 ;;=============================================================================
@@ -41,6 +41,12 @@
   "Where the original document of source `sid` is served."
   [sid]
   (str "/files/sources/" sid))
+
+(defn source-pages-url
+  "Where the pages of source `sid` are served as HTML (an EPUB's; a PDF's
+  are in its document)."
+  [sid]
+  (str (source-url sid) "/pages"))
 
 ;;=============================================================================
 ;; Wire format: lasagna-remote pull patterns

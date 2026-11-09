@@ -84,5 +84,5 @@
   "Link to go on reading at bookmark `b` (see db/bookmarks)."
   [dispatch! {:keys [node-id page] :as b} attrs & children]
   (apply link dispatch! {:db #(db/open-bookmark % b) :pull [:node :ideas] :history :push}
-         (history/state->path {:view :node :node-id node-id :pdf {:page page}})
+         (history/state->path {:view :node :node-id node-id :doc {:page page}})
          attrs children))

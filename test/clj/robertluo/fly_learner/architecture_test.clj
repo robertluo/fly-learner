@@ -112,9 +112,10 @@
       "shaped for display: compute from what it is built on instead"))
 
 (def standalone
-  "Namespaces that require nothing of the app: generic templates, and the
-  one place that knows the backend's wire format."
-  '#{robertluo.fly-learner.ui.core.views.template robertluo.fly-learner.ui.core.api})
+  "Namespaces that require nothing of the app: generic templates, rich
+  text, and the one place that knows the backend's wire format."
+  '#{robertluo.fly-learner.ui.core.views.template robertluo.fly-learner.ui.core.views.markdown
+    robertluo.fly-learner.ui.core.api})
 
 (deftest standalone-parts-stand-alone
   (let [deps (app-deps)]

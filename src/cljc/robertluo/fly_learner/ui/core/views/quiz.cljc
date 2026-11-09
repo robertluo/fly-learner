@@ -3,6 +3,7 @@
   study page, and what to study next."
   (:require [clojure.string :as str]
             [robertluo.fly-learner.ui.core.db :as db]
+            [robertluo.fly-learner.ui.core.views.markdown :as md]
             [robertluo.fly-learner.ui.core.views.nav :as nav]
             [robertluo.fly-learner.ui.core.views.template :as t]))
 
@@ -24,9 +25,17 @@
                                   (str "read it on p. " (:page anchor)))))]
     [:span.meta {:replicant/key "m"} "Question · " title]))
 
+(defn- text
+  "Text of the quiz: Markdown with formulas, or (`verbatim?`, a book's text
+  as its source gave it) as it is."
+  [verbatim? s]
+  (if verbatim? [:p.source-text s] (md/rich s)))
+
 (defn- quiz-panel [{{:keys [status question response result]} :quiz} dispatch!]
-  (let [{:question/keys [prompt by]} question
-        authored? (= :author by)]
+  (let [{:question/keys [prompt by verbatim?]} question
+        authored? (= :author by)
+        prompt-el [:div.prompt {:replicant/key "p" :class (when verbatim? "book")}
+                   (if verbatim? prompt (md/rich prompt))]]
     [:section.quiz {:class (when authored? "authored")}
      (case status
        :asking
@@ -35,13 +44,13 @@
        (:answering :grading)
        (list
         (question-meta dispatch! question)
-        [:p.prompt {:replicant/key "p" :class (when authored? "book")} prompt]
+        prompt-el
         (when-let [ctx (:question/context question)]
           [:details.builds-on {:replicant/key "b"}
            [:summary "The exercise it builds on"]
-           [:p.source-text ctx]])
+           (text verbatim? ctx)])
         [:textarea {:replicant/key "t"
-                    :value response :rows 6 :placeholder "Answer in your own words…"
+                    :value response :rows 6 :placeholder "Answer in your own words… (formulas in TeX: $x^2$)"
                     :disabled (= :grading status)
                     :on {:input   #(dispatch! {:db (fn [d] (db/quiz-typed d (.. % -target -value)))})
                          :keydown #(when (and (= "Enter" (.-key %)) (or (.-metaKey %) (.-ctrlKey %))
@@ -64,16 +73,16 @@
              title (:title question)]
          (list
           (question-meta dispatch! question)
-          [:p.prompt {:replicant/key "p" :class (when authored? "book")} prompt]
+          prompt-el
           [:div.graded {:replicant/key "g"}
            [:span.grade (t/percent grade)] (t/score-bar grade)]
-          [:p.feedback {:replicant/key "f"} feedback]
+          [:div.feedback {:replicant/key "f"} (md/rich feedback)]
           (when-not (str/blank? response)
-            [:details {:replicant/key "y"} [:summary "Your answer"] [:p.source-text response]])
+            [:details {:replicant/key "y"} [:summary "Your answer"] (md/rich response)])
           [:details {:replicant/key "x" :open (< grade 0.8)}
            [:summary (if authored? "The author's solution" "Model answer")]
-           (if authored? [:p.source-text answer] [:p answer])
-           [:ul.points (for [[i pt] (map-indexed vector points)] [:li {:replicant/key i} pt])]]
+           (text verbatim? answer)
+           [:ul.points (for [[i pt] (map-indexed vector points)] [:li {:replicant/key i} (md/inline pt)])]]
           [:p.change {:replicant/key "c"}
            title " " (t/percent (:item before)) " → " [:strong (t/percent (:item after))]
            [:span.muted " · whole graph "] (t/percent (:overall before)) " → " [:strong (t/percent (:overall after))]]

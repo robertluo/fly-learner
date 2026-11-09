@@ -33,11 +33,11 @@
   (def api (client/connect "http://localhost:8080/api"))
   (api '{:sources ?sources})
 
-  ;; ingest + fold a PDF into the running system's db
+  ;; ingest + fold a source (PDF or EPUB) into the running system's db
   (require '[robertluo.fly-learner.ingest :as ingest] '[robertluo.fly-learner.llm :as llm])
   (def cfg (sys/load-config))
   (def client (llm/client (:anthropic cfg)))
-  (ingest/ingest-pdf! (sys/conn) client "data/sources/marmaduke-2024-c2.pdf"
+  (ingest/ingest-source! (sys/conn) client "data/sources/marmaduke-2024-c2.pdf"
                       {:models (get-in cfg [:anthropic :models])})
   @llm/usage
   (llm/cost)

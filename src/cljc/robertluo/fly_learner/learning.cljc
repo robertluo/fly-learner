@@ -35,10 +35,12 @@
   (material [c item]
     "What teaching or testing `item` draws on:
      {:title str :about str (what knowing it means) :sources [{:title str :text str} ..]
-      :exercises [{:id :title :prompt :answer :points [str ..] :context str :items [item ..] :anchor any} ..]}
-     :exercises (optional): questions the sources' authors wrote, with their answers, testing
-     `item` (and :items); :context is text a grader needs besides the prompt, :anchor where it
-     is (opaque here)."))
+      :exercises [{:id :title :prompt :answer :points [str ..] :context str :items [item ..] :anchor any
+                   :verbatim? bool} ..]}
+     Texts are Markdown with TeX formulas ($..$); an exercise :verbatim? is plain text as
+     found. :exercises (optional): questions the sources' authors wrote, with their answers,
+     testing `item` (and :items); :context is text a grader needs besides the prompt, :anchor
+     where it is (opaque here)."))
 
 (defprotocol Model
   (init [m] "State of an item without evidence.")

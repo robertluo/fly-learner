@@ -7,6 +7,7 @@
 
         ;; sources
         org.apache.pdfbox/pdfbox {:mvn/version "3.0.7"}
+        org.jsoup/jsoup {:mvn/version "1.21.2"} ; EPUB: its XHTML documents, read and cleaned to show
 
         ;; AI
         com.anthropic/anthropic-java {:mvn/version "3.6.0"}
@@ -17,7 +18,11 @@
         io.github.robertluo/fun-map {:mvn/version "0.5.124"} ; system lifecycle / DI
         http-kit/http-kit {:mvn/version "2.8.1"}
         ring/ring-core {:mvn/version "1.15.6"}
-        metosin/malli {:mvn/version "0.20.3"}}
+        metosin/malli {:mvn/version "0.20.3"}
+
+        ;; rich text (answers, quizzes): Markdown with tables and TeX formulas, to hiccup;
+        ;; commonmark-java on the JVM, markdown-it in the browser (npm, package.json)
+        io.github.nextjournal/markdown {:mvn/version "0.7.225"}}
 
  :aliases
  {;; Every JVM alias carries the --add-opens flags Datalevin needs.

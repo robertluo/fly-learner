@@ -3,15 +3,19 @@
  {:requires ([babashka.fs :as fs])
 
   vendor
-  {:doc "Copy the pdf.js bundle and worker from node_modules into resources/public/vendor"
+  {:doc "Copy the pdf.js bundle and worker, and KaTeX's stylesheet and fonts, from node_modules into resources/public/vendor"
    :task (let [src  "node_modules/pdfjs-dist/build"
                dest "resources/public/vendor/pdfjs"]
            (fs/create-dirs dest)
            (doseq [f ["pdf.min.mjs" "pdf.worker.min.mjs"]]
-             (fs/copy (fs/path src f) dest {:replace-existing true})))}
+             (fs/copy (fs/path src f) dest {:replace-existing true}))
+           ;; formulas: the script is bundled from npm by shadow-cljs; its css and fonts are served
+           (fs/create-dirs "resources/public/vendor/katex")
+           (fs/copy "node_modules/katex/dist/katex.min.css" "resources/public/vendor/katex" {:replace-existing true})
+           (fs/copy-tree "node_modules/katex/dist/fonts" "resources/public/vendor/katex/fonts" {:replace-existing true}))}
 
   install
-  {:doc "Install npm packages from package-lock.json, then vendor pdf.js"
+  {:doc "Install npm packages from package-lock.json, then vendor pdf.js and KaTeX"
    :task (do (shell "npm ci") (run 'vendor))}
 
   dev

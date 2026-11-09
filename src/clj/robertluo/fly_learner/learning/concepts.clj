@@ -68,14 +68,16 @@
   "Concept `id`'s exercises as material :exercises."
   [db cid]
   (let [texts (memoize #(exercises/by-label db %))]
-    (vec (for [{:exercise/keys [id label text solution refers points concepts page summary] :as x}
+    (vec (for [{:exercise/keys [id label text solution refers points concepts page summary text-md solution-md] :as x}
                (exercises/of-concept db cid)
                :let [sid (:source/id x)]]
            {:id      id
             :title   (str "Exercise " label)
             :about   summary
-            :prompt  text
-            :answer  solution
+            :prompt  (or text-md text)
+            :answer  (if text-md solution-md solution)
+            ;; still the source's text: shown as it is, not as Markdown
+            :verbatim? (nil? text-md)
             :points  points
             :context (when-let [ts (seq (keep (texts sid) refers))] (str/join "\n\n" ts))
             :items   (mapv concept-item concepts)

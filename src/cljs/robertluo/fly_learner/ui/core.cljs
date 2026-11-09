@@ -76,7 +76,7 @@
     (r/render el (views/app-view @app-db dispatch!))))
 
 (def ^:private source-only-key "fly-learner/source-only")
-(def ^:private pdf-zoom-key "fly-learner/pdf-zoom")
+(def ^:private doc-zoom-key "fly-learner/doc-zoom")
 (def ^:private split-key "fly-learner/split")
 (def ^:private cards-key "fly-learner/cards-all")
 
@@ -93,8 +93,8 @@
                  (some-> js/window.localStorage (.setItem cards-key (str (get-in new [:cards :all?])))))
                (when (not= (:split old) (:split new))
                  (some-> js/window.localStorage (.setItem split-key (str (:split new)))))
-               (when (not= (db/pdf-zoom old) (db/pdf-zoom new))
-                 (some-> js/window.localStorage (.setItem pdf-zoom-key (str (db/pdf-zoom new)))))
+               (when (not= (db/doc-zoom old) (db/doc-zoom new))
+                 (some-> js/window.localStorage (.setItem doc-zoom-key (str (db/doc-zoom new)))))
                (when (not= (select-keys old [:view :node-id :ask-id :keyword :concept-id])
                            (select-keys new [:view :node-id :ask-id :keyword :concept-id]))
                  (js/window.scrollTo 0 0)))))
@@ -111,8 +111,8 @@
   (when (= "true" (some-> js/window.localStorage (.getItem source-only-key)))
     (dispatch! {:db #(db/source-only % true)}))
   ;; and so does the zoom of the source's pages (small print)
-  (when-let [z (some-> js/window.localStorage (.getItem pdf-zoom-key) js/parseFloat)]
-    (when-not (js/isNaN z) (dispatch! {:db #(db/pdf-zoomed % z)})))
+  (when-let [z (some-> js/window.localStorage (.getItem doc-zoom-key) js/parseFloat)]
+    (when-not (js/isNaN z) (dispatch! {:db #(db/doc-zoomed % z)})))
   ;; and drill-down summaries read in full
   (when (= "true" (some-> js/window.localStorage (.getItem cards-key)))
     (dispatch! {:db #(db/cards-all % true)}))
@@ -150,7 +150,7 @@
 (defonce _popstate
   (.addEventListener js/window "popstate" (partial history/on-popstate! go-to-route!)))
 
-;; the source pane fits the PDF page to its width
+;; the source pane fits its pages to its width
 (defonce _resize
   (let [t (volatile! nil)]
     (.addEventListener js/window "resize"

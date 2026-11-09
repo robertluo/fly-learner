@@ -9,7 +9,7 @@
     nav           links and effects to the app's places
     panes         split views, pannable drawings, full screen
     node          passages: cards, a node's page, keyword pages
-    pdf           the source document beside them (pdf.js)
+    document      the source document beside them, page by page (PDF, EPUB)
     ideas         the learner's ideas and bookmarks
     selection     the popover on selected text
     ask           questions to the knowledge base, answers with citations
@@ -27,14 +27,14 @@
             [robertluo.fly-learner.ui.core.views.nav :as nav]
             [robertluo.fly-learner.ui.core.views.node :as node-ui]
             [robertluo.fly-learner.ui.core.views.panes :as panes]
-            [robertluo.fly-learner.ui.core.views.pdf :as pdf-ui]
+            [robertluo.fly-learner.ui.core.views.document :as doc-ui]
             [robertluo.fly-learner.ui.core.views.quiz :as quiz-ui]
             [robertluo.fly-learner.ui.core.views.selection :as selection-ui]
             [robertluo.fly-learner.ui.core.views.template :as t]
             #?(:cljs [clojure.string :as str])))
 
 (defn- exercise-effects
-  "Open book exercise `x` (from the top box): its passage, the PDF at its
+  "Open book exercise `x` (from the top box): its passage, the source at its
   page beside, and its quiz docked above, on the first concept it tests."
   [{:exercise/keys [id concepts] nid :node/id}]
   (let [item (some-> concepts first :concept/id db/concept-item)]
@@ -113,7 +113,7 @@
   (if-let [node (db/current-node db)]
     (panes/split db dispatch!
                  (docked db dispatch! (node-ui/node-article db node dispatch!))
-                 (pdf-ui/source-pane db node dispatch!))
+                 (doc-ui/source-pane db node dispatch!))
     [:main.single [:p.muted (if (:loading? db) "Loading…" "Not found.")]]))
 
 (defn- cluster-view [db dispatch!]

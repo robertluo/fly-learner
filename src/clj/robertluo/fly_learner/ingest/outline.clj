@@ -6,7 +6,7 @@
 
 (def default-skip
   "Section titles dropped together with their contents."
-  #"(?i)contents|table of contents|list of (figures|tables)|bibliography|references|index|acknowledge?ments|dedication")
+  #"(?i)contents|table of contents|list of (figures|tables|exercises)|bibliography|references|(term |subject |name |author )?index|acknowledge?ments|dedication|colophon")
 
 (defn- close-top
   "Pop the innermost open section and attach it to its parent."

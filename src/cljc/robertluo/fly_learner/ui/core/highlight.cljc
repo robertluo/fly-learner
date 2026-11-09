@@ -1,10 +1,10 @@
 (ns robertluo.fly-learner.ui.core.highlight
-  "Find a node's source text on a PDF page.
+  "Find a node's source text on a page of its document.
 
-  pdf.js gives a page as text items (runs of glyphs, often split inside
-  formulas); the knowledge base holds the same text as extracted by PDFBox
-  at ingest. Both are compared folded: NFKC, lowercase, letters and digits
-  only. The needle is searched in chunks, so formula parts that the two
+  A page is given as text items: pdf.js's (runs of glyphs, often split inside
+  formulas) for a PDF, the text nodes of an HTML page; the knowledge base
+  holds the same text as extracted at ingest (by PDFBox for a PDF). Both
+  are compared folded: NFKC, lowercase, letters and digits only. The needle is searched in chunks, so formula parts that the two
   extractors render differently only leave gaps, which are filled when the
   chunks around them match in order."
   (:require [clojure.string :as str]))

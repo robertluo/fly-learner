@@ -1,30 +1,22 @@
 (ns robertluo.fly-learner.ui.core.views.ask
   "Questions to the knowledge base: the answer with its citations, the cited
   subgraph, and the matches found at once."
-  (:require [clojure.string :as str]
-            [robertluo.fly-learner.ui.core.db :as db]
+  (:require [robertluo.fly-learner.ui.core.db :as db]
+            [robertluo.fly-learner.ui.core.views.markdown :as md]
             [robertluo.fly-learner.ui.core.views.nav :as nav]
             [robertluo.fly-learner.ui.core.views.node :as node-ui]
             [robertluo.fly-learner.ui.core.views.template :as t]))
 
-(defn answer-parts
-  "Split answer text into [:text s] and [:cite n] parts."
-  [s]
-  (for [tok (re-seq #"\[\d+\]|[^\[]+|\[" s)]
-    (if-let [[_ n] (re-matches #"\[(\d+)\]" tok)]
-      [:cite (parse-long n)]
-      [:text tok])))
-
-(defn answer-view [{:ask/keys [answer cited]} dispatch!]
+(defn answer-view
+  "An answer: Markdown with formulas, its citations [n] linking to the
+  entries cited."
+  [{:ask/keys [answer cited]} dispatch!]
   [:div.answer
-   (for [[i para] (map-indexed vector (str/split answer #"\n\s*\n"))]
-     [:p {:replicant/key i}
-      (for [[j [kind v]] (map-indexed vector (answer-parts para))]
-        (if (= :cite kind)
-          (if-let [n (get cited (dec v))]
-            (nav/node-link dispatch! n {:class "cite" :title (:node/title n) :replicant/key j} (str v))
-            [:span.cite.gone {:replicant/key j :title "No longer in the knowledge base"} (str v)])
-          [:span {:replicant/key j} v]))])])
+   (md/rich answer
+            {:cite (fn [n]
+                     (if-let [node (get cited (dec n))]
+                       (nav/node-link dispatch! node {:class "cite" :title (:node/title node)} (str n))
+                       [:span.cite.gone {:title "No longer in the knowledge base"} (str n)]))})])
 
 (defn- subgraph-tree
   "The cited nodes with the paths that lead to them, as a nested outline."
@@ -78,15 +70,3 @@
 
        loading? [:p.muted "Loading…"]
        :else    [:p.muted "Not found."])]))
-
-^:rct/test
-(comment
-  (answer-parts "A [1]. B [2][10] [x] end")
-  ;=> [[:text "A "] [:cite 1] [:text ". B "] [:cite 2] [:cite 10] [:text " "] [:text "["] [:text "x] end"]]
-  )
-
-^:rct/test
-(comment
-  (answer-parts "A [1]. B [2][10] [x] end")
-  ;=> [[:text "A "] [:cite 1] [:text ". B "] [:cite 2] [:cite 10] [:text " "] [:text "["] [:text "x] end"]]
-  )

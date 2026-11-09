@@ -2,7 +2,7 @@
   "The browser's text selection as a quote anchor (robertluo.fly-learner.ideas.knowledge).
 
   Selectable text sits in elements marked data-anchor, which say whose text
-  it is: data-source, data-field (text | summary | pdf), and data-node or
+  it is: data-source, data-field (text | summary | page: a page of the source document), and data-node or
   data-page."
   (:require [robertluo.fly-learner.ideas :as ideas]))
 

@@ -1,6 +1,11 @@
 (ns robertluo.fly-learner.ingest
   "Source -> knowledge DAG -> database.
 
+  A source is a document read as pages: a PDF (robertluo.fly-learner.ingest.pdf)
+  or an EPUB (robertluo.fly-learner.ingest.epub, its text cut into pages).
+  Each format gives the same blocks (headings and paragraphs, each on its
+  page); from there on nothing depends on the format, but showing it.
+
   A source is its document, not where the file is: `same-source` finds the
   one stored for a file by its content (`file-hash`), wherever it was, else
   by its path (the file changed in place), else by its text (moved and
@@ -17,13 +22,35 @@
             [clojure.string :as str]
             [datalevin.core :as d]
             [robertluo.fly-learner.fold :as fold]
+            [robertluo.fly-learner.ingest.epub :as epub]
             [robertluo.fly-learner.ingest.outline :as outline]
             [robertluo.fly-learner.ingest.pdf :as pdf]))
 
-(defn outline-pdf
+(def formats
+  "Source type -> its extract fn: path -> {:title :pages :blocks}."
+  {:pdf  pdf/extract
+   :epub epub/extract})
+
+(defn source-type
+  "The type of the source file at `path` (a key of `formats`), by its
+  extension; nil when not one."
+  [path]
+  (let [t (some-> (re-find #"\.([A-Za-z0-9]+)$" (str path)) second str/lower-case keyword)]
+    (when (contains? formats t) t)))
+
+^:rct/test
+(comment
+  (source-type "data/sources/sicp.epub") ;=> :epub
+  (source-type "a/B.PDF") ;=> :pdf
+  (source-type "notes.txt") ;=> nil
+  )
+
+(defn outline
   "Extract `path` into a regrouped section tree (no model calls)."
   [path]
-  (let [{:keys [title blocks]} (pdf/extract path)]
+  (let [extract (or (formats (source-type path))
+                    (throw (ex-info (str "Not a source I can read (PDF or EPUB): " path) {:path (str path)})))
+        {:keys [title blocks]} (extract path)]
     (fold/regroup (outline/tree title blocks))))
 
 (defn- internal-count [tree]
@@ -83,7 +110,7 @@
   0.6)
 
 (defn tree-texts
-  "The paragraph texts of section tree `tree` (outline-pdf)."
+  "The paragraph texts of section tree `tree` (`outline`)."
   [tree]
   (keep :text (tree-seq :children :children tree)))
 
@@ -127,16 +154,17 @@
                                 (concat nodes xs)))
         (count nodes)))))
 
-(defn ingest-pdf!
-  "Extract, fold with Claude and store `path`, replacing an earlier ingest of
+(defn ingest-source!
+  "Extract, fold with Claude and store the source at `path` (a PDF or an
+  EPUB, `formats`), replacing an earlier ingest of
   the same source (`same-source`: the same content, the same path, or most
   of the text with the old file gone), whose id it keeps. Prints progress.
   opts: :models  tier -> model id overrides (config.edn [:anthropic :models])
   Returns {:source-id .. :nodes n :fold-file ..}."
-  ([conn client path] (ingest-pdf! conn client path {}))
+  ([conn client path] (ingest-source! conn client path {}))
   ([conn client path {:keys [models]}]
   (let [hash  (file-hash path)
-        tree  (outline-pdf path)
+        tree  (outline path)
         found (same-source (d/db conn) {:path (str path) :hash hash :texts (tree-texts tree)})
         old   (:source/id found)
         _     (when (= :text (:by found))
@@ -149,7 +177,9 @@
                                            :on-call #(println (format "folded %d/%d" (swap! done inc) total))})
         nodes (fold-tree summ tree)
         file  (save-fold! path nodes)
-        tx    (fold/->tx {:id (or old (source-id hash)) :title (:title tree) :path (str path) :hash hash} nodes)]
+        tx    (fold/->tx {:id (or old (source-id hash)) :title (:title tree) :path (str path) :hash hash
+                          :type (source-type path)}
+                         nodes)]
     (when old (remove-source! conn old))
     (d/transact! conn tx)
     {:source-id (:source/id (first tx)) :nodes (count nodes) :fold-file file})))

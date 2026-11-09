@@ -8,13 +8,13 @@
     {:anchor/kind :node :node/id id :source/id s :node/title t}  -> [:node id]
     {:anchor/kind :quote :source/id s :field f :node/id hint :page p
      :quote .. :prefix .. :suffix ..}                    -> [:node id] or [:page s p]
-      f is :text or :summary of a node, or :pdf (selected on the page)
+      f is :text or :summary of a node, or :page (selected on a page of the source document)
 
   Knowledge changes under ideas; anchors are re-attached rather than lost:
   a merged concept is followed to the concept it was merged into (concept
   edit log); a node gone after re-ingest is found again by title in its
   source; a quote is found again in its node, then anywhere in its source
-  (whitespace may differ); a quote from the PDF that no paragraph contains
+  (whitespace may differ); a quote selected on a page that no paragraph contains
   stays on its page."
   (:require [clojure.string :as str]
             [datalevin.core :as d]
@@ -74,10 +74,10 @@
           :quote
           (let [{:keys [field page] nid :node/id sid :source/id} a
                 in?  (fn [text] (ideas/find-quote text a))
-                hint (when (and nid (not= :pdf field)) (some #(when (= nid (first %)) %) (nodes sid)))]
+                hint (when (and nid (not= :page field)) (some #(when (= nid (first %)) %) (nodes sid)))]
             (cond
               (and hint (in? (field-text hint field))) [:node nid]
-              (= :pdf field)
+              (= :page field)
               (or (some (fn [[id _ text _ p]]
                           (when (and (<= (abs (- p page)) 1) (not (str/blank? text)) (in? text)) [:node id]))
                         (nodes sid))

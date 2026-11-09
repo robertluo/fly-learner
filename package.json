@@ -9,6 +9,13 @@
     "shadow-cljs": "3.5.11"
   },
   "dependencies": {
-    "pdfjs-dist": "6.5.438"
+    "katex": "^0.19.1",
+    "markdown-it": "^14.3.3",
+    "markdown-it-block-image": "^0.0.3",
+    "markdown-it-footnote": "^3.0.3",
+    "markdown-it-texmath": "^1.0.0",
+    "markdown-it-toc-done-right": "^4.2.0",
+    "pdfjs-dist": "6.5.438",
+    "punycode": "^2.1.1"
   }
 }

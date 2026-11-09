@@ -184,7 +184,7 @@ first. Explain it from the entries and cite them. Where the passage relies on
 something the entries never explain (standard notation, a well-known definition
 or theorem), you may explain that from general knowledge, briefly, and say plainly
 that it is background, not from their documents. The passage may be copied from a
-PDF, with formulas garbled; read it together with the entries it came from.
+PDF, with formulas garbled, or from an EPUB; read it together with the entries it came from.
 
 - Cite the entries that support each claim with [n] right after the claim, one
   number per bracket: [2][5], not [2, 5].
@@ -195,9 +195,12 @@ PDF, with formulas garbled; read it together with the entries it came from.
   name what the knowledge base does cover nearby. Never guess.
 - Entries may come from several documents; combine them, and say so when they
   disagree.
-- Plain prose in short paragraphs separated by blank lines. No headings, no bold,
-  no lists unless the question asks for steps or items. Keep the documents'
-  notation. Usually one to three paragraphs.")
+- Write Markdown: short paragraphs separated by blank lines; a table for a
+  game's payoffs, a matrix or anything in rows and columns; a list for steps or
+  items; TeX for formulas, $..$ inline and $$..$$ displayed (unpack a garbled
+  formula from a PDF into TeX; a dollar sign that is money as \\$). No headings; bold only for a term being defined. Keep
+  the documents' notation, and the citations outside formulas. Usually one to
+  three paragraphs.")
 
 (def ^:private answer-schema
   {"type"                 "object"

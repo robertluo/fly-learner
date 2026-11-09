@@ -7,18 +7,27 @@ See README.md for goals. Roadmap: backend (knowledge base from one source) first
 Web stack follows flybot.sg (github.com/flybot-sg/lasagna-pattern, `examples/flybot-site`); Datalevin instead of Datahike.
 
 - `src/clj/robertluo/fly_learner/` — backend
-  - `ingest` — `ingest-pdf!`: PDF -> section tree -> fold with Claude -> `data/folds/*.edn` + Datalevin. A source is its
+  - `ingest` — `ingest-source!`: a PDF or EPUB (`formats`, `source-type` by extension: `:source/type`) -> blocks ->
+    section tree -> fold with Claude -> `data/folds/*.edn` + Datalevin. A source is read as pages whatever its format:
+    from the blocks on, nothing depends on it but drawing a page (UI `views.document`). A source is its
     document, not its path: `same-source` finds it by content (`file-hash`, `:source/hash`), else by path (changed in
     place), else by text (moved and changed: a source whose file is gone from its path sharing `moved-overlap` of its
     word 5-grams, `shingles`), and a re-ingest keeps its `:source/id` (a new one derives from the hash); the path is only where to read it
-  - `ingest/pdf` — PDFBox paragraphs -> blocks (`:heading` / `:text`), headings recognised from text
+  - `ingest/pdf` — PDFBox paragraphs -> blocks (`:heading` / `:text`, each with its `:page`), headings recognised from text
+  - `ingest/epub` — jsoup: spine documents cleaned (`clean`: no scripts/styles/nav, SVG `<object>` -> `<img>`), cut into
+    pages (`page-chars` ~3000, a document starts a page) between leaf blocks; `extract` -> the same blocks (heading depth
+    from the toc, nav or NCX; code/display math joins the paragraph before; a footnote moves after the paragraph citing
+    it, keeping its page), `page-html` -> the same pages as HTML to show (no ids, classes prefixed `b-`, links inside the
+    book -> `data-goto` page, images by URL), `resource` an entry (image)
   - `ingest/outline` — blocks -> section tree (drops cover pages, contents, bibliography, ...)
   - `fold` — regroup long sections, bottom-up summaries, flatten to nodes, keyword cross-links, `->tx`
   - `llm` — Anthropic Java SDK; `complete`, `complete-json` (structured outputs), `usage`/`cost` per model.
     Two tiers in `config.edn` `[:anthropic :models]`: `:strong` (Sonnet: sections, chapters, quizzes) and
     `:common` (Haiku: paragraph groups). The system prompt carries a cache breakpoint; keep it identical
     across calls (fold puts the document outline there) and put per-call content in the user prompt.
-  - `server/system` — fun-map `life-cycle-map` (db, api-fn, ring app, http-kit); `/files/sources/<id>` serves the PDF
+  - `server/system` — fun-map `life-cycle-map` (db, api-fn, ring app, http-kit)
+  - `server/files` — `/files/sources/<id>` the original file; an EPUB's `/pages` (JSON array of page HTML, cached per
+    file version) and `/res/<entry>` (its images)
   - `server/api` — lasagna-remote pull API on `/api`: `:sources`, `:asks` (collections; creating an ask runs the
     model), `:concepts` (read-only collection), `:nodes` (with `:node/concepts`; `:node/keywords` keeps only
     keywords naming no concept), `:keywords`, `:search` (lookups), `:goto` (lookup: the concepts and book exercises the top box's text names, as typed), `:learning` (lazy overview), `:universe` (lazy:
@@ -36,14 +45,16 @@ Web stack follows flybot.sg (github.com/flybot-sg/lasagna-pattern, `examples/fly
   - `ask` — graph RAG over the whole store: `retrieve` (Datalevin full-text + spread to parents/links; a numbered
     label in the question, `labels` "Exercise 1.1" / "Definition 1.8", ranks the paragraphs starting with it first, then
     the 5 after them, then those mentioning it: full-text sees only "exercise 1 1"),
-    `ask!` (answer with the `:common` model from numbered entries, store as `:ask/*`), `view` (cited subgraph).
+    `ask!` (answer with the `:common` model from numbered entries, in Markdown with TeX, store as `:ask/*`), `view` (cited subgraph).
     `:focus {:quote :nodes}`: a question about a passage the learner selected; its nodes and the other
     paragraphs on their page come first, the passage is quoted, and background the entries lack may be
     explained, marked as such (stored as `:ask/quote`, `:ask/focus`)
   - `exercises` — the author's exercises and solutions: `segments` (pure, reading order: a line "Exercise 1.5." opens
     one; after the chapter's "Solutions to exercises" the same label opens its solution), `pair`, `found`; `extract!`
     (`:strong` model, a chapter's exercises 5 a call against the concepts the chapter mentions: 1-4 tested concepts,
-    a one-line summary, key points from the solution) for sources not looked at (`:source/exercises-by`). Stored as
+    a one-line summary, key points from the solution) for sources not looked at (`:source/exercises-by`); `transcribe!`
+    (`:strong` model, ~6000 characters a call) writes each one and its solution as Markdown with TeX, tables rebuilt,
+    faithfully (`:exercise/text-md`, `:exercise/solution-md`; the quiz shows the source's text, `:verbatim?`, until then). Stored as
     `:exercise/*`, id from the source id + label (stable across re-ingests and moves; `ingest/remove-source!` drops them);
     `merge!` moves them. `of-concept`, `by-label`, `lookup` ("exercise 1.1", "ex 2": chapter 2's)
   - `concept` — concepts: ideas with an identity (`:concept/label`, `:concept/gloss`, `:concept/broader`), named by
@@ -90,14 +101,18 @@ Web stack follows flybot.sg (github.com/flybot-sg/lasagna-pattern, `examples/fly
   the answer; named ops in `resolve-pull`, `idea-create`/`idea-delete`/`goal` take arguments),
   `history` (URL <-> state; `/` the map, `/g/<id>` a cluster, `/x/<id>` an exploration), `views` (Replicant hiccup,
   the root composes the header, popover and one view per route from `views.*`: `template` (generic: icons, score
-  bars, zoom controls, the split divider; requires nothing of the app), `nav` (links and effects to places), `panes`
-  (split views, pannable drawings, full screen), `node`, `pdf`, `ideas`, `selection`, `ask`, `quiz`, `concept`,
+  bars, zoom controls, the split divider; requires nothing of the app), `markdown` (rich text: what the model writes is
+  Markdown with GFM tables and TeX, `$..$`/`$$..$$`, via nextjournal/markdown to hiccup; citations `[n]` become links
+  through `:cite`; KaTeX draws formulas in the browser, vendored css + fonts), `nav` (links and effects to places), `panes`
+  (split views, pannable drawings, full screen), `node`, `document` (the source beside the text, page by page,
+  whatever its format: toolbar, page box, marks (key sentences, quotes, the open bar); `source-doc` -> `{:kind :pdf|:html
+  :url}` picks how a page is drawn: pdf.js canvas + text layer, or the server's HTML page; db `doc-*`, state `:doc`), `ideas`, `selection`, `ask`, `quiz`, `concept`,
   `graph`, `home`, `explorations`; one flow, map ->
   cluster -> concept -> passage; a concept page's "Learn first": its prerequisite path not yet known, foundations
   first, hidden ones badged "background", and what it leads to; "Exercises from the book" (the quiz says it is from
   the book, counts double, links to its page, shows the exercise it builds on, grades against the author's solution); study-next cards mark prerequisites outside the topic; the header holds the map, the concept index and the clusters being learned; the top box suggests as you type the concepts and
   book exercises its text names (`goto-list`: a concept opens, an exercise opens its passage with its quiz docked), Enter asks; a quiz started anywhere docks at the top of the left
-  pane of split views, `quiz-dock`, and stays across pages), `highlight` (find a node's text among pdf.js text items), `viewport` (pan/zoom of a drawing: automatic
+  pane of split views, `quiz-dock`, and stays across pages), `highlight` (find a node's text among a page's text items: pdf.js's, or an HTML page's text nodes), `viewport` (pan/zoom of a drawing: automatic
   until the learner pans or zooms: whole if readable, else readable names around a focus; names below `readable-px`
   are not drawn; `db/pane-*` for `:map` and `:graph`, which goes automatic again on another graph),
   `explore` (draws an exploration's resolved elements; `diagram-layout`: layered, children under their parents;
@@ -107,16 +122,18 @@ Web stack follows flybot.sg (github.com/flybot-sg/lasagna-pattern, `examples/fly
   drops one that would close a loop), label boxes never overlap;
   unconnected parts laid out apart and packed in rows below the largest, else repulsion strands them far away; tween)
 - `src/cljs/robertluo/fly_learner/ui/` — `core` (dispatch-of effects `:db`/`:pull`/`:history`/`:animate`, requests via `api/send!`, render,
-  mouseup -> text selection), `pdf` (pdf.js: render a page, its selectable text layer, highlight boxes; the source as one scrolling column of
-  pages, drawn near the view only: `sync-scroll!` keeps it at the state's page (and at the same spot when pages change
+  mouseup -> text selection), `pdf` (pdf.js: render a page, its selectable text layer, `page-text`), `html` (an EPUB's pages:
+  fetched once, `page-text` from the page's text nodes, `when-laid-out!`), `pages` (whatever draws them: `find-each!`,
+  `ensure-highlight!` over a kind's `page-text`, as boxes in page fractions; the source as one scrolling column of
+  pages (PDF pages drawn near the view only, HTML ones always there): `sync-scroll!` keeps it at the state's page (and at the same spot when pages change
   size: width, zoom), `find-each!` finds texts on a page one by one (key sentences, what is open), `watch-scroll!` turns the page as the learner scrolls; when it pauses the left pane follows: `db/node-at-page` via
-  the `:pages` lookup picks the node of the same kind and level on that page, returned whole so the PDF is never
+  the `:pages` lookup picks the node of the same kind and level on that page, returned whole so the document is never
   unmounted), `zoom` (pan/zoom gestures: drag,
   trackpad scroll, pinch = ctrl/⌘ + wheel; `fullscreen!`: the whole page, so popovers work; `db/fullscreen` follows
   the browser's `fullscreenchange` and shows only the pane; the map and the concept graph pan and zoom their viewBox, see `viewport`;
-  the PDF zooms its pages' width (`db/pdf-zoom*`, kept in localStorage); the split views' divider is dragged in `views/split-handle`
+  the source zooms its pages' width (`db/doc-zoom*`, kept in localStorage; an HTML page's type is sized with it, `cqw`); the split views' divider is dragged in `views/split-handle`
   (`db/split-*`, the left pane's share, kept in localStorage)), `select` (the
-  selection inside a `data-anchor` element as a quote anchor; `<br>` between PDF lines counts as a space)
+  selection inside a `data-anchor` element as a quote anchor; `<br>` between pdf.js lines counts as a space)
 - `resources/public/` — `index.html` (loads vendored pdf.js as a module), `css/style.css`
 - `src/cljc/robertluo/fly_learner/knowledge.cljc` — shared malli schema for nodes
 
@@ -148,13 +165,13 @@ Each layer knows the one below as little as possible, so any part can be reimple
   tested, `evidence`, which the caller records; `attempts`: best grade per authored question, from the evidence log) —
   depend on learning only, never on knowledge nor the evidence store
 - **ideas** (`ideas.cljc`, depends on nothing) — the learner's own voice: an idea takes a stance
-  (`:agree`/`:disagree`), is a `:note`, or marks something: `:highlight`, `:bookmark` (a node anchor with the PDF
+  (`:agree`/`:disagree`), is a `:note`, or marks something: `:highlight`, `:bookmark` (a node anchor with the source
   `:page`; `ui.core.db/bookmarks`, kept out of the idea lists), on one or more anchors (opaque maps), and may link to other ideas.
   `Anchors` protocol (`target` -> a key ideas are grouped by, `describe`); W3C-style text quotes
   (`quote-selector`, `find-quote`, `mark-segments`) re-find a span after the text changes.
   - `ideas.store` — Datalevin, own schema
   - `ideas.knowledge` — the only bridge: anchors on concepts (follows merges), relations, nodes (re-found by
-    title after re-ingest) and quotes in node text/summary or the PDF (re-found by text; a PDF quote no
+    title after re-ingest) and quotes in node text/summary or on a page of the source, `:field :page` (re-found by text; a page quote no
     paragraph contains stays on its page)
   - ideas and learning know nothing of each other
 - **explore** (`explore.cljc`, depends on nothing) — explorations: an interactive view of some knowledge as data
@@ -182,8 +199,8 @@ Each layer knows the one below as little as possible, so any part can be reimple
 - `bb dev` — nREPL (backend + shadow-cljs middleware); then `(user/cljs!)`: starts the backend (:8080) if needed and the frontend watch (:3000, proxies pages and `/api` to :8080). `(user/start!)` alone runs just the backend
 - `bb watch` — shadow-cljs without a REPL; `bb serve` — release build served by the backend on :8080
 - `bb test`, `bb lint`; `bb install` / `bb vendor` copy pdf.js into `resources/public/vendor/pdfjs`
-- `bb ingest data/sources/<file>.pdf ...` — `cli/ingest!` (ingest + fold, then `concept/resolve!`, clusters,
-  `concept.prereq/judge!` for new concepts, `keypoints/extract!`, `exercises/extract!` for new sources and `explore.knowledge/propose!` for new passages; prints the cost).
+- `bb ingest data/sources/<file>.pdf|.epub ...` — `cli/ingest!` (ingest + fold, then `concept/resolve!`, clusters,
+  `concept.prereq/judge!` for new concepts, `keypoints/extract!`, `exercises/extract!` + `exercises/transcribe!` for new sources and `explore.knowledge/propose!` for new passages; prints the cost).
   `bb/ingest_task.clj` evaluates it over nREPL in the running `bb dev` REPL when `.nrepl-port` answers (Datalevin
   must have one writer: the app's), else runs `clojure -M:ingest`. Paths are stored relative to the project
   (`cli/source-path`); a moved or renamed file re-ingests the same source (found by content).

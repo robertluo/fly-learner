@@ -110,7 +110,7 @@
     [:button.bookmark {:class (when b "on")
                        :title (if b
                                 (str "Remove the bookmark (made at p. " (:page b) ")")
-                                (str "Bookmark this place: " (:node/title node) ", p. " (db/pdf-page db)))
+                                (str "Bookmark this place: " (:node/title node) ", p. " (db/doc-page db)))
                        :aria-pressed (str (boolean b))
                        :on {:click #(dispatch! (if b
                                                  {:db (fn [d] (db/idea-removed d (:idea/id b)))

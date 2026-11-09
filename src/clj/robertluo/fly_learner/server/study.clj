@@ -115,7 +115,7 @@
   "A question as the learner sees it before answering: no model answer."
   [c scores q]
   (merge (select-keys q [:question/id :question/item :question/prompt :question/by :question/title
-                         :question/weight :question/anchor :question/context])
+                         :question/weight :question/anchor :question/context :question/verbatim?])
          (item-ref c scores (:question/item q))))
 
 (defn new-question!
