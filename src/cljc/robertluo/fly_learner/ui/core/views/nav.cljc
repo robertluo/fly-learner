@@ -43,6 +43,18 @@
          (merge {:title (or gloss label)} attrs)
          (or (seq children) [label])))
 
+(defn term-effects [t]
+  {:db #(db/open-term % t) :pull [:named :ideas] :history :push})
+
+(defn term-link
+  "Link to a term of the learner's (a `[[..]]` link naming no concept): what
+  their notes say of it, and the passages naming it."
+  [dispatch! t attrs & children]
+  (apply link dispatch! (term-effects t)
+         (history/state->path {:view :term :term t})
+         (merge {:title "Yours: names no concept of the sources"} attrs)
+         (or (seq children) [t])))
+
 (defn concept-chip [dispatch! c & extra]
   (apply concept-link dispatch! c {:class ["chip" "concept"] :replicant/key (:concept/id c)}
          (:concept/label c) extra))

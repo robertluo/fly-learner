@@ -17,7 +17,7 @@
 ;;=============================================================================
 
 (def initial-state
-  {:view            :home  ; :home (the map) | :cluster | :node | :keyword | :ask | :concept | :concepts | :study | :explore
+  {:view            :home  ; :home (the map) | :cluster | :node | :keyword | :term | :ask | :concept | :concepts | :notebook | :study | :explore
    :universe        nil    ; every cluster (server.study/universe) and the map's layout, once fetched
    :cluster-id      nil    ; cluster shown in :cluster view
    :clusters        {}     ; cluster-id -> detail (server.study/cluster): next items in it
@@ -26,6 +26,9 @@
    :nodes           {}     ; node-id -> node (cache of fetched nodes)
    :keyword         nil    ; keyword shown in :keyword view
    :keyword-results {}     ; keyword -> [node-ref]
+   :term            nil    ; a term of the learner's shown in :term view (ideas/term-key)
+   :notebook        {:order :sources :highlights? false} ; the learner's notes as a book: arranged how, with what
+   :named           {}     ; term -> [node-ref]: the passages naming it
    :concept-id      nil    ; concept shown in :concept view
    :concepts        {}     ; concept-id -> concept (see robertluo.fly-learner.concept.view/concept)
    :concept-index   nil    ; [concept-ref] by label, once fetched (:concepts view)
@@ -134,6 +137,17 @@
       (assoc :view :keyword :keyword kw :asking nil)
       (assoc :loading? (not (contains? (:keyword-results db) kw)))))
 
+(defn open-term
+  "A term of the learner's: a `[[..]]` link naming no concept."
+  [db t]
+  (let [k (ideas/term-key t)]
+    (-> db
+        (assoc :view :term :term k :asking nil)
+        (assoc :loading? (not (contains? (:named db) k))))))
+
+(defn named-fetched [db t nodes]
+  (-> db (assoc-in [:named t] (vec nodes)) (assoc :loading? false)))
+
 (defn open-ask
   "Show the stored answer `id`."
   [db id]
@@ -159,12 +173,20 @@
 (defn open-concepts [db]
   (assoc db :view :concepts :asking nil :loading? (nil? (:concept-index db))))
 
+(defn open-notebook [db] (assoc db :view :notebook :asking nil))
+
+(defn notebook-order [db order] (cond-> db (#{:sources :newest} order) (assoc-in [:notebook :order] order)))
+
+(defn notebook-highlights [db on?] (assoc-in db [:notebook :highlights?] (boolean on?)))
+
 (defn knowledge-changed
   "Concepts or topics were added or removed: what was fetched of them is
   fetched again (the index, the graph, the map, what to study)."
   [db]
   (-> db
       (assoc :concept-index nil :concepts {} :clusters {} :learning nil)
+      ;; what the learner's [[..]] links name is resolved again
+      (assoc-in [:ideas :all] nil)
       (assoc-in [:graph :ix] nil)
       (cond-> (:universe db) (assoc-in [:universe :stale?] true))))
 
@@ -296,14 +318,16 @@
 
 (defn apply-route
   "Apply a parsed URL ({:view .. :id .. :keyword .. :page ..}, see history) to db."
-  [db {:keys [view id keyword page]}]
+  [db {:keys [view id keyword term page]}]
   (case view
     :node    (cond-> (open-node db id) page (assoc-in [:doc :page] (max 1 page)))
     :keyword (open-keyword db keyword)
+    :term    (open-term db term)
     :ask      (open-ask db id)
     :concept  (open-concept db id)
     :cluster  (open-cluster db id)
     :concepts (open-concepts db)
+    :notebook (open-notebook db)
     :study    (open-study db)
     :explore  (open-explore db id)
     (go-home db)))
@@ -466,6 +490,13 @@
       (update-in [:ideas :all] (fnil conj []) idea)
       (update :ideas assoc :selection nil :draft nil)))
 
+(defn idea-updated
+  "Idea `idea` was rewritten: listed as it is now, the draft closed."
+  [db {:idea/keys [id] :as idea}]
+  (-> db
+      (update-in [:ideas :all] (fn [all] (mapv #(if (= id (:idea/id %)) idea %) all)))
+      (assoc-in [:ideas :draft] nil)))
+
 (defn idea-removed [db id]
   (update-in db [:ideas :all] (fn [all] (vec (remove #(= id (:idea/id %)) all)))))
 
@@ -539,6 +570,132 @@
                                        (and (= :relation kind) (or (= a id) (= b id)))))
                   (target-keys %))
            (get-in db [:ideas :all])))
+
+;;=============================================================================
+;; The notebook: the learner's notes as a book
+;;=============================================================================
+
+(defn- notebook-ideas
+  "What goes in the notebook: what the learner wrote (and highlights, if asked)."
+  [db]
+  (let [hl? (get-in db [:notebook :highlights?])]
+    (filter #(or (:idea/text %) (and hl? (= :highlight (:idea/stance %)))) (get-in db [:ideas :all]))))
+
+(defn notebook
+  "The learner's notes as a book: [{:title :source/id :chapters [{:title
+  :entries [idea ..]}]}]. As the sources go (`:order :sources`): by source,
+  then its chapters, in reading order; notes on concepts and relations
+  after, by what they are about. Or one part, newest first (`:newest`)."
+  [db]
+  (let [ideas (notebook-ideas db)]
+    (if (= :newest (get-in db [:notebook :order]))
+      (if (seq ideas) [{:title nil :chapters [{:title nil :entries (vec (sort-by (comp - :idea/at) ideas))}]}] [])
+      (let [{placed true other false} (group-by (comp some? :idea/place) ideas)
+            chapter #(get-in % [:idea/place :path 1])
+            place-order (juxt #(get-in % [:idea/place :order]) #(or (get-in % [:idea/place :page]) 0) :idea/at)]
+        (cond-> (->> placed
+                     (group-by #(get-in % [:idea/place :source/id]))
+                     (map (fn [[sid es]]
+                            (let [es (sort-by place-order es)]
+                              {:source/id sid
+                               :title     (get-in (first es) [:idea/place :source/title])
+                               :chapters  (->> (partition-by chapter es)
+                                               (mapv (fn [es] {:title (:node/title (chapter (first es)))
+                                                               :entries (vec es)})))})))
+                     (sort-by :title)
+                     vec)
+          (seq other)
+          (conj {:title "On concepts and relations"
+                 :chapters [{:title nil :entries (vec (sort-by #(str/lower-case (or (:title (first (:idea/targets %))) "")) other))}]}))))))
+
+(defn entry-where
+  "Where an idea of the notebook is: {:node/id :title :page}, the passage
+  and its section (the paragraph's own title is its first words), or nil."
+  [{:idea/keys [place]}]
+  (when place
+    (let [path    (rest (:path place))
+          section (last (remove #(= :paragraph (:node/kind %)) path))]
+      {:node/id (:node/id (last path)) :title (:node/title section) :page (:page place)})))
+
+(def ^:private stance-word {:agree "Agree" :restate "In my words" :disagree "Disagree"})
+
+(defn notebook-markdown
+  "The notebook as one Markdown document: sources and chapters as
+  headings, each note under the passage it quotes; `[[..]]` links kept."
+  [db]
+  (let [quote-of (fn [i] (some :quote (:idea/anchors i)))
+        entry (fn [i]
+                (let [{:keys [title page]} (entry-where i)
+                      q     (quote-of i)
+                      where (str/join ", " (remove nil? [(when page (str "p. " page)) title]))
+                      about (when-not (:idea/place i) (str/join ", " (map :title (:idea/targets i))))]
+                  (str/join "\n\n"
+                            (remove str/blank?
+                                    [(when q (str "> " (str/replace (str/trim q) #"\s*\n\s*" " ")
+                                                  (when (seq where) (str "\n>\n> — " where))))
+                                     (when (and (not q) (seq where)) (str "*" where "*"))
+                                     (when (seq about) (str "*On " about "*"))
+                                     (when-let [t (:idea/text i)]
+                                       (if-let [w (stance-word (:idea/stance i))] (str "**" w ".** " t) t))]))))]
+    (str "# Notebook\n"
+         (str/join (for [{:keys [title chapters]} (notebook db)]
+                     (str (when title (str "\n## " title "\n"))
+                          (str/join (for [{ct :title es :entries} chapters]
+                                      (str (when ct (str "\n### " ct "\n"))
+                                           (str/join (for [i es] (str "\n" (entry i) "\n"))))))))))))
+
+;;=============================================================================
+;; What the learner's notes say: derived from them, never stored
+;;=============================================================================
+
+(defn- note-ref
+  "What term `t`, written in `idea`, names: {:concept c} when a concept,
+  else the learner's own {:term key :label t}."
+  [idea t]
+  (if-let [c (get (:idea/refs idea) t)]
+    {:concept c}
+    {:term (ideas/term-key t) :label t}))
+
+(defn note-ref-key
+  "[:concept id] or [:term key] of a `note-ref`."
+  [r]
+  (if-let [c (:concept r)] [:concept (:concept/id c)] [:term (:term r)]))
+
+(defn- notes [db] (filter :idea/text (get-in db [:ideas :all])))
+
+(defn my-terms
+  "The learner's own terms: {key {:term key :label t :notes [idea ..]}},
+  the `[[..]]` links of their notes naming no concept."
+  [db]
+  (reduce (fn [m i]
+            (reduce (fn [m t]
+                      (let [r (note-ref i t)]
+                        (cond-> m
+                          (:term r) (update (:term r) #(update (or % r) :notes (fnil conj []) i)))))
+                    m (ideas/wikilinks (:idea/text i))))
+          {} (notes db)))
+
+(defn my-claims
+  "The prerequisites the learner's notes state: [{:of ref :needs ref :notes
+  [idea ..]}], refs as `note-ref`, once each."
+  [db]
+  (->> (for [i (notes db), [a b] (ideas/claims (:idea/text i))] [(note-ref i a) (note-ref i b) i])
+       (reduce (fn [m [a b i]]
+                 (update m [(note-ref-key a) (note-ref-key b)] #(update (or % {:of a :needs b}) :notes (fnil conj []) i)))
+               {})
+       vals
+       (sort-by (comp :idea/at first :notes))
+       vec))
+
+(defn in-my-notes
+  "What the learner's notes say of `k` ([:concept id] or [:term key]):
+  {:needs [ref ..] :needed-by [ref ..] :notes [idea ..]}, the notes naming it."
+  [db k]
+  (let [cs (my-claims db)]
+    {:needs     (vec (for [{:keys [of needs]} cs :when (= k (note-ref-key of))] needs))
+     :needed-by (vec (for [{:keys [of needs]} cs :when (= k (note-ref-key needs))] of))
+     :notes     (filterv (fn [i] (some #(= k (note-ref-key (note-ref i %))) (ideas/wikilinks (:idea/text i))))
+                         (notes db))}))
 
 (defn reaction
   "The learner's bare agree/disagree (no text) on exactly `anchor`, or nil."
@@ -623,6 +780,12 @@
       (let [t (subs before (+ i 2))]
         (when-not (re-find #"[\[\]\n|]" t)
           {:from (+ i 2) :term t})))))
+
+(defn draft-edit
+  "Rewrite `idea`: a draft holding what it says now."
+  [db {:idea/keys [id anchors stance text links]}]
+  (assoc-in db [:ideas :draft] {:editing id :anchors (vec anchors) :stance stance :text (or text "")
+                                :links (set links) :from-selection? false}))
 
 (defn draft-typed
   "The note's text is `s`, the caret at `caret` (where a `[[` link may be
@@ -1578,6 +1741,52 @@
   (get-in (selection-cleared drafting) [:ideas :selection :x]) ;=> 1
   (get-in (-> drafting (draft-link :i1) (draft-link :i2) (draft-link :i1)) [:ideas :draft :links]) ;=> #{:i2}
   (get-in (idea-added drafting {:idea/id :i3}) [:ideas :draft]) ;=> nil
+  ;; what the notes say, derived: their own terms, the prerequisites they state
+  (def c1 {:concept/id :c1 :concept/label "stream"})
+  (def noted (ideas-fetched initial-state
+                            [{:idea/id :n1 :idea/stance :note :idea/at 1 :idea/refs {"streams" c1}
+                              :idea/text "[[streams]] needs [[Delayed evaluation]] and [[thunk]]."}
+                             {:idea/id :n2 :idea/stance :restate :idea/at 2 :idea/refs {}
+                              :idea/text "A [[delayed  evaluation]] waits."}
+                             {:idea/id :n3 :idea/stance :agree :idea/at 3}]))
+  (update-vals (my-terms noted) #(update % :notes (partial mapv :idea/id)))
+  ;=> {"delayed evaluation" {:term "delayed evaluation" :label "Delayed evaluation" :notes [:n1 :n2]}
+  ;    "thunk" {:term "thunk" :label "thunk" :notes [:n1]}}
+  (mapv (juxt (comp note-ref-key :of) (comp note-ref-key :needs)) (my-claims noted))
+  ;=> [[[:concept :c1] [:term "delayed evaluation"]] [[:concept :c1] [:term "thunk"]]]
+  (-> (in-my-notes noted [:term "delayed evaluation"]) (update :notes (partial mapv :idea/id)) (update :needed-by (partial mapv note-ref-key)))
+  ;=> {:needs [] :needed-by [[:concept :c1]] :notes [:n1 :n2]}
+  (:view (open-term initial-state "Thunk ")) ;=> :term
+  (:term (open-term initial-state "Thunk ")) ;=> "thunk"
+
+  ;; the notebook: as the sources go (chapters in reading order), notes on concepts after; or newest first
+  (defn- placed [id at order chapter page q text]
+    {:idea/id id :idea/stance :note :idea/at at :idea/text text
+     :idea/anchors (if q [{:anchor/kind :quote :quote q}] [])
+     :idea/place {:source/id :s :source/title "SICP" :page page :order order
+                  :path [{:node/id :root :node/title "SICP" :node/kind :source}
+                         {:node/id chapter :node/title (name chapter) :node/kind :section}
+                         {:node/id :p :node/title "A paragraph…" :node/kind :paragraph}]}})
+  (def book (ideas-fetched initial-state
+                           [(placed :a 3 [0 3 1] :ch3 200 "Streams are delayed lists." "So [[stream]]s wait.")
+                            (placed :b 1 [0 1 0] :ch1 10 nil "Procedures first.")
+                            {:idea/id :c :idea/stance :agree :idea/at 2 :idea/text "Yes."
+                             :idea/targets [{:title "closure"}]}
+                            (placed :d 4 [0 3 0] :ch3 190 nil "Earlier in chapter 3.")
+                            {:idea/id :h :idea/stance :highlight :idea/at 5 :idea/anchors []}]))
+  (mapv (fn [{:keys [title chapters]}] [title (mapv (fn [c] [(:title c) (mapv :idea/id (:entries c))]) chapters)])
+        (notebook book))
+  ;=> [["SICP" [["ch1" [:b]] ["ch3" [:d :a]]]] ["On concepts and relations" [[nil [:c]]]]]
+  (mapv :idea/id (:entries (first (:chapters (first (notebook (notebook-order book :newest)))))))
+  ;=> [:d :a :c :b]
+  (count (mapcat :entries (mapcat :chapters (notebook (notebook-highlights book true)))))  ;=> 5
+  (entry-where (placed :a 3 [0 3 1] :ch3 200 nil "x")) ;=> {:node/id :p :title "ch3" :page 200}
+  (notebook-markdown (ideas-fetched initial-state [(placed :a 3 [0 3 1] :ch3 200 "Streams are\ndelayed lists." "So [[stream]]s wait.")]))
+  ;=> "# Notebook\n\n## SICP\n\n### ch3\n\n> Streams are delayed lists.\n>\n> — p. 200, ch3\n\nSo [[stream]]s wait.\n"
+  ;; rewriting a note: a draft holding it; stored, it replaces the old
+  (get-in (draft-edit book {:idea/id :b :idea/stance :note :idea/text "x" :idea/links [:a]}) [:ideas :draft])
+  ;=> {:editing :b :anchors [] :stance :note :text "x" :links #{:a} :from-selection? false}
+  (:idea/text (second (get-in (idea-updated book {:idea/id :b :idea/text "y"}) [:ideas :all]))) ;=> "y"
   ;; one stance a note; a [[link]] being typed is looked up and completed
   (get-in (draft-stance drafting :restate) [:ideas :draft :stance]) ;=> :restate
   (get-in (draft-stance drafting :bookmark) [:ideas :draft :stance]) ;=> :note

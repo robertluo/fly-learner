@@ -26,6 +26,7 @@
             [robertluo.fly-learner.ui.core.views.home :as home-ui]
             [robertluo.fly-learner.ui.core.views.nav :as nav]
             [robertluo.fly-learner.ui.core.views.node :as node-ui]
+            [robertluo.fly-learner.ui.core.views.notebook :as notebook-ui]
             [robertluo.fly-learner.ui.core.views.panes :as panes]
             [robertluo.fly-learner.ui.core.views.document :as doc-ui]
             [robertluo.fly-learner.ui.core.views.quiz :as quiz-ui]
@@ -82,8 +83,10 @@
    (nav/link dispatch! nav/map-effects "/" {:class "brand" :title "The map of everything you know"} "Fly Learner")
    [:nav.top-nav
     (nav/link dispatch! nav/map-effects "/" {:class (when (= :home (:view db)) "here")} "Map")
-    (nav/link dispatch! {:db db/open-concepts :pull :concept-index :history :push} "/c"
+    (nav/link dispatch! {:db db/open-concepts :pull [:concept-index :ideas] :history :push} "/c"
               {:class (when (= :concepts (:view db)) "here") :title "Every concept, A to Z"} "Concepts")
+    (nav/link dispatch! {:db db/open-notebook :pull :ideas :history :push} "/b"
+              {:class (when (= :notebook (:view db)) "here") :title "What you wrote while reading, as a book"} "Notebook")
     (for [{:cluster/keys [id] :keys [score] :as c} (db/learning-clusters db)]
       (nav/cluster-link dispatch! c {:replicant/key (str id)
                                      :class ["learning" (when (= id (:cluster-id db)) "here")]}
@@ -140,10 +143,12 @@
    (case (:view db)
      :node    (node-view db dispatch!)
      :keyword (node-ui/keyword-view db dispatch!)
+     :term    (concept-ui/term-view db dispatch!)
      :ask      (ask-ui/ask-view db dispatch!)
      :concept  (concept-view db dispatch!)
      :cluster  (cluster-view db dispatch!)
      :concepts (concept-ui/concepts-view db dispatch!)
+     :notebook (notebook-ui/notebook-view db dispatch!)
      :study    (quiz-ui/study-view db dispatch!)
      :explore  (explore-ui/explore-view db dispatch!)
      (home-ui/home-view db dispatch!))])

@@ -111,6 +111,7 @@
    (learn-first db dispatch! concept)
    (book-exercises db dispatch! id exercises)
    (ideas-ui/ideas-panel db dispatch! (db/concept-anchor id) (db/ideas-about-concept db id))
+   (ideas-ui/in-your-notes db dispatch! [:concept id] (db/ideas-about-concept db id))
    (when (seq mentions)
      [:section
       [:h2 "Mentioned in"]
@@ -179,12 +180,48 @@
                       "Finding the passages that name it, its topic and what it needs first…"
                       "It is found in every passage that names it (whole words, any case).")]]]]))
 
+(defn term-view
+  "A term of the learner's: a `[[..]]` link of their notes naming no concept.
+  What their notes say of it, the passages of the sources naming it, and
+  making it a concept of the knowledge base (their choice: until then it is
+  theirs only)."
+  [{:keys [term named loading?] :as db} dispatch!]
+  (let [{:keys [label notes]} (get (db/my-terms db) term)
+        hits   (get named term)
+        adding? (get-in db [:concept-form :adding?])]
+    [:main.single.term
+     [:span.meta "Yours · " (count notes) (if (= 1 (count notes)) " note names it" " notes name it")]
+     [:h1 (or label term)]
+     [:p.muted "A term of your notes that names no concept of the sources. It is yours: it stays beside the sources' knowledge and never moves a score."]
+     (or (ideas-ui/in-your-notes db dispatch! [:term term] nil)
+         [:p.muted "None of your notes names it now."])
+     [:section
+      [:h2 "Named in the sources"]
+      (cond
+        (seq hits)
+        (list [:p.muted {:replicant/key "p"} "Passages whose text names it."]
+              [:div.curate {:replicant/key "add"}
+               [:button.btn {:disabled adding?
+                             :title "Add it to the knowledge base as a concept the model missed: tagged on these passages, given a gloss, placed in a topic"
+                             :on {:click #(dispatch! {:db (fn [d] (-> d
+                                                                      (assoc :concept-form {:label (or label term) :aliases "" :gloss ""})
+                                                                      db/concept-adding))
+                                                      :pull :concept-create})}}
+                (if adding? "Adding…" "Make it a concept")]]
+              (with-meta (node-ui/hit-cards dispatch! hits) {:key "hits"}))
+        loading? [:p.muted "Loading…"]
+        :else    [:p.muted "No passage names it: it is new knowledge, yours."])]]))
+
 (defn concepts-view [{:keys [concept-index concept-filter loading?] :as db} dispatch!]
   (let [shown (db/filtered-concepts db)]
     [:main.single.concepts
      [:h1 "Concepts"]
      [:p.muted "The ideas the knowledge base is about, across sources. Each passage's keywords name them."]
      (add-concept-form db dispatch!)
+     (when-let [ts (seq (sort-by :term (vals (db/my-terms db))))]
+       [:p.your-terms [:span.muted "Your terms "]
+        (for [{:keys [term label]} ts]
+          (nav/term-link dispatch! term {:class "chip yours" :replicant/key term} label))])
      [:input.filter {:type "search" :placeholder "Filter by name or gloss…" :value concept-filter
                      :autocomplete "off"
                      :on {:input #(dispatch! {:db (fn [d] (db/set-concept-filter d (.. % -target -value)))})}}]

@@ -5,7 +5,7 @@
   (robertluo.fly-learner.ui.core.api, which alone knows the wire format);
   :then is (fn [answer] effect-map). Named operations (`resolve-pull`) read
   what to fetch from the state; the rest take arguments (`idea-create`,
-  `idea-delete`, `goal`, `concept-delete`, `topic-delete`). Pure data functions, testable on the JVM."
+  `idea-update`, `idea-delete`, `goal`, `concept-delete`, `topic-delete`). Pure data functions, testable on the JVM."
   (:require [robertluo.fly-learner.ui.core.api :as api]
             [robertluo.fly-learner.ui.core.db :as db]))
 
@@ -171,6 +171,13 @@
       {:request (api/fetch :concepts)
        :then    (fn [all] {:db #(db/concept-index-fetched % all)})})
 
+    ;; the passages naming the learner's term shown
+    :named
+    (let [t (:term db)]
+      (when (and (= :term (:view db)) t (not (contains? (:named db) t)))
+        {:request (api/fetch :named {:term t})
+         :then    (fn [nodes] {:db #(db/named-fetched % t nodes)})}))
+
     :keyword
     (let [kw (:keyword db)]
       (when (and kw (not (contains? (:keyword-results db) kw)))
@@ -184,6 +191,12 @@
   [data]
   {:request (api/create :ideas data)
    :then    (fn [idea] {:db #(db/idea-added % idea)})})
+
+(defn idea-update
+  "Rewrite idea `id` as `data` ({:idea/stance :idea/text :idea/links})."
+  [id data]
+  {:request (api/change :ideas {:idea/id id} data)
+   :then    (fn [idea] {:db #(db/idea-updated % idea)})})
 
 (defn idea-delete
   "Remove idea `id` (the state lets go of it at once: db/idea-removed)."
@@ -217,9 +230,11 @@
     :cluster  [:universe :cluster :concept-graph :learning :ideas]
     :node     [:node :ideas]
     :keyword  :keyword
+    :term     [:named :ideas]
+    :notebook :ideas
     :ask      :ask
     :concept  [:universe :concept :concept-graph :learning :ideas]
-    :concepts :concept-index
+    :concepts [:concept-index :ideas]
     :study    :learning
     :explore  [:exploration :explorations]
     nil))
@@ -264,7 +279,9 @@
   (resolve-pull :concept-index (db/concept-index-fetched db/initial-state [])) ;=> nil
 
   (for-route {:view :node}) ;=> [:node :ideas]
-  (for-route {:view :concepts}) ;=> :concept-index
+  (for-route {:view :concepts}) ;=> [:concept-index :ideas]
+  (for-route {:view :term}) ;=> [:named :ideas]
+  (:request (resolve-pull :named (db/open-term db/initial-state "Thunk"))) ;=> (api/fetch :named {:term "thunk"})
   (for-route {:view :concept}) ;=> [:universe :concept :concept-graph :learning :ideas]
   (for-route {:view :cluster}) ;=> [:universe :cluster :concept-graph :learning :ideas]
   (for-route {:view :home}) ;=> [:universe :learning :ideas]

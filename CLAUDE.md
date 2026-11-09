@@ -36,7 +36,10 @@ Web stack follows flybot.sg (github.com/flybot-sg/lasagna-pattern, `examples/fly
     make one of a node or remake one with feedback, runs the model; a node carries `:node/explore`: its proposal and
     explorations)
   - `server/ideas` — ideas resolved for the API (`:idea/targets`, `:idea/within` = ancestor nodes, `:idea/refs`: the
-    concepts its `[[term]]` links name now, by alias, a plural by its singular; a term naming none is left out); `focus`: a
+    concepts its `[[term]]` links name now, by alias, a plural by its singular; a term naming none is left out); `named`:
+    the passages whose text names a term of the learner's (the API's `:named`); `:idea/place`: where its passage is in
+    its source (path root first, reading order, page), for the notebook; `update!` rewrites one (stance, text, links;
+    its anchors and time stay); `focus`: a
     selected passage (quote anchor) -> the nodes it is in, for asking about it (`{:asks {nil {.. :ask/anchor a}}}`)
   - `server/curation` — the learner correcting the knowledge base (API): `add-concept!` (names taken -> error; passages
     naming it; a missing gloss written by the `:common` model from them, `concept/llm-gloss`; prerequisites judged, then
@@ -103,11 +106,12 @@ Web stack follows flybot.sg (github.com/flybot-sg/lasagna-pattern, `examples/fly
     general contract"); `connect` merges other layers' schemas; `copy!` rebuilds a db under the
     current schema, e.g. after marking an attribute `:db/fulltext` — Datalevin's `re-index` loses full-text entries)
 - `src/cljc/robertluo/fly_learner/ui/core/` — frontend logic, JVM-testable: `db` (pure state fns), `api` (the backend's wire
-  format, the only place that knows it: requests as data, `fetch`/`create`/`delete`/`batch`, `pattern` = today's
+  format, the only place that knows it: requests as data, `fetch`/`create`/`change`/`delete`/`batch`, `pattern` = today's
   lasagna-remote pull pattern, `answer` reads the reply back, `send!` transit+json to `/api`, `source-url`; a new API
   format changes this namespace only, architecture test), `pull` (what to fetch when: `{:request :then}`, `:then` gets
   the answer; named ops in `resolve-pull`, `idea-create`/`idea-delete`/`goal` take arguments),
-  `history` (URL <-> state; `/` the map, `/g/<id>` a cluster, `/x/<id>` an exploration), `views` (Replicant hiccup,
+  `history` (URL <-> state; `/` the map, `/g/<id>` a cluster, `/x/<id>` an exploration, `/b` the notebook, `/t/<term>` a term of the
+  learner's; `re-matches` in ClojureScript is not anchored like the JVM's: no lazy `(.+?)` groups), `views` (Replicant hiccup,
   the root composes the header, popover and one view per route from `views.*`: `template` (generic: icons, score
   bars, zoom controls, the split divider; requires nothing of the app), `markdown` (rich text: what the model writes is
   Markdown with GFM tables and TeX, `$..$`/`$$..$$`, via nextjournal/markdown to hiccup; citations `[n]` become links
@@ -115,7 +119,9 @@ Web stack follows flybot.sg (github.com/flybot-sg/lasagna-pattern, `examples/fly
   (split views, pannable drawings, full screen), `node`, `document` (the source beside the text, page by page,
   whatever its format: toolbar, page box, marks (key sentences, quotes, the open bar); `source-doc` -> `{:kind :pdf|:html
   :url}` picks how a page is drawn: pdf.js canvas + text layer, or the server's HTML page; db `doc-*`, state `:doc`), `ideas`, `selection`, `ask`, `quiz`, `concept`,
-  `graph`, `home`, `explorations`; one flow, map ->
+  `graph`, `home`, `explorations`, `notebook` (what the learner wrote, as a book: by source and chapter in reading
+  order, or newest first; highlights if asked; each note rewritten in place, the composer with `db/draft-edit`; downloaded
+  as one Markdown file, `db/notebook-markdown`, `[[..]]` kept); one flow, map ->
   cluster -> concept -> passage; a concept page's "Learn first": its prerequisite path not yet known, foundations
   first, hidden ones badged "background", and what it leads to; "Exercises from the book" (the quiz says it is from
   the book, counts double, links to its page, shows the exercise it builds on, grades against the author's solution); study-next cards mark prerequisites outside the topic; the header holds the map, the concept index and the clusters being learned; the top box suggests as you type the concepts and
@@ -179,7 +185,12 @@ Each layer knows the one below as little as possible, so any part can be reimple
   (`quote-selector`, `find-quote`, `mark-segments`) re-find a span after the text changes. What the learner writes
   (`:idea/text`) is Markdown, one stance a note; `[[a term]]` / `[[a term|shown]]` links what the term names
   (`wikilinks`; UI: the composer suggests concepts as `[[` is typed, `db/wiki-*`, and `views.markdown` `:wikilink` draws
-  them). Writing never moves scores: ideas and learning stay independent (a design decision, not a gap).
+  them); `[[A]] needs [[B]]` (requires, depends on, builds on, assumes; `[[B]] before [[A]]`) states a prerequisite
+  (`claims`). What the notes say is derived from them on read, never stored (UI `db/my-terms`: links naming no concept,
+  the learner's own terms, page `/t/<term>`; `db/my-claims`, `db/in-my-notes`: "In your notes" on a concept or term page),
+  and stays in the learner's layer: not concepts nor `:prereq/*` claims, so the curriculum, topics and the model never
+  see it. A term the sources do name can be made a concept on its page (curation's add, the learner's choice).
+  Writing never moves scores: ideas and learning stay independent (a design decision, not a gap).
   - `ideas.store` — Datalevin, own schema
   - `ideas.knowledge` — the only bridge: anchors on concepts (follows merges), relations, nodes (re-found by
     title after re-ingest) and quotes in node text/summary or on a page of the source, `:field :page` (re-found by text; a page quote no

@@ -398,7 +398,7 @@ PDF, with formulas garbled, or from an EPUB; read it together with the entries i
   [:node/id :node/title :node/kind :node/level :node/page :node/summary :node/text
    {:node/source [:source/id :source/title]}])
 
-(defn- ref-of
+(defn ref-of
   "Node ref with its path (titles, root first) for display; nil when the
   node is gone (its source was re-ingested)."
   [db id]

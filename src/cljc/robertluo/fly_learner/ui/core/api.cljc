@@ -32,6 +32,8 @@
 
 (defn delete [coll k] {:op :delete :coll coll :key k})
 
+(defn change "Rewrite member `k` of `coll` as `value`." [coll k value] {:op :update :coll coll :key k :value value})
+
 (defn batch
   "Several fetches in one round trip, by name: {name request}."
   [named]
@@ -69,6 +71,7 @@
     :fetch  (fetch-pattern req :value)
     :create {coll {nil value}}
     :delete {coll {(:key req) nil}}
+    :update {coll {(:key req) value}}
     :batch  (do (assert (apply distinct? (map :coll (vals requests))) "one fetch per collection")
                 (into {} (map (fn [[nm r]] (fetch-pattern r nm))) requests))))
 
@@ -79,6 +82,7 @@
     :fetch  (get bindings (binding-of :value))
     :create (get bindings (binding-of coll))
     :delete nil
+    :update (get bindings (binding-of coll))
     :batch  (into {} (map (fn [[nm _]] [nm (get bindings (binding-of nm))])) requests)))
 
 (defn failure
@@ -121,6 +125,9 @@
 
   (pattern (delete :ideas {:idea/id id})) ;=> {:ideas {{:idea/id #uuid "00000000-0000-0000-0000-000000000001"} nil}}
   (answer (delete :ideas {:idea/id id}) {'ideas true}) ;=> nil
+  (pattern (change :ideas {:idea/id id} {:idea/text "x"}))
+  ;=> {:ideas {{:idea/id #uuid "00000000-0000-0000-0000-000000000001"} {:idea/text "x"}}}
+  (answer (change :ideas {:idea/id id} {}) {'ideas {:idea/id id}}) ;=> {:idea/id #uuid "00000000-0000-0000-0000-000000000001"}
 
   (def init (batch {:sources (fetch :sources) :universe (fetch :universe)}))
   (= '{:sources ?sources :universe ?universe} (pattern init)) ;=> true

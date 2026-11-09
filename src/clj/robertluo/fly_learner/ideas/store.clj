@@ -18,6 +18,18 @@
   (d/transact! conn [(update idea :idea/at #(java.util.Date. (long %)))])
   nil)
 
+(defn replace!
+  "Store `idea` (see robertluo.fly-learner.ideas/idea) in place of the one
+  with its id: what it no longer has (its text) goes."
+  [conn {:idea/keys [id] :as idea}]
+  (let [db  (d/db conn)
+        e   (d/entid db [:idea/id id])
+        old (when e (d/pull db [:idea/text] e))]
+    (d/transact! conn (cond-> [(update idea :idea/at #(java.util.Date. (long %)))]
+                        (and (:idea/text old) (not (:idea/text idea)))
+                        (conj [:db/retract e :idea/text (:idea/text old)])))
+    nil))
+
 (defn delete!
   "Remove idea `id`; true when it existed. Links to it from other ideas
   are left, and read as nothing (robertluo.fly-learner.ideas/links)."

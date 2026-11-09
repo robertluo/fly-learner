@@ -18,12 +18,14 @@
     {:clusters {{:cluster/id id} nil}}             ; not a topic: remove it and its concepts
     '{:ideas ?all}                                 ; the learner's ideas, resolved to what they are about
     {:ideas {nil {:idea/stance :note ..}}}         ; add one; {:ideas {{:idea/id id} nil}} removes it
+    {:ideas {{:idea/id id} {:idea/stance .. :idea/text .. :idea/links [..]}}} ; rewrite one
     {:questions {nil {:question/item item}}}       ; a question (item nil: what to study next): the
                                                     ; author's exercise not answered yet, else written
     {:questions {nil {:question/item item :question/exercise id}}} ; that exercise of the item
     {:answers {nil {:question/id .. :response \"..\"}}} ; grade an answer, record it, new scores
     '{:search {{:q \"function extensionality\"} ?hits}} ; full-text + graph ranking, no model
     '{:goto {{:q \"nash\"} ?r}}                    ; {:concepts [..] :exercises [..]} the box names, as typed
+    '{:named {{:term \"tabulation\"} ?hits}}      ; passages whose text names a term (a term of the learner's)
     '{:asks ?recent}                                ; recent questions
     '{:asks {{:ask/id #uuid \"..\"} ?ask}}         ; an answer with its cited subgraph
     {:asks {nil {:ask/question \"..\"}}}           ; ask: answer with Claude, store, return it
@@ -197,7 +199,8 @@
   (fetch [_ {:idea/keys [id]}] (when (uuid? id) (some #(when (= id (:idea/id %)) %) (ideas/all (d/db conn)))))
   (list-all [_] (ideas/all (d/db conn)))
   (create! [_ data] (ideas/create! conn data))
-  (update! [_ _ _] {:error {:type :forbidden :message "ideas are added or removed"}})
+  (update! [_ {:idea/keys [id]} data]
+    (if (and (uuid? id) (map? data)) (ideas/update! conn id data) {:error {:type :invalid :message "Which idea?"}}))
   (delete! [_ {:idea/keys [id]}] (boolean (and (uuid? id) (ideas/delete! conn id)))))
 
 (defn- lazy-value
@@ -234,10 +237,11 @@
                                   (let [db (d/db conn)]
                                     (some->> (db/node-at-page db id page near) (node-of db))))))
         kps     (query-lookup (fn [{:source/keys [id]}] (when (uuid? id) (keypoints/for-source (d/db conn) id))))
+        named   (query-lookup (fn [{:keys [term]}] (ideas/named (d/db conn) term)))
         kws     (query-lookup (fn [{:keys [keyword]}] (when (string? keyword)
                                                         (db/nodes-with-keyword (d/db conn) keyword))))]
     (fn [_request]
-      {:data   {:sources sources :nodes nodes :pages pages :keypoints kps :keywords kws :search search :goto goto :asks asks
+      {:data   {:sources sources :nodes nodes :pages pages :keypoints kps :keywords kws :named named :search search :goto goto :asks asks
                 :concepts concepts
                 :concept-graph (lazy-value #(concept-view/graph (d/db conn)))
                 :learning (lazy-value #(study/overview (d/db conn) learning))

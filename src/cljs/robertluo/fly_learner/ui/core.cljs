@@ -95,8 +95,8 @@
                  (some-> js/window.localStorage (.setItem split-key (str (:split new)))))
                (when (not= (db/doc-zoom old) (db/doc-zoom new))
                  (some-> js/window.localStorage (.setItem doc-zoom-key (str (db/doc-zoom new)))))
-               (when (not= (select-keys old [:view :node-id :ask-id :keyword :concept-id])
-                           (select-keys new [:view :node-id :ask-id :keyword :concept-id]))
+               (when (not= (select-keys old [:view :node-id :ask-id :keyword :term :concept-id])
+                           (select-keys new [:view :node-id :ask-id :keyword :term :concept-id]))
                  (js/window.scrollTo 0 0)))))
 
 ;;=============================================================================

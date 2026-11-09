@@ -14,7 +14,8 @@
      :idea/stance  :agree | :restate | :disagree | :note | :highlight | :bookmark
      :idea/text    Markdown (required for a note or a restatement, optional
                    otherwise); `[[a term]]` (or `[[a term|shown]]`) links to
-                   what the term names, `wikilinks`
+                   what the term names, `wikilinks`; `[[A]] needs [[B]]`
+                   states a prerequisite, `claims`
      :idea/anchors [anchor ..]   what it is about (one or more)
      :idea/links   [idea-id ..]  other ideas it relates to
      :idea/at      epoch ms}
@@ -97,6 +98,34 @@
   (->> (re-seq #"\[\[([^\[\]\n]+)\]\]" (without-code (or text "")))
        (map (comp first wikilink second))
        (remove str/blank?)
+       distinct
+       vec))
+
+(defn term-key
+  "What a term written in `[[..]]` is grouped by: any case, any spacing."
+  [t]
+  (-> (str t) str/trim str/lower-case (str/replace #"\s+" " ")))
+
+(def ^:private link-re "\\[\\[([^\\[\\]\\n]+)\\]\\]")
+
+(def ^:private needs-re
+  "`[[A]] needs [[B]]` (requires, depends on, builds on, assumes), `[[B]]
+  (comes) before [[A]]`; more needed ones may follow, by commas or and."
+  (re-pattern (str link-re "\\s+(needs|requires|depends on|builds on|assumes|(?:comes |is learned )?before)\\s+"
+                   "(" link-re "(?:\\s*(?:,|,?\\s+and)\\s+" link-re ")*)")))
+
+(defn claims
+  "Prerequisites stated in Markdown `text`: [[of needs] ..] terms, `[[A]]
+  needs [[B]]` (or requires, depends on, builds on, assumes; `[[B]] before
+  [[A]]` the other way round). Once each, none in code."
+  [text]
+  (->> (re-seq needs-re (without-code (or text "")))
+       (mapcat (fn [[_ a verb more]]
+                 (let [a  (first (wikilink a))
+                       bs (map (comp first wikilink second) (re-seq (re-pattern link-re) more))]
+                   (for [b bs]
+                     (if (str/includes? verb "before") [b a] [a b])))))
+       (remove (fn [[a b]] (or (str/blank? a) (str/blank? b) (= (term-key a) (term-key b)))))
        distinct
        vec))
 
@@ -213,4 +242,12 @@
   (wikilinks nil) ;=> []
   (wikilink "closure|closures") ;=> ["closure" "closures"]
   (wikilink "lambda") ;=> ["lambda" "lambda"]
+
+  ;; prerequisites stated: needs and its kin, several at once, before the other way round
+  (claims "[[Streams]] need nothing, but [[stream|streams]] needs [[delay]], [[force]] and [[cons-stream]].")
+  ;=> [["stream" "delay"] ["stream" "force"] ["stream" "cons-stream"]]
+  (claims "[[closure]] builds on [[environment]]; [[lambda]] comes before [[closure]]. `[[a]] needs [[b]]`")
+  ;=> [["closure" "environment"] ["closure" "lambda"]]
+  (claims "[[x]] does not need [[y]]; [[x]] needs [[X]]") ;=> []
+  (term-key " Lambda   Calculus ") ;=> "lambda calculus"
   )

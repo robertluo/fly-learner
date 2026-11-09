@@ -154,7 +154,7 @@
   (loop [eid eid, acc ()]
     (if-let [parent (first (:node/_children (d/pull db [{:node/_children [:db/id]}] eid)))]
       (let [pid (:db/id parent)]
-        (recur pid (conj acc (d/pull db [:node/id :node/title :node/kind] pid))))
+        (recur pid (conj acc (d/pull db [:node/id :node/title :node/kind :node/order] pid))))
       (vec acc))))
 
 (defn- node-concepts

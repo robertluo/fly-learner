@@ -54,7 +54,7 @@
 (defn- spa-route?
   "Client-side routes served by index.html (see robertluo.fly-learner.ui.core.history)."
   [uri]
-  (or (#{"/" "/c" "/q" "/x"} uri) (some #(str/starts-with? uri %) ["/n/" "/k/" "/a/" "/c/" "/g/" "/x/"])))
+  (or (#{"/" "/b" "/c" "/q" "/x"} uri) (some #(str/starts-with? uri %) ["/n/" "/k/" "/t/" "/a/" "/c/" "/g/" "/x/"])))
 
 (defn make-ring-app [conn api-fn]
   (-> (fn [{:keys [uri request-method]}]

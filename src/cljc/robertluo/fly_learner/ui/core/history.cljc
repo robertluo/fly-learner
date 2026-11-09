@@ -24,15 +24,17 @@
 
 (defn state->path
   "URL for db; nil while a question waits for its answer (no URL yet)."
-  [{:keys [view node-id keyword ask-id concept-id cluster-id doc exploration-id]}]
+  [{:keys [view node-id keyword term ask-id concept-id cluster-id doc exploration-id]}]
   (case view
     :cluster  (str "/g/" cluster-id)
     :node     (str "/n/" node-id (when-let [p (:page doc)] (str "?page=" p)))
     :concept  (str "/c/" concept-id)
     :concepts "/c"
+    :notebook "/b"
     :study    "/q"
     :explore  (if exploration-id (str "/x/" (url-encode (str exploration-id))) "/x")
     :keyword (str "/k/" (url-encode keyword))
+    :term    (str "/t/" (url-encode term))
     :ask     (when ask-id (str "/a/" ask-id))
     "/"))
 
@@ -47,14 +49,17 @@
       (when-let [[_ id] (re-matches #"/c/([0-9a-f-]{36})/?" path)]
         {:view :concept :id (parse-uuid id)})
       (when (re-matches #"/c/?" path) {:view :concepts})
+      (when (re-matches #"/b/?" path) {:view :notebook})
       (when (re-matches #"/q/?" path) {:view :study})
       (when (re-matches #"/x/?" path) {:view :explore})
       (when-let [[_ id] (re-matches #"/x/([0-9a-f-]{36})/?" path)]
         {:view :explore :id (parse-uuid id)})
       (when-let [[_ id] (re-matches #"/x/([^/?]+)/?" path)]
         {:view :explore :id (url-decode id)})
-      (when-let [[_ kw] (re-matches #"/k/(.+?)/?" path)]
+      (when-let [[_ kw] (re-matches #"/k/([^/]+)/?" path)]
         {:view :keyword :keyword (url-decode kw)})
+      (when-let [[_ t] (re-matches #"/t/([^/]+)/?" path)]
+        {:view :term :term (url-decode t)})
       {:view :home}))
 
 #?(:cljs
@@ -89,6 +94,7 @@
   (path->state "/n/00000000-0000-0000-0000-000000000001")
   ;=> {:view :node :id #uuid "00000000-0000-0000-0000-000000000001"}
   (path->state "/k/system%20f%CF%89") ;=> {:view :keyword :keyword "system fω"}
+  (path->state (state->path {:view :term :term "delayed evaluation"})) ;=> {:view :term :term "delayed evaluation"}
   ;; the source on another page than the node's
   (state->path {:view :node :node-id #uuid "00000000-0000-0000-0000-000000000001" :doc {:page 88}})
   ;=> "/n/00000000-0000-0000-0000-000000000001?page=88"
