@@ -1,8 +1,10 @@
 (ns robertluo.fly-learner.ingest
   "Source -> knowledge DAG -> database.
 
-  A source is a document read as pages: a PDF (robertluo.fly-learner.ingest.pdf)
-  or an EPUB (robertluo.fly-learner.ingest.epub, its text cut into pages).
+  A source is a document read as pages: a PDF (robertluo.fly-learner.ingest.pdf),
+  an EPUB (robertluo.fly-learner.ingest.epub, its text cut into pages) or a
+  folder of Markdown files (robertluo.fly-learner.ingest.markdown, a
+  repository's docs, say: its files as chapters, cut into pages the same way).
   Each format gives the same blocks (headings and paragraphs, each on its
   page); from there on nothing depends on the format, but showing it.
 
@@ -23,35 +25,77 @@
             [datalevin.core :as d]
             [robertluo.fly-learner.fold :as fold]
             [robertluo.fly-learner.ingest.epub :as epub]
+            [robertluo.fly-learner.ingest.markdown :as markdown]
             [robertluo.fly-learner.ingest.outline :as outline]
             [robertluo.fly-learner.ingest.pdf :as pdf]))
 
 (def formats
-  "Source type -> its extract fn: path -> {:title :pages :blocks}."
-  {:pdf  pdf/extract
-   :epub epub/extract})
+  "Source type -> its extract fn: (path opts) -> {:title :pages :blocks}.
+  opts: :skip, the parts or files of a Markdown folder left out."
+  {:pdf      (fn [path _] (pdf/extract path))
+   :epub     (fn [path _] (epub/extract path))
+   :markdown markdown/extract})
 
 (defn source-type
-  "The type of the source file at `path` (a key of `formats`), by its
-  extension; nil when not one."
+  "The type of the source at `path` (a key of `formats`): a folder or a .md
+  file is :markdown, else by its extension; nil when not one."
   [path]
   (let [t (some-> (re-find #"\.([A-Za-z0-9]+)$" (str path)) second str/lower-case keyword)]
-    (when (contains? formats t) t)))
+    (cond (.isDirectory (io/file (str path))) :markdown
+          (#{:md :markdown} t)                :markdown
+          (contains? formats t)               t)))
 
 ^:rct/test
 (comment
   (source-type "data/sources/sicp.epub") ;=> :epub
   (source-type "a/B.PDF") ;=> :pdf
+  (source-type "README.md") ;=> :markdown
+  (source-type "src") ;=> :markdown
   (source-type "notes.txt") ;=> nil
   )
 
-(defn outline
-  "Extract `path` into a regrouped section tree (no model calls)."
-  [path]
+(defn- extract [path opts]
   (let [extract (or (formats (source-type path))
-                    (throw (ex-info (str "Not a source I can read (PDF or EPUB): " path) {:path (str path)})))
-        {:keys [title blocks]} (extract path)]
-    (fold/regroup (outline/tree title blocks))))
+                    (throw (ex-info (str "Not a source I can read (PDF, EPUB or a folder of Markdown): " path)
+                                    {:path (str path)})))]
+    (extract path opts)))
+
+(defn outline
+  "Extract `path` into a regrouped section tree (no model calls). opts as `formats`."
+  ([path] (outline path {}))
+  ([path opts]
+   (let [{:keys [title blocks]} (extract path opts)]
+     (fold/regroup (outline/tree title blocks)))))
+
+(defn tree-texts
+  "The paragraph texts of section tree `tree` (`outline`)."
+  [tree]
+  (keep :text (tree-seq :children :children tree)))
+
+(defn- sections
+  "The sections of `tree` down to `depth`: [{:title :depth :page :chars}]."
+  [tree depth]
+  (letfn [(walk [t d]
+            (when (and (:children t) (not (:group t)) (<= d depth))
+              (cons {:title (:title t) :depth d :page (:page t) :chars (reduce + (map count (tree-texts t)))}
+                    (mapcat #(walk % (inc d)) (:children t)))))]
+    (vec (mapcat #(walk % 1) (:children tree)))))
+
+(defn preview
+  "What ingesting `path` would make, calling no model: {:title :type :pages
+  :chars :sections (down to depth 3) :about (a Markdown folder's manifest,
+  parts left out, ..) :estimate (of folding it, fold/estimate)}.
+  opts: :skip (as `formats`), :models."
+  [path {:keys [models] :as opts}]
+  (let [{:keys [title pages blocks about]} (extract path opts)
+        tree (fold/regroup (outline/tree title blocks))]
+    {:title    (:title tree)
+     :type     (source-type path)
+     :pages    pages
+     :chars    (reduce + (map count (tree-texts tree)))
+     :sections (sections tree 3)
+     :about    about
+     :estimate (fold/estimate tree models)}))
 
 (defn- internal-count [tree]
   (if (:children tree) (inc (reduce + (map internal-count (:children tree)))) 0))
@@ -81,6 +125,13 @@
             (when (pos? n) (.update md buf 0 n) (recur))))))
     (apply str (map #(format "%02x" (bit-and % 0xff)) (.digest md)))))
 
+(defn content-hash
+  "The hash of the source at `path` of `type`: its file's bytes
+  (`file-hash`), a Markdown folder's book (markdown/content-hash: its
+  manifest and chapters, opts :skip)."
+  [path type opts]
+  (if (= :markdown type) (markdown/content-hash path opts) (file-hash path)))
+
 (defn source-id
   "The id of a new source with content `hash`."
   [hash]
@@ -109,11 +160,6 @@
   "Share of the text two versions of a document have in common at least."
   0.6)
 
-(defn tree-texts
-  "The paragraph texts of section tree `tree` (`outline`)."
-  [tree]
-  (keep :text (tree-seq :children :children tree)))
-
 (defn- source-texts [db sid]
   (d/q '[:find [?t ...] :in $ ?sid :where [?s :source/id ?sid] [?n :node/source ?s] [?n :node/text ?t]] db sid))
 
@@ -131,7 +177,7 @@
       (some->> (d/q '[:find ?id . :in $ ?p :where [?s :source/path ?p] [?s :source/id ?id]] db path)
                (hash-map :by :path :source/id))
       (let [gone (for [[id p] (d/q '[:find ?id ?p :where [?s :source/id ?id] [?s :source/path ?p]] db)
-                       :when (not (.isFile (io/file p)))]
+                       :when (not (.exists (io/file p)))]
                    [id p])]
         (when (seq gone)
           (let [mine (shingles texts)
@@ -154,17 +200,27 @@
                                 (concat nodes xs)))
         (count nodes)))))
 
+(defn- stored-skip
+  "The parts left out of the source last ingested from `path`, nil when none."
+  [db path]
+  (not-empty (d/q '[:find [?k ...] :in $ ?p :where [?s :source/path ?p] [?s :source/skip ?k]] db path)))
+
 (defn ingest-source!
-  "Extract, fold with Claude and store the source at `path` (a PDF or an
-  EPUB, `formats`), replacing an earlier ingest of
+  "Extract, fold with Claude and store the source at `path` (a PDF, an
+  EPUB or a folder of Markdown, `formats`), replacing an earlier ingest of
   the same source (`same-source`: the same content, the same path, or most
   of the text with the old file gone), whose id it keeps. Prints progress.
   opts: :models  tier -> model id overrides (config.edn [:anthropic :models])
+        :skip    a Markdown folder's parts or files left out (kept with the
+                 source: ingesting the same path again leaves them out too)
   Returns {:source-id .. :nodes n :fold-file ..}."
   ([conn client path] (ingest-source! conn client path {}))
-  ([conn client path {:keys [models]}]
-  (let [hash  (file-hash path)
-        tree  (outline path)
+  ([conn client path {:keys [models skip]}]
+  (let [type  (source-type path)
+        skip  (if (some? skip) (vec skip) (stored-skip (d/db conn) (str path)))
+        opts  {:skip skip}
+        hash  (content-hash path type opts)
+        tree  (outline path opts)
         found (same-source (d/db conn) {:path (str path) :hash hash :texts (tree-texts tree)})
         old   (:source/id found)
         _     (when (= :text (:by found))
@@ -178,8 +234,41 @@
         nodes (fold-tree summ tree)
         file  (save-fold! path nodes)
         tx    (fold/->tx {:id (or old (source-id hash)) :title (:title tree) :path (str path) :hash hash
-                          :type (source-type path)}
+                          :type type :skip skip}
                          nodes)]
     (when old (remove-source! conn old))
     (d/transact! conn tx)
     {:source-id (:source/id (first tx)) :nodes (count nodes) :fold-file file})))
+
+;;=============================================================================
+;; Showing a source shown as HTML pages (EPUB, Markdown)
+;;=============================================================================
+
+(defn html-pages?
+  "Are the pages of a source of `type` shown as HTML (`page-html`)?"
+  [type]
+  (contains? #{:epub :markdown} type))
+
+(defn page-html
+  "The pages of `source` ({:source/path :source/type :source/skip}) as HTML
+  to show: [html ..]. `resource-url`: a name (an image) -> its URL."
+  [{:source/keys [path type skip]} resource-url]
+  (case type
+    :epub     (epub/page-html path resource-url)
+    :markdown (markdown/page-html path {:skip skip} resource-url)))
+
+(defn page-version
+  "What changes when the pages of `source` do."
+  [{:source/keys [path type skip]}]
+  (if (= :markdown type)
+    (markdown/content-hash path {:skip skip})
+    (let [f (io/file path)] [(.lastModified f) (.length f)])))
+
+(defn resource
+  "The bytes and media type of what `source`'s pages show by `name` (an
+  image), nil when none: {:bytes :type}."
+  [{:source/keys [path type]} name]
+  (case type
+    :epub     (epub/resource path name)
+    :markdown (markdown/resource path name)
+    nil))

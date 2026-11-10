@@ -806,6 +806,12 @@ form.ask input:focus { outline: 2px solid var(--accent-soft); border-color: var(
 .html-page a[data-goto]:hover, .html-page a[target]:hover { text-decoration: underline; }
 .html-page sup { line-height: 0; }
 .html-page math[display="block"] { margin: .6em 0; }
+/* a Markdown folder: formulas (ingest.tex), what a chapter's front matter says */
+.html-page [data-tex="display"] { margin: .6em 0; overflow-x: auto; overflow-y: hidden; }
+.html-page p[data-lead] { font-size: 1.08em; color: #444; font-style: italic; }
+.html-page p[data-aside] { font-size: .85em; color: #666; display: flex; flex-wrap: wrap; gap: .35em .5em; align-items: center; }
+.html-page p[data-aside] [data-tag] { background: #eef3f1; color: #2f6f5e; border-radius: 1em; padding: .05em .6em; }
+.html-page p[data-aside] [data-byline] { margin-left: auto; }
 /* footnotes, where the book puts them */
 .html-page .note { font-size: .88em; border-top: 1px solid #ddd; padding-top: .5em; margin-top: .8em; }
 .html-page .note + .note { border-top: none; padding-top: 0; margin-top: 0; }

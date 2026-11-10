@@ -28,7 +28,8 @@
                   "[shadow.cljs.devtools.server.nrepl/middleware,cider.nrepl/cider-middleware,cider.piggieback/wrap-cljs-repl]")}
 
   ingest
-  {:doc "Ingest PDFs: bb ingest data/sources/<file>.pdf ... Folds each with Claude, then
+  {:doc "Ingest sources: bb ingest data/sources/<file>.pdf|.epub|<folder of Markdown> ...
+         [--skip <part>,..] [--outline: preview, no model]. Folds each with Claude, then
          resolves new keywords into concepts. Runs inside the dev REPL when one is up
          (the running app's db; only one process may write it), else in a new JVM"
    :requires ([ingest-task])

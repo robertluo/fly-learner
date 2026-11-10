@@ -33,7 +33,7 @@
 
 (defn run [paths]
   (when (empty? paths)
-    (println "Usage: bb ingest data/sources/<file>.pdf ...")
+    (println "Usage: bb ingest data/sources/<file>.pdf|.epub|<folder of Markdown> ... [--skip <part>,..] [--outline]")
     (System/exit 1))
   (if-let [sock (repl-socket)]
     (with-open [s sock]

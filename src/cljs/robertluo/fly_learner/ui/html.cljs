@@ -1,10 +1,32 @@
 (ns robertluo.fly-learner.ui.html
-  "Draws a source whose pages are HTML (an EPUB, cut into pages by the
-  server: robertluo.fly-learner.ingest.epub/page-html). The page is the
+  "Draws a source whose pages are HTML (an EPUB or a folder of Markdown,
+  cut into pages by the server: robertluo.fly-learner.ingest/page-html). The page is the
   document's own text, so it is its text layer too: selectable, and found
   by its text nodes. Its type scales with the page's width (style.css), so
   the page lays out the same at any zoom, as a PDF page does, and boxes in
-  fractions of it stay where they were.")
+  fractions of it stay where they were.
+
+  Formulas (an element with data-tex, its text the TeX in its delimiters:
+  robertluo.fly-learner.ingest.tex) are typeset by KaTeX once the pages are
+  fetched. A page's text is its formulas' TeX, not KaTeX's drawing of it, so
+  it is what the knowledge base read."
+  (:require ["katex" :as katex]
+            [clojure.string :as str]))
+
+(defn- typeset
+  "Page `html` with its formulas typeset."
+  [html]
+  (if-not (str/includes? html "data-tex")
+    html
+    (let [t (js/document.createElement "template")]
+      (set! (.-innerHTML t) html)
+      (doseq [^js el (array-seq (.querySelectorAll (.-content t) "[data-tex]"))]
+        (let [display? (= "display" (.getAttribute el "data-tex"))
+              n        (if (and display? (str/starts-with? (.-textContent el) "$$")) 2 1)
+              s        (str/trim (.-textContent el))
+              tex      (subs s n (max n (- (count s) n)))]
+          (set! (.-innerHTML el) (.renderToString katex tex #js {:displayMode display? :throwOnError false}))))
+      (.-innerHTML t))))
 
 (defonce ^:private docs (atom {})) ; url -> Promise<[html ..]>
 
@@ -14,7 +36,7 @@
   (or (get @docs url)
       (let [p (-> (js/fetch url)
                   (.then (fn [^js r] (if (.-ok r) (.json r) (throw (js/Error. (str url ": " (.-status r)))))))
-                  (.then js->clj)
+                  (.then #(mapv typeset (js->clj %)))
                   (.catch (fn [e] (swap! docs dissoc url) (throw e))))]
         (swap! docs assoc url p)
         p)))
@@ -51,8 +73,19 @@
   [^js page f]
   (.then (settled page) (fn [_] (when (.-isConnected page) (f)))))
 
+(defn- read-text?
+  "Is text node `n` part of the page's text? Of a typeset formula, only its
+  TeX (the annotation KaTeX keeps in its MathML), not the glyphs drawn."
+  [^js n]
+  (let [^js p (.-parentElement n)]
+    (cond (nil? p)                          true
+          (.closest p ".katex-html")        false
+          (.closest p ".katex-mathml")      (= "annotation" (str/lower-case (.-tagName p)))
+          :else                             true)))
+
 (defn- text-nodes [^js el]
-  (let [w (js/document.createTreeWalker el js/NodeFilter.SHOW_TEXT)]
+  (let [w (js/document.createTreeWalker el js/NodeFilter.SHOW_TEXT
+                                        #js {:acceptNode #(if (read-text? %) js/NodeFilter.FILTER_ACCEPT js/NodeFilter.FILTER_REJECT)})]
     (loop [out []] (if-let [n (.nextNode w)] (recur (conj out n)) out))))
 
 (defn page-text

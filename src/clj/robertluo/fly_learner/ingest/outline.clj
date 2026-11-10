@@ -2,6 +2,7 @@
   "Build a section tree from flat extracted blocks.
 
     {:title t :depth d :page p :children [section-or-paragraph ...]}
+    (:tags [..] too when its heading has keywords: a Markdown chapter's tags)
     paragraph = {:text .. :page ..}")
 
 (def default-skip
@@ -33,7 +34,8 @@
                   (case kind
                     :heading (let [stack (loop [s stack]
                                            (if (>= (:depth (peek s)) depth) (recur (close-top s)) s))]
-                               (conj stack {:title (:title b) :depth depth :page (:page b) :children []}))
+                               (conj stack (cond-> {:title (:title b) :depth depth :page (:page b) :children []}
+                                             (:keywords b) (assoc :tags (:keywords b)))))
                     :text    (update-in stack [(dec (count stack)) :children]
                                         conj (select-keys b [:text :page]))))
                 [{:title title :depth 0 :children []}]

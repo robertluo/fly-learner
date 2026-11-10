@@ -4,7 +4,8 @@
   quotes marked, bookmarks and the page box. All of it is about pages; only
   drawing a page depends on the source's kind (`source-doc`): a PDF's by
   pdf.js (a canvas, its text layer over it: robertluo.fly-learner.ui.pdf),
-  an EPUB's as HTML the server cut into pages (robertluo.fly-learner.ui.html).
+  an EPUB's or a Markdown folder's as HTML the server cut into pages
+  (robertluo.fly-learner.ui.html).
   Finding texts on a page and scrolling are robertluo.fly-learner.ui.pages.
   The DOM hooks are inert on the JVM."
   (:require [robertluo.fly-learner.ui.core.api :as api]
@@ -23,13 +24,14 @@
   "How the pages of `source` ({:source/id :source/type}) are drawn:
   {:kind :pdf|:html :url ..}, the url also naming the document in the state."
   [{:source/keys [id type]}]
-  (if (= :epub type)
+  (if (#{:epub :markdown} type)
     {:kind :html :url (api/source-pages-url id)}
     {:kind :pdf :url (api/source-url id)}))
 
 ^:rct/test
 (comment
   (= {:kind :html :url (api/source-pages-url "s")} (source-doc {:source/id "s" :source/type :epub})) ;=> true
+  (= {:kind :html :url (api/source-pages-url "s")} (source-doc {:source/id "s" :source/type :markdown})) ;=> true
   (= {:kind :pdf :url (api/source-url "s")} (source-doc {:source/id "s" :source/type :pdf})) ;=> true
   (= {:kind :pdf :url (api/source-url "s")} (source-doc {:source/id "s"})) ;=> true
   )

@@ -7,27 +7,49 @@ See README.md for goals. Roadmap: backend (knowledge base from one source) first
 Web stack follows flybot.sg (github.com/flybot-sg/lasagna-pattern, `examples/flybot-site`); Datalevin instead of Datahike.
 
 - `src/clj/robertluo/fly_learner/` — backend
-  - `ingest` — `ingest-source!`: a PDF or EPUB (`formats`, `source-type` by extension: `:source/type`) -> blocks ->
-    section tree -> fold with Claude -> `data/folds/*.edn` + Datalevin. A source is read as pages whatever its format:
-    from the blocks on, nothing depends on it but drawing a page (UI `views.document`). A source is its
-    document, not its path: `same-source` finds it by content (`file-hash`, `:source/hash`), else by path (changed in
-    place), else by text (moved and changed: a source whose file is gone from its path sharing `moved-overlap` of its
-    word 5-grams, `shingles`), and a re-ingest keeps its `:source/id` (a new one derives from the hash); the path is only where to read it
+  - `ingest` — `ingest-source!`: a PDF, an EPUB or a folder of Markdown (`formats`, `source-type`: a folder or `.md`
+    is `:markdown`, else by extension: `:source/type`) -> blocks -> section tree -> fold with Claude ->
+    `data/folds/*.edn` + Datalevin. A source is read as pages whatever its format: from the blocks on, nothing depends
+    on it but drawing a page (UI `views.document`; `html-pages?`, `page-html`, `resource` for the HTML ones). A source
+    is its document, not its path: `same-source` finds it by content (`content-hash`: a file's bytes, a folder's book;
+    `:source/hash`), else by path (changed in place), else by text (moved and changed: a source whose file is gone from
+    its path sharing `moved-overlap` of its word 5-grams, `shingles`), and a re-ingest keeps its `:source/id` (a new one
+    derives from the hash); the path is only where to read it. `:skip` (a folder's parts left out) is stored,
+    `:source/skip`, and used again by a re-ingest of the path. `preview`: chapters, pages and `fold/estimate`, no model
   - `ingest/pdf` — PDFBox paragraphs -> blocks (`:heading` / `:text`, each with its `:page`), headings recognised from text
-  - `ingest/epub` — jsoup: spine documents cleaned (`clean`: no scripts/styles/nav, SVG `<object>` -> `<img>`), cut into
-    pages (`page-chars` ~3000, a document starts a page) between leaf blocks; `extract` -> the same blocks (heading depth
-    from the toc, nav or NCX; code/display math joins the paragraph before; a footnote moves after the paragraph citing
-    it, keeping its page), `page-html` -> the same pages as HTML to show (no ids, classes prefixed `b-`, links inside the
-    book -> `data-goto` page, images by URL), `resource` an entry (image)
+  - `ingest/book` — a book of HTML documents read as pages, whatever made it: a package `{:title :docs [[name doc]]
+    :toc {[name frag] depth} :redirects :outside}`; documents cleaned (`clean`: no scripts/styles/nav, SVG `<object>`
+    -> `<img>`), cut into pages (`page-chars` ~3000, a document starts a page) between leaf blocks; `extract` -> blocks
+    (heading depth from the toc, its `data-keywords` -> `:keywords`; code/display math (`<math>`,
+    `data-tex="display"`) joins the paragraph before; `data-aside` shown, not read; a footnote moves after the
+    paragraph citing it, keeping its page), `page-html` -> the same pages as HTML to show (no ids, classes prefixed
+    `b-`, links inside the book -> `data-goto` page, others by `:outside` or none, images by URL)
+  - `ingest/epub` — jsoup: an EPUB's package (spine documents, toc from nav or NCX) for `ingest/book`; `resource` an entry
+  - `ingest/markdown` — a folder of Markdown (a repository's docs) or one file, for `ingest/book`: CommonMark + GFM to
+    HTML, a file a chapter; reading order and parts from `docs.json`/`mint.json` (any JSON nav tree), `SUMMARY.md`
+    (mdBook/GitBook), else the folder (index first, natural order, folders as parts); part headings put before their
+    first chapter; `:skip` titles or files left out; a chapter's headings under it (titled by its one top heading, else
+    by the manifest); names from the top of the git repository holding it (unless it ignores the folder): GitHub
+    anchors, links elsewhere in the repository open on GitHub at the commit, images served from inside it only;
+    `content-hash` = manifest + chapters + skip. Front matter (YAML via clj-yaml, read safely; Hugo's TOML, top
+    keys): `fields` -> title, description (a lead paragraph under the chapter heading, `data-lead`: read as its first
+    passage), tags (chips, `data-aside`, and the heading's `data-keywords` -> the section's `:tags` -> its keywords,
+    `fold/summarize-tree`), authors and date (byline), order (`sidebar_position`, `nav_order`, `weight`, ..; folders by
+    Docusaurus `_category_`), drafts left out. `mkdocs.yml` not read yet
+  - `ingest/tex` — TeX in Markdown as GitHub reads it, a commonmark-java parser + renderer extension: inline `$..$`
+    (no space inside the delimiters, no digit after the closing one, no other `$`: "$5 or $10" is text), `$$..$$`,
+    `$$` blocks, ```` ```math ```` fences (`math-fences!`) -> `<span|div data-tex="inline|display">` holding the TeX
+    in its delimiters (what the knowledge base reads); the UI typesets them (`ui/html`)
   - `ingest/outline` — blocks -> section tree (drops cover pages, contents, bibliography, ...)
-  - `fold` — regroup long sections, bottom-up summaries, flatten to nodes, keyword cross-links, `->tx`
+  - `fold` — regroup long sections, bottom-up summaries, flatten to nodes, keyword cross-links, `->tx`; `estimate`:
+    a rough cost of folding a tree before any call (calibrated on the first thesis)
   - `llm` — Anthropic Java SDK; `complete`, `complete-json` (structured outputs), `usage`/`cost` per model.
     Two tiers in `config.edn` `[:anthropic :models]`: `:strong` (Sonnet: sections, chapters, quizzes) and
     `:common` (Haiku: paragraph groups). The system prompt carries a cache breakpoint; keep it identical
     across calls (fold puts the document outline there) and put per-call content in the user prompt.
   - `server/system` — fun-map `life-cycle-map` (db, api-fn, ring app, http-kit)
-  - `server/files` — `/files/sources/<id>` the original file; an EPUB's `/pages` (JSON array of page HTML, cached per
-    file version) and `/res/<entry>` (its images)
+  - `server/files` — `/files/sources/<id>` the original file; an EPUB's or a Markdown folder's `/pages` (JSON array of
+    page HTML, cached per version, `ingest/page-version`) and `/res/<name>` (its images, sent with CSP `sandbox`)
   - `server/api` — lasagna-remote pull API on `/api`: `:sources`, `:asks` (collections; creating an ask runs the
     model), `:concepts` (collection: create adds a concept the model missed, delete removes one: `server/curation`), `:nodes` (with `:node/concepts`; `:node/keywords` keeps only
     keywords naming no concept), `:keywords`, `:search` (lookups), `:goto` (lookup: the concepts and book exercises the top box's text names, as typed), `:learning` (lazy overview), `:universe` (lazy:
@@ -136,8 +158,9 @@ Web stack follows flybot.sg (github.com/flybot-sg/lasagna-pattern, `examples/fly
   drops one that would close a loop), label boxes never overlap;
   unconnected parts laid out apart and packed in rows below the largest, else repulsion strands them far away; tween)
 - `src/cljs/robertluo/fly_learner/ui/` — `core` (dispatch-of effects `:db`/`:pull`/`:history`/`:animate`, requests via `api/send!`, render,
-  mouseup -> text selection), `pdf` (pdf.js: render a page, its selectable text layer, `page-text`), `html` (an EPUB's pages:
-  fetched once, `page-text` from the page's text nodes, `when-laid-out!`), `pages` (whatever draws them: `find-each!`,
+  mouseup -> text selection), `pdf` (pdf.js: render a page, its selectable text layer, `page-text`), `html` (an EPUB's or
+  a Markdown folder's pages: fetched once, formulas typeset by KaTeX then (`typeset`), `page-text` from the page's text
+  nodes, a formula's being its TeX annotation, not its glyphs, so it matches the passage text; `when-laid-out!`), `pages` (whatever draws them: `find-each!`,
   `ensure-highlight!` over a kind's `page-text`, as boxes in page fractions; the source as one scrolling column of
   pages (PDF pages drawn near the view only, HTML ones always there): `sync-scroll!` keeps it at the state's page (and at the same spot when pages change
   size: width, zoom), `find-each!` finds texts on a page one by one (key sentences, what is open), `watch-scroll!` turns the page as the learner scrolls; when it pauses the left pane follows: `db/node-at-page` via
@@ -221,7 +244,10 @@ Each layer knows the one below as little as possible, so any part can be reimple
 - `bb dev` — nREPL (backend + shadow-cljs middleware); then `(user/cljs!)`: starts the backend (:8080) if needed and the frontend watch (:3000, proxies pages and `/api` to :8080). `(user/start!)` alone runs just the backend
 - `bb watch` — shadow-cljs without a REPL; `bb serve` — release build served by the backend on :8080
 - `bb test`, `bb lint`; `bb install` / `bb vendor` copy pdf.js into `resources/public/vendor/pdfjs`
-- `bb ingest data/sources/<file>.pdf|.epub ...` — `cli/ingest!` (ingest + fold, then `concept/resolve!`, clusters,
+- `bb ingest data/sources/<file>.pdf|.epub|<folder of Markdown> ... [--skip <part>,..] [--outline]` — `cli/ingest!`
+  (`--outline`: only print chapters, pages and a rough cost, no model nor db; `--skip`: a folder's parts or files left
+  out, remembered for the path. A repository's docs folder: clone it (sparse: `git clone --depth 1 --filter=blob:none
+  --sparse <url> data/sources/<repo>`, `git -C .. sparse-checkout set <folder>`) and ingest the folder) (ingest + fold, then `concept/resolve!`, clusters,
   `concept.prereq/judge!` for new concepts, `keypoints/extract!`, `exercises/extract!` + `exercises/transcribe!` for new sources and `explore.knowledge/propose!` for new passages; prints the cost).
   `bb/ingest_task.clj` evaluates it over nREPL in the running `bb dev` REPL when `.nrepl-port` answers (Datalevin
   must have one writer: the app's), else runs `clojure -M:ingest`. Paths are stored relative to the project

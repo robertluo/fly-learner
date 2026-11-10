@@ -46,7 +46,8 @@
     {:path [ancestor titles] :heading title-or-nil
      :kind :source|:section|:group :items [child ...]}
   and returns {:title .. :summary .. :keywords [..]}.
-  The heading of a real section is kept as its title."
+  The heading of a real section is kept as its title; a section's :tags
+  (the author's, from a Markdown chapter's front matter) join its keywords."
   ([summarize tree] (summarize-tree summarize tree nil))
   ([summarize tree path]
    (let [root?    (nil? path)
@@ -60,7 +61,7 @@
      (-> tree
          (assoc :children children
                 :summary  (:summary result)
-                :keywords (set (map str/lower-case (:keywords result))))
+                :keywords (set (map str/lower-case (concat (:keywords result) (:tags tree)))))
          (assoc :title (or heading (:title result)))))))
 
 ;; --- 3. flatten -----------------------------------------------------------
@@ -117,14 +118,16 @@
 
 (defn ->tx
   "Transaction data for a source and its folded `nodes`: the source's `id`
-  (a new random one when nil), `title`, `path`, content `hash`, `type`.
+  (a new random one when nil), `title`, `path`, content `hash`, `type`,
+  `skip` (a Markdown folder's parts left out).
   Node uuids double as tempids so children/links resolve in one transaction."
-  [{:keys [id title path hash type] :or {type :pdf}} nodes]
+  [{:keys [id title path hash type skip] :or {type :pdf}} nodes]
   (let [tid    str
         root   (first (filter #(zero? (:node/level %)) nodes))
         source (cond-> {:db/id "source" :source/id (or id (random-uuid)) :source/type type
                         :source/title (or (:node/title root) title) :source/path path}
-                 hash (assoc :source/hash hash))]
+                 hash        (assoc :source/hash hash)
+                 (seq skip)  (assoc :source/skip (vec skip)))]
     (into [(cond-> source root (assoc :source/root (tid (:node/id root))))]
           (map (fn [n]
                  (cond-> (assoc n :db/id (tid (:node/id n)) :node/source "source")
@@ -209,3 +212,45 @@ named in the request.")
           (finally
             (.release permits)
             (on-call)))))))
+
+;; --- estimate -------------------------------------------------------------
+
+(def ^:private reply-tokens
+  "About what a summary call writes (title, summary, keywords and its
+  reasoning), by tier: so that the 116-page thesis first folded (README:
+  $0.23) is estimated at $0.26."
+  {:strong 500 :common 250})
+
+(defn estimate
+  "About what folding `tree` (regrouped) with `llm-summarizer` costs, before
+  any call: {:calls {tier n} :usd x}. Tokens taken as characters / 4; a
+  sub-part's title and summary as 700 characters; the system prompt and
+  outline written to the cache once per tier, then read from it."
+  ([tree] (estimate tree nil))
+  ([tree models]
+   (let [system (quot (+ (count system-prompt) (count (outline-text tree))) 4)
+         calls  (letfn [(walk [t root?]
+                          (when (internal? t)
+                            (cons {:tier  (tier-for (cond root? :source (:group t) :group :else :section))
+                                   :input (quot (+ 300 (reduce + (map #(if (internal? %) 700 (count (:text %)))
+                                                                    (:children t))))
+                                                4)}
+                                  (mapcat #(walk % false) (:children t)))))]
+                  (walk tree true))
+         by     (group-by :tier calls)]
+     {:calls (update-vals by count)
+      :usd   (reduce + (for [[tier cs] by
+                             :let [[in out] (llm/prices (llm/model-for models tier) [0 0])
+                                   n        (count cs)]]
+                         (/ (+ (* in (+ (reduce + (map :input cs))
+                                        (* 1.25 system)
+                                        (* 0.1 system (dec n))))
+                               (* out n (reply-tokens tier)))
+                            1e6)))})))
+
+^:rct/test
+(comment
+  (:calls (estimate {:title "Book" :children [{:title "A" :children [{:text "one"} {:text "two"}]}
+                                              {:group true :children [{:text "three"}]}]}))
+  ;=> {:strong 2 :common 1}
+  )

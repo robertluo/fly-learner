@@ -8,6 +8,14 @@
         ;; sources
         org.apache.pdfbox/pdfbox {:mvn/version "3.0.7"}
         org.jsoup/jsoup {:mvn/version "1.21.2"} ; EPUB: its XHTML documents, read and cleaned to show
+        ;; Markdown folders: GitHub's flavour to HTML (the version nextjournal/markdown brings)
+        org.commonmark/commonmark {:mvn/version "0.24.0"}
+        org.commonmark/commonmark-ext-gfm-tables {:mvn/version "0.24.0"}
+        org.commonmark/commonmark-ext-gfm-strikethrough {:mvn/version "0.24.0"}
+        org.commonmark/commonmark-ext-autolink {:mvn/version "0.24.0"}
+        org.commonmark/commonmark-ext-task-list-items {:mvn/version "0.24.0"}
+        org.commonmark/commonmark-ext-footnotes {:mvn/version "0.24.0"}
+        clj-commons/clj-yaml {:mvn/version "1.0.29"} ; their front matter (read safely)
 
         ;; AI
         com.anthropic/anthropic-java {:mvn/version "3.6.0"}

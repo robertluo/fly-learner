@@ -7,10 +7,11 @@
 (def schema
   {;; sources -----------------------------------------------------------
    :source/id       {:db/valueType :db.type/uuid :db/unique :db.unique/identity}
-   :source/type     {:db/valueType :db.type/keyword} ; :pdf, :epub (ingest/formats); later :web ...
+   :source/type     {:db/valueType :db.type/keyword} ; :pdf, :epub, :markdown (a folder; ingest/formats); later :web ...
    :source/title    {:db/valueType :db.type/string}
-   :source/path     {:db/valueType :db.type/string}  ; where the file is now (may move)
-   :source/hash     {:db/valueType :db.type/string :db/unique :db.unique/identity} ; SHA-256 of the file's bytes
+   :source/path     {:db/valueType :db.type/string}  ; where the file (or folder) is now (may move)
+   :source/skip     {:db/valueType :db.type/string :db/cardinality :db.cardinality/many} ; a Markdown folder's parts left out
+   :source/hash     {:db/valueType :db.type/string :db/unique :db.unique/identity} ; SHA-256 of the file's bytes (a Markdown folder: of its book, markdown/content-hash)
    :source/root     {:db/valueType :db.type/ref}     ; level-0 birdview node
    :source/exercises-by {:db/valueType :db.type/string} ; its exercises were looked for, by this model
 
@@ -197,7 +198,7 @@
        vec))
 
 (defn source [db source-id]
-  (d/pull db [:source/id :source/title :source/type :source/path {:source/root [:node/id :node/summary]}]
+  (d/pull db [:source/id :source/title :source/type :source/path :source/skip {:source/root [:node/id :node/summary]}]
           [:source/id source-id]))
 
 (defn nodes-on-page
