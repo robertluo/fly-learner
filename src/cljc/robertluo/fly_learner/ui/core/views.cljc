@@ -77,6 +77,12 @@
                    (dispatch! (nav/ask-effects q)))))
      :clj  nil))
 
+(def ^:private gear
+  [:svg {:viewBox "0 0 24 24" :width 20 :height 20 :aria-hidden "true" :fill "none" :stroke "currentColor"
+         :stroke-width 1.8 :stroke-linecap "round" :stroke-linejoin "round"}
+   [:circle {:cx 12 :cy 12 :r 3.2}]
+   [:path {:d "M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"}]])
+
 (defn- header
   "The map, the clusters being learned (each with its score), and the
   question box: one way in, the rest follows from the page."
@@ -90,10 +96,6 @@
               {:class (when (= :concepts (:view db)) "here") :title "Every concept, A to Z"} "Concepts")
     (nav/link dispatch! {:db db/open-notebook :pull :ideas :history :push} "/b"
               {:class (when (= :notebook (:view db)) "here") :title "What you wrote while reading, as a book"} "Notebook")
-    (nav/link dispatch! {:db db/open-settings :pull :settings :history :push} "/s"
-              {:class (when (= :settings (:view db)) "here")
-               :title (if (db/ingesting? db) "A source is being ingested" "Add sources; the models; the prompts")}
-              "Settings" (when (db/ingesting? db) [:span.busy-dot]))
     (for [{:cluster/keys [id] :keys [score] :as c} (db/learning-clusters db)]
       (nav/cluster-link dispatch! c {:replicant/key (str id)
                                      :class ["learning" (when (= id (:cluster-id db)) "here")]}
@@ -106,7 +108,12 @@
                   :focus   #(dispatch! {:db (fn [d] (db/box-open d true)) :pull :goto})
                   :blur    #(dispatch! {:db (fn [d] (db/box-open d false))})
                   :keydown #(when (= "Escape" (.-key %)) (dispatch! {:db (fn [d] (db/box-open d false))}))}}]
-    (goto-list db dispatch!)]])
+    (goto-list db dispatch!)]
+   (nav/link dispatch! {:db db/open-settings :pull :settings :history :push} "/s"
+             {:class ["settings-link" (when (= :settings (:view db)) "here") (when (db/ingesting? db) "busy")]
+              :title (if (db/ingesting? db) "Settings: a source is being ingested" "Settings: add sources, models, prompts")
+              :aria-label "Settings"}
+             gear)])
 
 (defn- error-banner [{:keys [error]} dispatch!]
   (when error

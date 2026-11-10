@@ -81,7 +81,10 @@
    :split-drag      nil    ; that share while the divider is being dragged
    :fullscreen?     false  ; the browser is full screen, showing only the pane (map, graph, source document)
    :map-view        {}     ; the map's pan and zoom (robertluo.fly-learner.ui.core.viewport)
-   :settings        {:models   nil   ; models by tier and providers (server.api :settings), once fetched
+   :settings        {:models   nil   ; models by tier and providers (server.settings/view), once fetched
+                     :draft    nil   ; those being edited (`models-draft`), saved with `models-request`
+                     :listed   {}    ; provider name -> {:status :models :problem}: what it serves
+                     :tried    {}    ; tier -> {:status :ms :reply :problem}: a tiny request to its model
                      :ingests  nil   ; ingest jobs of the server's run, newest first, with their logs
                      :prompts  nil   ; [{:prompt/id :prompt/group :prompt/title :prompt/about :prompt/default
                                      ;   :prompt/text :prompt/edited?}], once fetched
@@ -1850,11 +1853,13 @@
 
 (defn prompts-fetched [db prompts] (assoc-in db [:settings :prompts] (vec prompts)))
 
+(declare models-fetched)
+
 (defn settings-fetched
   "What the settings page shows: {:settings :ingests :prompts} from the server."
   [db {:keys [settings ingests prompts]}]
   (-> db
-      (assoc-in [:settings :models] settings)
+      (models-fetched settings)
       (ingests-fetched ingests)
       (prompts-fetched prompts)))
 
@@ -1984,4 +1989,151 @@
   (get-in (prompt-saved editing {:prompt/id :a :prompt/group "Reading" :prompt/text "A2"}) [:settings :drafts]) ;=> {}
   (get-in (prompt-dropped editing :a) [:settings :open]) ;=> nil
   (:view (apply-route initial-state {:view :settings})) ;=> :settings
+  )
+
+;; --- models -----------------------------------------------------------------
+
+(def provider-presets
+  "Providers to add in one click: [label provider]."
+  [["oMLX (this Mac)"          {:name "omlx" :type :openai :base-url "http://localhost:8000/v1"}]
+   ["Ollama"                   {:name "ollama" :type :ollama :base-url "http://localhost:11434"}]
+   ["LM Studio"                {:name "lmstudio" :type :openai :base-url "http://localhost:1234/v1"}]
+   ["Anthropic"                {:name "anthropic" :type :anthropic}]
+   ["Another OpenAI-compatible" {:name "custom" :type :openai :base-url "https://"}]])
+
+(defn- tier-of
+  "Tier model `ref` as {:provider :model}: \"p/id\" for provider p, else the default's."
+  [ref names default]
+  (let [[_ p id] (re-matches #"([^/]+)/(.+)" (str ref))]
+    (if (contains? (set names) p) {:provider p :model id} {:provider default :model (str ref)})))
+
+(defn models-draft
+  "The model settings `view` as a draft to edit."
+  [{:keys [providers default models]}]
+  (let [names (map :name providers)]
+    {:providers (mapv #(assoc % :api-key "" :forget-key? false) providers)
+     :default   default
+     :tiers     {:strong (tier-of (:strong models) names default)
+                 :common (tier-of (:common models) names default)}}))
+
+(defn models-fetched
+  "The model settings arrived: shown, and edited from them (unless being edited)."
+  [db view]
+  (let [db (assoc-in db [:settings :models] view)]
+    (if (and view (or (nil? (get-in db [:settings :draft]))
+                      (= (get-in db [:settings :draft]) (get-in db [:settings :base]))))
+      (let [d (models-draft view)]
+        (-> db (assoc-in [:settings :draft] d) (assoc-in [:settings :base] d)))
+      db)))
+
+(defn models-saved
+  "The model settings were saved as `view`: the draft starts from them."
+  [db view]
+  (let [d (models-draft view)]
+    (-> db
+        (assoc-in [:settings :models] view)
+        (assoc-in [:settings :draft] d)
+        (assoc-in [:settings :base] d)
+        (assoc-in [:settings :tried] {}))))
+
+(defn models-dirty? [db] (not= (get-in db [:settings :draft]) (get-in db [:settings :base])))
+
+(defn models-discarded [db] (assoc-in db [:settings :draft] (get-in db [:settings :base])))
+
+(defn- parse-count [v]
+  (let [n (cond (number? v) v
+                (and (string? v) (re-matches #"\s*\d+\s*" v)) #?(:clj (parse-long (clojure.string/trim v)) :cljs (js/parseInt v 10)))]
+    (when (and n (pos? n)) n)))
+
+(defn provider-set
+  "Field `k` of the draft's provider `i` is now `v` (counts read as numbers)."
+  [db i k v]
+  (let [old (get-in db [:settings :draft :providers i :name])
+        v   (if (#{:concurrency :num-ctx :timeout-s} k) (parse-count v) v)
+        db  (assoc-in db [:settings :draft :providers i k] v)]
+    (if (and (= k :name) old)
+      ;; renamed: the default and the tiers follow it
+      (-> db
+          (update-in [:settings :draft :default] #(if (= % old) v %))
+          (update-in [:settings :draft :tiers] (fn [ts] (into {} (for [[t x] ts] [t (if (= old (:provider x)) (assoc x :provider v) x)])))))
+      db)))
+
+(defn provider-added
+  "Add provider `p` (a preset) to the draft, its name made unique."
+  [db p]
+  (let [names (set (map :name (get-in db [:settings :draft :providers])))
+        n     (first (remove names (cons (:name p) (map #(str (:name p) "-" %) (iterate inc 2)))))]
+    (update-in db [:settings :draft :providers] conj (assoc p :name n :api-key "" :forget-key? false :new? true))))
+
+(defn provider-used?
+  "Is the draft's provider `n` the default or a tier's?"
+  [db n]
+  (let [{:keys [default tiers]} (get-in db [:settings :draft])]
+    (boolean (or (= n default) (some #(= n (:provider %)) (vals tiers))))))
+
+(defn provider-removed [db i]
+  (update-in db [:settings :draft :providers] #(vec (concat (subvec % 0 i) (subvec % (inc i))))))
+
+(defn default-set [db n] (assoc-in db [:settings :draft :default] n))
+
+(defn tier-set
+  "The draft's tier `tier` (:strong :common): its :provider or :model is `v`."
+  [db tier k v]
+  (-> db
+      (assoc-in [:settings :draft :tiers tier k] v)
+      (update-in [:settings :tried] dissoc tier)))
+
+(defn tier-ref
+  "The model a draft tier names: \"provider/model\"."
+  [{:keys [provider model]}]
+  (str provider "/" model))
+
+(defn models-request
+  "The draft as the server saves it (server.settings/save!)."
+  [db]
+  (let [{:keys [providers default tiers]} (get-in db [:settings :draft])]
+    {:providers (mapv #(select-keys % [:name :type :base-url :api-key-env :concurrency :num-ctx :timeout-s
+                                       :api-key :forget-key?])
+                      providers)
+     :default   default
+     :models    {:strong (tier-ref (:strong tiers)) :common (tier-ref (:common tiers))}}))
+
+(defn listing [db n] (assoc-in db [:settings :listed n] {:status :listing}))
+
+(defn listed
+  "What provider `n` serves: {:models [..]} or {:problem ..}."
+  [db n {:keys [models problem]}]
+  (assoc-in db [:settings :listed n] (if problem {:status :failed :problem problem} {:status :ok :models models})))
+
+(defn trying [db tier] (assoc-in db [:settings :tried tier] {:status :trying}))
+
+(defn tried
+  "How tier `tier`'s model answered: {:ok? :ms :reply :problem}."
+  [db tier {:keys [ok?] :as r}]
+  (assoc-in db [:settings :tried tier] (assoc (select-keys r [:ms :reply :problem]) :status (if ok? :ok :failed))))
+
+^:rct/test
+(comment
+  (def view {:providers [{:name "anthropic" :type :anthropic :key {:from :keychain :hint "…bwAA"}}
+                         {:name "omlx" :type :openai :base-url "http://localhost:8000/v1"}]
+             :default "anthropic"
+             :models {:strong "claude-sonnet-5-5" :common "omlx/mlx-community/Qwen3"}})
+  (def loaded (models-fetched initial-state view))
+  (get-in loaded [:settings :draft :tiers])
+  ;=> {:strong {:provider "anthropic" :model "claude-sonnet-5-5"} :common {:provider "omlx" :model "mlx-community/Qwen3"}}
+  (models-dirty? loaded) ;=> false
+  (def edited (-> loaded (provider-set 1 :name "mlx") (provider-set 1 :concurrency "4") (provider-set 1 :api-key "sk-1")))
+  [(models-dirty? edited) (get-in edited [:settings :draft :tiers :common :provider])] ;=> [true "mlx"]
+  (= (models-request edited)
+     {:providers [{:name "anthropic" :type :anthropic :api-key "" :forget-key? false}
+                  {:name "mlx" :type :openai :base-url "http://localhost:8000/v1" :concurrency 4 :api-key "sk-1" :forget-key? false}]
+      :default   "anthropic"
+      :models    {:strong "anthropic/claude-sonnet-5-5" :common "mlx/mlx-community/Qwen3"}})
+  ;=> true
+  (map :name (get-in (provider-added loaded {:name "omlx" :type :openai}) [:settings :draft :providers])) ;=> ["anthropic" "omlx" "omlx-2"]
+  [(provider-used? loaded "omlx") (provider-used? loaded "x")] ;=> [true false]
+  ;; edited and fetched again: the edits stay
+  (= (get-in (models-fetched edited view) [:settings :draft]) (get-in edited [:settings :draft])) ;=> true
+  (models-dirty? (models-saved edited view)) ;=> false
+  (get-in (tried loaded :common {:ok? false :problem "HTTP 401" :ms 20}) [:settings :tried :common :status]) ;=> :failed
   )

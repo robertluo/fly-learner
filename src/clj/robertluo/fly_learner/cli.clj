@@ -10,8 +10,8 @@
             [clojure.string :as str]
             [robertluo.fly-learner.db :as db]
             [robertluo.fly-learner.ingest :as ingest]
-            [robertluo.fly-learner.llm :as llm]
             [robertluo.fly-learner.server.pipeline :as pipeline]
+            [robertluo.fly-learner.server.settings :as settings]
             [robertluo.fly-learner.server.system :as sys]))
 
 (defn- options
@@ -77,14 +77,14 @@
     (when (seq unknown)
       (throw (ex-info (str "Not a PDF, EPUB or Markdown: " (str/join ", " unknown)) {:unknown (vec unknown)})))
     (if outline?
-      (let [models (:models (llm/settings (sys/load-config)))]
+      (let [models (:models (settings/llm (sys/load-config)))]
         (vec (for [p paths]
                (let [r (ingest/preview p {:skip skip :models models})]
                  (print-preview! p r)
                  r))))
     (let [cfg    (sys/load-config)
-          models (:models (llm/settings cfg))
-          client (llm/client (llm/settings cfg))
+          models (:models (settings/llm cfg))
+          client (settings/client cfg)
           own    (when-not (sys/conn) (sys/connect cfg))
           conn   (or (sys/conn) own)]
       (try

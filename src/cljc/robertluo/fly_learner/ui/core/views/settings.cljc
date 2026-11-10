@@ -1,8 +1,10 @@
 (ns robertluo.fly-learner.ui.core.views.settings
   "Settings (/s). Adding sources: files dropped (or chosen) are sent and
   read, each with what it would make and a rough cost; what is checked is
-  ingested in the background, its progress shown until done. The library,
-  the models by tier. Advanced: the prompts given to the models, each
+  ingested in the background, its progress shown until done. The library.
+  The models: each tier's provider and model, the providers (presets for
+  local servers, keys, what each serves), tried with a tiny request, in
+  force once saved. Advanced: the prompts given to the models, each
   editable and back to its default in one click."
   (:require [clojure.string :as str]
             [robertluo.fly-learner.ui.core.db :as db]
@@ -119,22 +121,123 @@
          (if-let [nid (:node/id root)] (nav/node-link dispatch! {:node/id nid} {} title) title)
          [:span.muted " · " (some-> type name)]])])])
 
-(defn- models [{{:keys [models providers default]} :models}]
-  [:section.models
-   [:h2 "Models"]
-   (if-not models
-     [:p.muted "Loading…"]
-     [:div
-      [:dl.settings-list
-       [:dt "Strong"] [:dd [:code (:strong models)] [:span.muted " sections, chapters, quizzes, explorations"]]
-       [:dt "Common"] [:dd [:code (:common models)] [:span.muted " runs of paragraphs, key sentences, answers"]]
-       [:dt "Providers"]
-       [:dd (interpose ", " (for [{:keys [name type base-url]} providers]
-                              [:span {:replicant/key name} [:code name] " (" (clojure.core/name type)
-                               (when base-url (str ", " base-url)) ")"
-                               (when (= name (some-> default clojure.core/name)) " — default")]))]]
-      [:p.muted "Change them in " [:code "resources/config.edn"] " (" [:code ":llm"] "), then restart the app: a model "
-       "is " [:code "\"provider/model\""] " or one of the default provider's."]])])
+(def ^:private type-labels {:anthropic "Anthropic" :openai "OpenAI-compatible" :ollama "Ollama"})
+
+(defn- field
+  "A labelled input of the draft's provider `i`, field `k`."
+  [dispatch! i k label value & [{:keys [type placeholder hint]}]]
+  [:label.field
+   [:span.field-label label]
+   [:input {:type (or type "text") :value (str (or value "")) :placeholder placeholder :spellcheck false
+            :autocomplete "off"
+            :on {:input #(dispatch! {:db (fn [d] (db/provider-set d i k (.. % -target -value)))})}}]
+   (when hint [:span.field-hint.muted hint])])
+
+(defn- key-status [{:keys [from hint name]}]
+  (case from
+    :saved    (str "Saved in the app (" hint ")")
+    :env      (str "From " name " (" hint ")")
+    :keychain (str "From the keychain item " name " (" hint ")")
+    "None: a server on this machine may need none"))
+
+(defn- provider-card [db dispatch! i {:keys [name type base-url api-key forget-key? concurrency num-ctx timeout-s new?] :as p}]
+  (let [{:keys [status models problem]} (get-in db [:settings :listed name])
+        used? (db/provider-used? db name)]
+    [:div.provider {:replicant/key (str i)}
+     [:div.provider-head
+      (if new?
+        [:input.provider-name {:value name :spellcheck false :title "Its name: models are named \"name/model\""
+                               :on {:input #(dispatch! {:db (fn [d] (db/provider-set d i :name (.. % -target -value)))})}}]
+        [:strong.provider-name name])
+      [:select {:on {:change #(dispatch! {:db (fn [d] (db/provider-set d i :type (keyword (.. % -target -value))))})}}
+       (for [[t l] type-labels] [:option {:replicant/key t :value (clojure.core/name t) :selected (= t type)} l])]
+      [:button.btn.quiet {:disabled used? :title (if used? "The default or a tier uses it" "Remove this provider")
+                          :on {:click #(dispatch! {:db (fn [d] (db/provider-removed d i))})}} "Remove"]]
+     (when-not (= :anthropic type)
+       (field dispatch! i :base-url "Server address" base-url
+              {:placeholder (if (= :ollama type) "http://localhost:11434" "http://localhost:8000/v1")}))
+     [:label.field
+      [:span.field-label "API key"]
+      [:input {:type "password" :value api-key :autocomplete "off"
+               :placeholder (if (:key p) "Type a new one to replace it" "Paste it here, if it needs one")
+               :on {:input #(dispatch! {:db (fn [d] (db/provider-set d i :api-key (.. % -target -value)))})}}]
+      [:span.field-hint.muted (if forget-key? "Forgotten when saved" (key-status (:key p)))
+       (when (and (= :saved (get-in p [:key :from])) (not forget-key?))
+         [:button.btn.quiet.inline {:type "button"
+                                    :on {:click #(dispatch! {:db (fn [d] (db/provider-set d i :forget-key? true))})}}
+          "Forget it"])]]
+     [:details.more
+      [:summary.muted "More"]
+      (field dispatch! i :concurrency "Requests at a time" concurrency {:type "number" :placeholder "no limit"})
+      (when (= :ollama type)
+        (field dispatch! i :num-ctx "Context length" num-ctx {:type "number" :placeholder "32768"}))
+      (field dispatch! i :timeout-s "Timeout (seconds)" timeout-s {:type "number" :placeholder "600"})]
+     [:div.provider-models
+      [:button.btn {:type "button" :disabled (= :listing status)
+                    :on {:click #(dispatch! {:db (fn [d] (db/listing d name)) :pull (pull/models-list p)})}}
+       (if (= :listing status) "Asking…" "List its models")]
+      (case status
+        :ok     [:span.muted (count models) (if (= 1 (count models)) " model" " models") ": pick one for a tier below"]
+        :failed [:span.error-text problem]
+        nil)]
+     ;; the models it serves, suggested as a tier's model is typed
+     [:datalist {:id (str "models-" name)} (for [m models] [:option {:replicant/key m :value m}])]]))
+
+(def ^:private tier-uses
+  {:strong "sections, chapters, quizzes, grading, explorations"
+   :common "runs of paragraphs, key sentences, answers, prerequisites"})
+
+(defn- tier-row [db dispatch! tier {:keys [provider model] :as t} names]
+  (let [{:keys [status ms reply problem]} (get-in db [:settings :tried tier])]
+    [:div.tier {:replicant/key (clojure.core/name tier)}
+     [:div.tier-name [:strong (str/capitalize (clojure.core/name tier))] [:span.muted (tier-uses tier)]]
+     [:div.tier-pick
+      [:select {:on {:change #(dispatch! {:db (fn [d] (db/tier-set d tier :provider (.. % -target -value)))})}}
+       (for [n names] [:option {:replicant/key n :value n :selected (= n provider)} n])]
+      [:input {:value model :list (str "models-" provider) :spellcheck false :placeholder "model"
+               :on {:input #(dispatch! {:db (fn [d] (db/tier-set d tier :model (.. % -target -value)))})}}]
+      [:button.btn {:type "button" :disabled (or (= :trying status) (db/models-dirty? db))
+                    :title (if (db/models-dirty? db) "Save first" "Send it a tiny request")
+                    :on {:click #(dispatch! {:db (fn [d] (db/trying d tier)) :pull (pull/model-try tier (db/tier-ref t))})}}
+       (if (= :trying status) "Trying…" "Try")]]
+     (case status
+       :ok     [:p.tier-result.ok "Answered “" reply "” in " #?(:cljs (.toFixed (/ ms 1000) 1) :clj (/ ms 1000.0)) " s"]
+       :failed [:p.tier-result.error-text problem]
+       nil)]))
+
+(defn- models [db dispatch!]
+  (let [{:keys [providers default tiers] :as draft} (get-in db [:settings :draft])
+        names (mapv :name providers)
+        dirty? (db/models-dirty? db)]
+    [:section.models
+     [:h2 "Models"]
+     (if-not draft
+       [:p.muted "Loading…"]
+       [:div
+        [:p.muted "Two tiers do the work. Each can be a model of any provider: Anthropic's, or one on this machine "
+         "through oMLX, Ollama, LM Studio or any OpenAI-compatible server."]
+        (for [tier [:strong :common]] (tier-row db dispatch! tier (get tiers tier) names))
+        [:h3 "Providers"]
+        (map-indexed (fn [i p] (provider-card db dispatch! i p)) providers)
+        [:div.add-provider
+         [:span.muted "Add:"]
+         (for [[label p] db/provider-presets]
+           [:button.btn.quiet {:replicant/key label :type "button"
+                               :on {:click #(dispatch! {:db (fn [d] (db/provider-added d p))})}}
+            "+ " label])]
+        [:label.field.default
+         [:span.field-label "Default provider"]
+         [:select {:on {:change #(dispatch! {:db (fn [d] (db/default-set d (.. % -target -value)))})}}
+          (for [n names] [:option {:replicant/key n :value n :selected (= n default)} n])]
+         [:span.field-hint.muted "Serves a model named without a provider."]]
+        [:div.save-bar {:class (when dirty? "dirty")}
+         [:button.btn.primary {:disabled (not dirty?)
+                               :on {:click #(dispatch! {:pull (pull/models-save (db/models-request db))})}}
+          "Save"]
+         [:button.btn {:disabled (not dirty?) :on {:click #(dispatch! {:db db/models-discarded})}} "Discard changes"]
+         [:span.muted (if dirty?
+                        "Not saved yet."
+                        "In force now. Keys typed here are kept in data/secrets.edn, readable by you only.")]]])]))
 
 (defn- prompt-row [db dispatch! {:prompt/keys [id title about edited? default] :as p}]
   (let [open? (= id (get-in db [:settings :open]))
@@ -190,5 +293,5 @@
         [:h2 "Ingesting"]
         (for [j ingests] (job-card db dispatch! j))])
      (library db dispatch!)
-     (models s)
+     (models db dispatch!)
      (prompts db dispatch!)]))

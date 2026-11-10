@@ -34,11 +34,12 @@
   (api '{:sources ?sources})
 
   ;; ingest + fold a source (PDF or EPUB) into the running system's db
-  (require '[robertluo.fly-learner.ingest :as ingest] '[robertluo.fly-learner.llm :as llm])
+  (require '[robertluo.fly-learner.ingest :as ingest] '[robertluo.fly-learner.llm :as llm]
+           '[robertluo.fly-learner.server.settings :as settings])
   (def cfg (sys/load-config))
-  (def client (llm/client (llm/settings cfg)))
+  (def client (settings/client cfg))
   (ingest/ingest-source! (sys/conn) client "data/sources/marmaduke-2024-c2.pdf"
-                      {:models (:models (llm/settings cfg))})
+                      {:models (:models (settings/llm cfg))})
   @llm/usage
   (llm/cost)
 
@@ -46,7 +47,7 @@
   (require '[robertluo.fly-learner.concept :as concept]
            '[robertluo.fly-learner.concept.graph :as graph]
            '[datalevin.core :as d])
-  (concept/resolve! (sys/conn) (concept/llm-resolver client {:models (:models (llm/settings cfg))})
+  (concept/resolve! (sys/conn) (concept/llm-resolver client {:models (:models (settings/llm cfg))})
                     {:on-batch prn})
   (def adj (graph/edges (graph/load-graph (d/db (sys/conn)))))
   (concept/edits (d/db (sys/conn))))

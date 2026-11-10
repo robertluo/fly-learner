@@ -42,7 +42,10 @@
     {:ingests {{:ingest/id id} nil}}               ; take a finished job off the list
     '{:prompts ?all}                               ; the prompts given to the models, as edited
     {:prompts {{:prompt/id :fold/summarise} {:prompt/text \"..\"}}} ; edit one; {:prompts {{..} nil}} resets it
-    '{:settings ?s}                                ; models by tier and providers (no keys)
+    '{:settings {{:settings/id :llm} ?s}}          ; models by tier and providers (no keys: where each comes from)
+    {:settings {{:settings/id :llm} {:providers [..] :default .. :models ..}}} ; change them (server.settings/save!)
+    {:probes {nil {:probe/list provider}}}         ; the models a provider (as edited) serves
+    {:probes {nil {:probe/try \"omlx/qwen\"}}}      ; a tiny request to a model: {:ok? :ms :reply :problem}
   Files to add are uploaded apart: POST /files/upload (server.ingests).
 
   Personal app: no roles."
@@ -61,6 +64,7 @@
             [robertluo.fly-learner.server.curation :as curation]
             [robertluo.fly-learner.server.ideas :as ideas]
             [robertluo.fly-learner.server.ingests :as ingests]
+            [robertluo.fly-learner.server.settings :as settings]
             [robertluo.fly-learner.server.study :as study]
             [sg.flybot.pullable.collection :as coll]))
 
@@ -250,26 +254,67 @@
   (delete! [_ {:prompt/keys [id]}]
     (boolean (when (find-prompt id) (prompts/reset! id) true))))
 
-(defn- settings-view
-  "The model settings to show: models by tier, providers without their keys."
-  [{:keys [models default providers]}]
-  {:models    (merge llm/default-models models)
-   :default   default
-   :providers (vec (for [[k p] (sort-by key providers)]
-                     (cond-> {:name (name k) :type (:type p)}
-                       (:base-url p) (assoc :base-url (:base-url p)))))})
+(defrecord SettingsDataSource [cfg]
+  coll/DataSource
+  (fetch [_ {:settings/keys [id]}] (when (= :llm id) (settings/view cfg)))
+  (list-all [_] [(assoc (settings/view cfg) :settings/id :llm)])
+  (create! [_ _] {:error {:type :forbidden}})
+  (update! [_ {:settings/keys [id]} edit]
+    (if (and (= :llm id) (map? edit))
+      (let [r (settings/save! cfg edit)]
+        (if (:error r) {:error {:type :invalid :message (:error r)}} r))
+      {:error {:type :not-found :message "No such settings"}}))
+  (delete! [_ _] {:error {:type :forbidden}}))
+
+(defn- probe
+  "Ask a provider what it serves, or try a model with a tiny request; what
+  went wrong is :problem (an :error would be the API's)."
+  [cfg client {provider :probe/list model :probe/try}]
+  (cond
+    (map? provider)
+    (try {:models (vec (sort (llm/list-models (settings/provider-for cfg provider))))}
+         (catch Exception e {:problem (or (ex-message e) (str (class e)))}))
+
+    (string? model)
+    (let [t0 (System/currentTimeMillis)]
+      (try {:ok?   true
+            :reply (let [r (str/trim (llm/complete @client {:model model :prompt "Reply with the single word OK."
+                                                            :max-tokens 2000 :effort :low}))]
+                     (subs r 0 (min 200 (count r))))
+            :ms    (- (System/currentTimeMillis) t0)}
+           (catch Exception e {:ok? false :problem (or (ex-message e) (str (class e)))
+                               :ms (- (System/currentTimeMillis) t0)})))
+
+        :else {:error {:type :invalid :message "Probe what?"}}))
+
+(defrecord ProbesDataSource [cfg client]
+  coll/DataSource
+  (fetch [_ _] nil)
+  (list-all [_] [])
+  (create! [_ q] (probe cfg client q))
+  (update! [_ _ _] {:error {:type :forbidden}})
+  (delete! [_ _] {:error {:type :forbidden}}))
 
 (defn- lazy-value
   "A value computed by `f` only when a pattern binds it (serialised via ->wire)."
   [f]
   (reify coll/Wireable (->wire [_] (f))))
 
+(declare make-api*)
+
 (defn make-api
   "api-fn for remote/wrap-api: ring request -> {:data .. :errors ..}.
-  `client` is a delay of the Anthropic client (built on the first ask);
-  `ask-opts` go to robertluo.fly-learner.ask/ask! (:models), and to quiz;
+  `client` derefs to the model client in force (server.settings/client-ref);
+  `cfg` is config.edn, under the settings edited in the app (server.settings),
+  read again for each request, so a change applies at once: their :models
+  go to robertluo.fly-learner.ask/ask!, quiz and the rest;
   `learning` is {:model .. :curriculum (fn [db] ..)} (see server.system)."
-  [conn client ask-opts learning]
+  [conn client cfg learning]
+  (fn [request]
+    ((make-api* conn client {:models (:models (settings/llm cfg))} learning cfg) request)))
+
+(defn- make-api*
+  [conn client ask-opts learning cfg]
   (let [asks    (coll/collection (->AsksDataSource conn client ask-opts) {:id-key :ask/id})
         search  (query-lookup (fn [{:keys [q]}] (when (and (string? q) (not (str/blank? q)))
                                                   (ask/search (d/db conn) q 12))))
@@ -295,6 +340,8 @@
         kps     (query-lookup (fn [{:source/keys [id]}] (when (uuid? id) (keypoints/for-source (d/db conn) id))))
         named   (query-lookup (fn [{:keys [term]}] (ideas/named (d/db conn) term)))
         ingest-jobs (coll/collection (->IngestsDataSource conn client ask-opts) {:id-key :ingest/id})
+        settings-coll (coll/collection (->SettingsDataSource cfg) {:id-key :settings/id})
+        probes      (coll/collection (->ProbesDataSource cfg client) {:id-key :probe/id})
         prompt-coll (coll/collection (->PromptsDataSource) {:id-key :prompt/id})
         kws     (query-lookup (fn [{:keys [keyword]}] (when (string? keyword)
                                                         (db/nodes-with-keyword (d/db conn) keyword))))]
@@ -311,6 +358,7 @@
                 :explorations explorations
                 :ingests ingest-jobs
                 :prompts prompt-coll
-                :settings (lazy-value #(settings-view (:llm ask-opts)))}
+                :settings settings-coll
+                :probes probes}
        :errors {:detect :error
                 :codes  {:forbidden 403 :not-found 404 :invalid 400 :refused 422 :llm-error 502}}})))

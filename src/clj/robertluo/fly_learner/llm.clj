@@ -113,12 +113,20 @@
                                   "-s" service "-a" account "-w")]
     (when (zero? exit) (str/trim out))))
 
-(defn- api-key
-  "Provider `p`'s key: its environment variable, keychain item or literal key."
-  [{:keys [api-key-env keychain] :as p}]
-  (or (some-> api-key-env System/getenv not-empty)
-      (some-> keychain keychain-password not-empty)
-      (:api-key p)))
+(defn key-source
+  "Where provider `p`'s key comes from, first found: {:from :saved (its
+  :api-key, typed in the app) | :env (its :api-key-env, or Anthropic's
+  ANTHROPIC_API_KEY) | :keychain, :key .., :name (the variable or item)};
+  nil when it has none (a local server may need none)."
+  [{:keys [type api-key-env keychain] :as p}]
+  (or (when-let [k (not-empty (:api-key p))] {:from :saved :key k})
+      (when-let [k (some-> api-key-env System/getenv not-empty)] {:from :env :key k :name api-key-env})
+      (when-let [k (and (= :anthropic type) (not-empty (System/getenv "ANTHROPIC_API_KEY")))]
+        {:from :env :key k :name "ANTHROPIC_API_KEY"})
+      (when-let [k (some-> keychain keychain-password not-empty)]
+        {:from :keychain :key k :name (str (:service keychain) "/" (:account keychain))})))
+
+(defn- api-key [p] (:key (key-source p)))
 
 (defn- connect
   "What provider `p` sends its requests with."
@@ -126,8 +134,7 @@
   (case type
     :anthropic (let [b (AnthropicOkHttpClient/builder)]
                  (.fromEnv b)
-                 (when-not (System/getenv "ANTHROPIC_API_KEY")
-                   (when-let [k (api-key p)] (.apiKey b ^String k)))
+                 (when-let [k (api-key p)] (.apiKey b ^String k))
                  (when base-url (.baseUrl b ^String base-url))
                  (.build b))
     (:openai :ollama) {:http    (-> (HttpClient/newBuilder)
@@ -229,6 +236,8 @@
 
 ;; --- OpenAI-compatible servers and Ollama ---------------------------------
 
+(declare http-problem)
+
 (defn- post!
   "POST `body` as JSON to `url` with connection `conn`; the reply's JSON
   (string keys). Throws on an HTTP error, with its :status and :body."
@@ -242,8 +251,42 @@
         status (.statusCode resp)]
     (if (<= 200 status 299)
       (json/read-value ^String (.body resp))
-      (throw (ex-info (str "Model server: HTTP " status " from " url ": " (subs (str (.body resp)) 0 (min 300 (count (str (.body resp))))))
-                      {:status status :body (.body resp) :url url})))))
+      (throw (ex-info (http-problem status url (.body resp)) {:status status :body (.body resp) :url url})))))
+
+(defn- http-problem
+  "What HTTP `status` from `url` with `body` says, in words."
+  [status url body]
+  (let [b (str body)]
+    (str (case (int status)
+           (401 403) "The server wants an API key, or another one"
+           404       "Nothing there: is the address right?"
+           (str "HTTP " status))
+         " (" url (when-not (#{401 403} status) (str ": " (subs b 0 (min 160 (count b))))) ")")))
+
+(defn- get!
+  "GET `url` with connection `conn`; the reply's JSON (string keys)."
+  [{:keys [^HttpClient http key]} url]
+  (let [req  (cond-> (HttpRequest/newBuilder (URI. url))
+               true (.timeout (Duration/ofSeconds 15))
+               key  (.header "Authorization" (str "Bearer " key))
+               true .GET)
+        ^HttpResponse resp (.send http (.build req) (HttpResponse$BodyHandlers/ofString))
+        status (.statusCode resp)]
+    (if (<= 200 status 299)
+      (json/read-value ^String (.body resp))
+      (throw (ex-info (http-problem status url (.body resp)) {:status status :url url})))))
+
+(declare base)
+
+(defn list-models
+  "The ids of the models provider `p` (a provider map, see the ns doc) serves,
+  asked of it: what a tier may name after \"provider/\"."
+  [{:keys [type base-url] :as p}]
+  (let [conn (connect p)]
+    (case type
+      :anthropic (mapv #(.id ^com.anthropic.models.models.ModelInfo %) (.data (.list (.models ^AnthropicClient conn))))
+      :openai    (mapv #(get % "id") (get (get! conn (str (base base-url "http://localhost:8000/v1") "/models")) "data"))
+      :ollama    (mapv #(get % "name") (get (get! conn (str (base base-url "http://localhost:11434") "/api/tags")) "models")))))
 
 (defn- messages [system prompt]
   (cond-> [] system (conj {:role "system" :content system}) true (conj {:role "user" :content prompt})))

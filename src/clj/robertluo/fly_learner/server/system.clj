@@ -15,12 +15,12 @@
             [robertluo.fly-learner.learning.concepts :as learning.concepts]
             [robertluo.fly-learner.learning.decay :as decay]
             [robertluo.fly-learner.learning.store :as learning.store]
-            [robertluo.fly-learner.llm :as llm]
             [robertluo.fly-learner.prompts :as prompts]
             [robertluo.fly-learner.quiz :as quiz]
             [robertluo.fly-learner.server.api :as api]
             [robertluo.fly-learner.server.files :as files]
             [robertluo.fly-learner.server.ingests :as ingests]
+            [robertluo.fly-learner.server.settings :as settings]
             [malli.core :as m]
             [malli.error :as me]
             [org.httpkit.server :as http-kit]
@@ -114,16 +114,17 @@
     ;; the client is built on the first ask, so the server runs without an API
     ;; key until then; in a map, since fun-map would deref a bare delay
     ::llm
-    (fnk [::cfg] {:client (delay (llm/client (llm/settings cfg)))})
+    ;; the settings in force (config.edn under those edited in the app), the client rebuilt when they change
+    (fnk [::cfg] {:client (settings/client-ref cfg)})
 
     ::api-fn
     (fnk [::cfg ::db ::llm ::learning]
-         (api/make-api (:conn db) (:client llm) {:models (:models (llm/settings cfg)) :llm (llm/settings cfg)} learning))
+         (api/make-api (:conn db) (:client llm) cfg learning))
 
     ::ring-app
     (fnk [::cfg ::db ::api-fn]
          (make-ring-app (:conn db) api-fn
-                        (partial ingests/upload-response (:conn db) (:models (llm/settings cfg)))))
+                        (fn [req] (ingests/upload-response (:conn db) (:models (settings/llm cfg)) req))))
 
     ::http-server
     (fnk [::cfg ::ring-app]

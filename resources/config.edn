@@ -1,8 +1,10 @@
 {:db-dir "data/db"
  :http   {:port 8080}
 
- ;; Language models (robertluo.fly-learner.llm). A model is named
- ;; "provider/model" for one of :providers, else it is the :default one's.
+ ;; Language models (robertluo.fly-learner.llm): the first run's. Change them in the
+ ;; app (Settings, the gear at the top right): saved in data/settings.edn, keys in
+ ;; data/secrets.edn, over these. A model is named "provider/model" for one of
+ ;; :providers, else it is the :default one's.
  :llm
  {:providers
   {;; key: ANTHROPIC_API_KEY, else this macOS keychain item

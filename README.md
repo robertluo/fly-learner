@@ -180,8 +180,7 @@ Measured on real sources, at list prices:
 ## Getting started
 
 You need [devenv](https://devenv.sh) (it brings the JDK, Clojure, Node and babashka) and a language model: an
-Anthropic API key (in `ANTHROPIC_API_KEY`, or the macOS keychain item named in `resources/config.edn`), or a local
-server.
+Anthropic API key, or a model server on your machine. Set either up in the app's settings (the gear, top right).
 
 ```sh
 devenv shell
@@ -201,26 +200,20 @@ Other tasks: `bb serve` (a release build on :8080), `bb test` (Kaocha + Rich Com
 ### Choosing models
 
 Two tiers do all the work: `:strong` writes summaries of sections and chapters, quizzes and explorations, and
-`:common` does the high-volume routine reading. Each can be any model you configure in `resources/config.edn`:
+`:common` does the high-volume routine reading. Choose each in Settings (the gear, top right), with no file to edit:
 
-```clojure
-:llm {:providers {:anthropic {:type :anthropic :keychain {:service "learner" :account "anthropic"}}
-                  :omlx      {:type :openai :base-url "http://localhost:8000/v1" :api-key-env "OMLX_API_KEY"
-                              :concurrency 4}
-                  :ollama    {:type :ollama :num-ctx 32768}}
-      :default   :anthropic
-      :models    {:strong "claude-sonnet-5-5"
-                  :common "omlx/mlx-community/Qwen3.8-27B-4bit"}}
-```
+- Pick each tier's provider and model; the model box suggests what the provider serves.
+- Add a provider in one click: oMLX, Ollama or LM Studio on this machine, Anthropic, or any OpenAI-compatible server.
+  Give it an address and a key if it needs one. A key typed there is kept in `data/secrets.edn`, readable by you
+  only, and the page only ever shows its last four characters.
+- **List its models** asks the server what it serves; **Try** sends a tier's model a tiny request and shows how long
+  it took, or what went wrong.
+- Save, and the settings are in force at once, with no restart.
 
-- A model is named `"provider/model"`, or plainly for the `:default` provider.
-- `:openai` works with any OpenAI-compatible server: oMLX, LM Studio, llama.cpp, vLLM, or Ollama's `/v1`.
-- `:ollama` uses Ollama's own API, which can set the context length for each request (Ollama's default is short).
-- A provider's key comes from `:api-key-env`, `:keychain` or `:api-key`. `:concurrency` caps requests in flight,
-  and `:body` adds fields to every request (`{:temperature 0.2}`, or a server's switch for thinking).
-- Claude's replies are guaranteed to match the JSON shape asked for. A local model is asked for the same shape (in
-  the server's JSON schema mode when it has one), its reply is read leniently, and it is asked again once when the
-  reply is not JSON. Local models cost nothing in the printed totals.
+Claude's replies are guaranteed to match the JSON shape asked for. A local model is asked for the same shape (in the
+server's JSON schema mode when it has one), its reply is read leniently, and it is asked again once when the reply is
+not JSON. Local models cost nothing in the printed totals. `resources/config.edn`'s `:llm` only gives the first run's
+settings.
 
 ## Built with
 

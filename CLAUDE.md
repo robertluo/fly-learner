@@ -55,6 +55,11 @@ Web stack follows flybot.sg (github.com/flybot-sg/lasagna-pattern, `examples/fly
     per-call content in the user prompt.
   - `server/system` — fun-map `life-cycle-map` (db, api-fn, ring app, http-kit; `:max-body` fits an upload);
     `connect` also points `prompts` at `data/prompts.edn` (config `:prompts-file`)
+  - `server/settings` — model settings edited in the app, no config file to touch: `llm` = config.edn's `:llm`
+    replaced by `data/settings.edn`'s, keys typed in the app (`data/secrets.edn`, mode 600) given to their providers
+    as `:api-key` (they win over env and keychain, `llm/key-source`); `client` (rebuilt when they change),
+    `client-ref` (what the system and API hold); `view` (no key: where it comes from and its last 4), `save!`
+    (validated; fields the page does not edit kept), `provider-for` (a provider as edited, to list its models)
   - `server/pipeline` — `run!`: ingest sources and everything after (concepts, topics, prerequisites, key
     sentences, exercises, explorations), printing progress and the cost: what `bb ingest` and the settings page run;
     `source-path`
@@ -65,9 +70,12 @@ Web stack follows flybot.sg (github.com/flybot-sg/lasagna-pattern, `examples/fly
     job (one at a time), what `pipeline/run!` prints kept as its log (a fold's progress line replaced), `jobs`
   - `server/files` — `/files/sources/<id>` the original file; an EPUB's or a Markdown folder's `/pages` (JSON array of
     page HTML, cached per version, `ingest/page-version`) and `/res/<name>` (its images, sent with CSP `sandbox`)
-  - `server/api` — lasagna-remote pull API on `/api`: `:ingests` (collection: create = ingest uploaded paths under
+  - `server/api` — lasagna-remote pull API on `/api`, built per request from the settings in force (`make-api*`):
+    `:settings` (member `{:settings/id :llm}`: `settings/view`, update = `save!`), `:probes` (create: `:probe/list` a
+    provider's models, `llm/list-models`; `:probe/try` a tiny request to a model; a failure is `:problem`, since
+    `:error` is the API's), `:ingests` (collection: create = ingest uploaded paths under
     `data/sources` with `:ingest/skip`), `:prompts` (collection: update = edit, delete = back to the default),
-    `:settings` (lazy: models by tier, providers without keys), `:sources`, `:asks` (collections; creating an ask runs the
+    `:sources`, `:asks` (collections; creating an ask runs the
     model), `:concepts` (collection: create adds a concept the model missed, delete removes one: `server/curation`), `:nodes` (with `:node/concepts`; `:node/keywords` keeps only
     keywords naming no concept), `:keywords`, `:search` (lookups), `:goto` (lookup: the concepts and book exercises the top box's text names, as typed), `:learning` (lazy overview), `:universe` (lazy:
     every cluster with its score), `:clusters` (a cluster's next items; delete removes a topic and its concepts), `:goals` (create/delete: learn a
@@ -158,10 +166,12 @@ Web stack follows flybot.sg (github.com/flybot-sg/lasagna-pattern, `examples/fly
   (split views, pannable drawings, full screen), `node`, `document` (the source beside the text, page by page,
   whatever its format: toolbar, page box, marks (key sentences, quotes, the open bar); `source-doc` -> `{:kind :pdf|:html
   :url}` picks how a page is drawn: pdf.js canvas + text layer, or the server's HTML page; db `doc-*`, state `:doc`), `ideas`, `selection`, `ask`, `quiz`, `concept`,
-  `graph`, `home`, `explorations`, `settings` (drop files: each upload's candidates, checked, parts to leave out,
+  `graph`, `home`, `explorations`, `settings` (the models: each tier's provider and model (suggested from what the
+  provider serves), providers from presets with address, key, more; List its models, Try a tier; `db/models-draft`,
+  `models-request`, `pull/models-save`; drop files: each upload's candidates, checked, parts to leave out,
   Ingest; jobs with their log, polled every 2 s while one runs (`:ingests-poll`, wherever the learner is; when all
   are done the knowledge is fetched again), the library, the models, the prompts by group with an editor:
-  `db/prompt-*`, `pull/prompt-save`, `prompt-reset`; the header's Settings link pulses while ingesting), `notebook` (what the learner wrote, as a book: by source and chapter in reading
+  `db/prompt-*`, `pull/prompt-save`, `prompt-reset`; the header's gear, top right, turns while ingesting), `notebook` (what the learner wrote, as a book: by source and chapter in reading
   order, or newest first; highlights if asked; each note rewritten in place, the composer with `db/draft-edit`; downloaded
   as one Markdown file, `db/notebook-markdown`, `[[..]]` kept); one flow, map ->
   cluster -> concept -> passage; a concept page's "Learn first": its prerequisite path not yet known, foundations

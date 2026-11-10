@@ -180,7 +180,8 @@
 
     ;; the settings page: the models, the ingest jobs, the prompts
     :settings
-    {:request (api/batch {:settings (api/fetch :settings) :ingests (api/fetch :ingests) :prompts (api/fetch :prompts)})
+    {:request (api/batch {:settings (api/fetch :settings {:settings/id :llm}) :ingests (api/fetch :ingests)
+                          :prompts (api/fetch :prompts)})
      :then    (fn [{:keys [ingests] :as r}]
                 (cond-> {:db #(db/settings-fetched % r)}
                   (some db/ingest-active? ingests) (assoc :later {:ms 2000 :effects {:pull :ingests-poll}})))}
@@ -265,6 +266,24 @@
   [id]
   {:request (api/delete :prompts {:prompt/id id})
    :then    (fn [_] {:db #(db/prompt-dropped % id) :pull :prompts})})
+
+(defn models-save
+  "Save the model settings as edited (db/models-request): in force at once."
+  [request]
+  {:request (api/change :settings {:settings/id :llm} request)
+   :then    (fn [view] {:db #(db/models-saved % view)})})
+
+(defn models-list
+  "Ask provider `p` (as edited, its key as typed) what models it serves."
+  [p]
+  {:request (api/create :probes {:probe/list (select-keys p [:name :type :base-url :api-key-env :api-key])})
+   :then    (fn [r] {:db #(db/listed % (:name p) r)})})
+
+(defn model-try
+  "Send model `ref` (tier `tier`'s) a tiny request."
+  [tier ref]
+  {:request (api/create :probes {:probe/try ref})
+   :then    (fn [r] {:db #(db/tried % tier r)})})
 
 (defn for-route
   "Pull operation needed after navigating to a parsed route."
