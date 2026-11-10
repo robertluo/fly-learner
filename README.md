@@ -177,9 +177,35 @@ Measured on real sources, at list prices:
 
 `bb ingest --outline` estimates the fold before any model call, and every ingest prints what it spent.
 
+## Install
+
+The whole learner is one OCI image: the app, its database and the page you open, with nothing else to install
+but Docker or Podman.
+
+```sh
+docker run -d --name fly-learner -p 8080:8080 -v fly-learner:/app/data \
+  --add-host=host.docker.internal:host-gateway ghcr.io/robertluo/fly-learner
+open http://localhost:8080
+```
+
+or, from a checkout, `docker compose up -d` (`compose.yaml`; `--build` builds the image from it).
+
+- Open Settings (the gear, top right) to choose the models and add sources: drop a PDF, an EPUB or a zip of a
+  Markdown folder there.
+- A model server on your machine (oMLX, Ollama, LM Studio) is at `http://host.docker.internal:<port>` from inside
+  the container.
+- Pass `-e ANTHROPIC_API_KEY` to use the key in your environment, or type it in Settings.
+- Everything it keeps is in the `fly-learner` volume (`/app/data`): the database, settings and keys, uploaded
+  sources and your prompts. To upgrade, `docker pull` and run the new image on the same volume.
+
+To build it yourself: `bb image` (docker or podman, from the `Dockerfile`, no local JDK nor Node needed), or
+`bb jar` for `target/fly-learner.jar`, which runs anywhere with Java 21: `java -jar fly-learner.jar` keeps its
+`data/` in the folder you run it from. Pushing to `main` or a `v*` tag publishes the image to GitHub's registry
+for amd64 and arm64 (`.github/workflows/image.yml`).
+
 ## Getting started
 
-You need [devenv](https://devenv.sh) (it brings the JDK, Clojure, Node and babashka) and a language model: an
+To work on it, you need [devenv](https://devenv.sh) (it brings the JDK, Clojure, Node and babashka) and a language model: an
 Anthropic API key, or a model server on your machine. Set either up in the app's settings (the gear, top right).
 
 ```sh
@@ -195,7 +221,7 @@ bb ingest data/sources/book.pdf            # or .epub, or a folder of Markdown
 sentences, exercises and passages worth exploring. With `bb dev` running, it works through that REPL (Datalevin wants
 one writer), so reload the browser to see the result.
 
-Other tasks: `bb serve` (a release build on :8080), `bb test` (Kaocha + Rich Comment Tests), `bb lint`.
+Other tasks: `bb serve` (a release build on :8080), `bb jar` and `bb image` (see Install), `bb test` (Kaocha + Rich Comment Tests), `bb lint`.
 
 ### Choosing models
 

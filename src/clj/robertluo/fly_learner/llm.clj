@@ -107,11 +107,13 @@
 ;; --- client ---------------------------------------------------------------
 
 (defn- keychain-password
-  "Read a generic password from the macOS keychain; nil if not found."
+  "Read a generic password from the macOS keychain; nil if not found, or
+  where there is no keychain (Linux, a container)."
   [{:keys [service account]}]
-  (let [{:keys [exit out]} (sh/sh "security" "find-generic-password"
-                                  "-s" service "-a" account "-w")]
-    (when (zero? exit) (str/trim out))))
+  (try (let [{:keys [exit out]} (sh/sh "security" "find-generic-password"
+                                       "-s" service "-a" account "-w")]
+         (when (zero? exit) (str/trim out)))
+       (catch java.io.IOException _ nil)))
 
 (defn key-source
   "Where provider `p`'s key comes from, first found: {:from :saved (its

@@ -1,0 +1,15 @@
+# the image builds from the sources alone
+*
+!deps.edn
+!bb.edn
+!shadow-cljs.edn
+!package.json
+!package-lock.json
+!build.clj
+!bb
+!src
+!resources
+# made in the build, or local
+resources/public/js
+resources/public/vendor
+**/.DS_Store

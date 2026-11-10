@@ -1,0 +1,19 @@
+# docker compose up -d   (or podman compose), then open http://localhost:8080
+# Choose the models in Settings (the gear, top right); keys typed there are kept in the volume.
+services:
+  fly-learner:
+    image: ghcr.io/robertluo/fly-learner:latest
+    build: .            # `docker compose up --build` builds it from this checkout instead
+    ports:
+      - "8080:8080"
+    volumes:
+      - fly-learner:/app/data
+    environment:
+      - ANTHROPIC_API_KEY   # passed on when set where compose runs; or type it in Settings
+    # a model server on this machine (oMLX, Ollama, LM Studio) is http://host.docker.internal:<port>
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    restart: unless-stopped
+
+volumes:
+  fly-learner:

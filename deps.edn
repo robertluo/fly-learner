@@ -61,6 +61,10 @@
                       "--enable-native-access=ALL-UNNAMED"]
            :main-opts ["-m" "robertluo.fly-learner.cli"]}
 
+  ;; bb jar: clojure -T:build uber (build.clj) -> target/fly-learner.jar
+  :build {:deps {io.github.clojure/tools.build {:mvn/version "0.10.10"}}
+          :ns-default build}
+
   ;; frontend build (shadow-cljs.edn :deps)
   :cljs {:extra-paths ["src/cljs"]
          :extra-deps {thheller/shadow-cljs {:mvn/version "3.5.11"}

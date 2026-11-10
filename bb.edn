@@ -46,6 +46,22 @@
    :task (do (shell "npx shadow-cljs release app")
              (clojure "-M:run"))}
 
+  jar
+  {:doc "The whole learner as one jar, target/fly-learner.jar: the release frontend, then
+         clojure -T:build uber. Run it with `java -jar target/fly-learner.jar` (data/ under the
+         working directory, :8080)"
+   :depends [install]
+   :task (do (shell "npx shadow-cljs release app")
+             (clojure "-T:build uber"))}
+
+  image
+  {:doc "The OCI image, fly-learner:latest, with docker or podman (whichever is on PATH):
+         bb image [tag]. Built from the Dockerfile, no local JDK nor Node needed"
+   :task (let [tool (or (first (filter fs/which ["docker" "podman"]))
+                        (throw (ex-info "Neither docker nor podman is on PATH" {})))
+               tag  (or (first *command-line-args*) "fly-learner:latest")]
+           (shell tool "build" "-t" tag "."))}
+
   test
   {:doc "Run tests (Kaocha: clojure.test + Rich Comment Tests)"
    :task (apply clojure "-M:dev:kaocha" *command-line-args*)}
