@@ -278,9 +278,11 @@ Each layer knows the one below as little as possible, so any part can be reimple
 - `bb watch` — shadow-cljs without a REPL; `bb serve` — release build served by the backend on :8080
 - `bb jar` — release frontend + `clojure -T:build uber` (`build.clj`: AOT server + cli, the dev build's `js/cljs-runtime`
   left out, Datalevin flags in the manifest) -> `target/fly-learner.jar`, `java -jar` with `data/` under the working dir
-- `bb image [tag]` — the OCI image from `Dockerfile` with docker or podman: the jar built on `$BUILDPLATFORM`
-  (clojure + node + bb images), run on `eclipse-temurin:21-jre-noble` (glibc: Datalevin's native lib) as `ubuntu`,
-  `/app/data` the volume, `JDK_JAVA_OPTIONS` carries the flags; `.dockerignore` lets in the sources only;
+- `bb image [tag]` — the OCI image from `Dockerfile` with docker, podman or Apple's `container` (first on PATH; `container
+  system start` first): the jar built on `$BUILDPLATFORM` (clojure + node + bb images), run on
+  `eclipse-temurin:21-jre-noble` (glibc: Datalevin's native lib) as `ubuntu`, `/app/data` the volume
+  (`docker/entrypoint.sh` starts as root to chown a root-owned new volume, as Apple's `container` makes them, then
+  `setpriv` to `ubuntu`), `JDK_JAVA_OPTIONS` carries the flags; `.dockerignore` lets in the sources only;
   `compose.yaml` (`host.docker.internal` for a local model server); `.github/workflows/image.yml` pushes
   `ghcr.io/<owner>/fly-learner` (main -> latest, `v*` tags -> semver) for amd64 + arm64. No keychain in a container:
   `llm/keychain-password` gives nil when `security` is missing

@@ -1,4 +1,4 @@
-# The whole learner as an OCI image (docker, podman):
+# The whole learner as an OCI image (docker, podman, Apple's container):
 #
 #   docker build -t fly-learner .            # or: bb image
 #   docker run -d -p 8080:8080 -v fly-learner:/app/data fly-learner
@@ -32,10 +32,11 @@ FROM eclipse-temurin:21-jre-noble
 WORKDIR /app
 RUN mkdir -p /app/data && chown ubuntu:ubuntu /app/data
 COPY --from=build /src/target/fly-learner.jar /app/fly-learner.jar
-USER ubuntu
+# starts as root only to hand a new volume to `ubuntu`, then runs the app as it
+COPY --chmod=755 docker/entrypoint.sh /app/entrypoint.sh
 # Datalevin's flags (in the jar's manifest too) for any `java` run here, e.g. the cli:
 #   docker exec fly-learner java -cp /app/fly-learner.jar clojure.main -m robertluo.fly-learner.cli --outline <path>
 ENV JDK_JAVA_OPTIONS="--add-opens=java.base/java.nio=ALL-UNNAMED --add-opens=java.base/sun.nio.ch=ALL-UNNAMED --enable-native-access=ALL-UNNAMED -XX:MaxRAMPercentage=75"
 VOLUME /app/data
 EXPOSE 8080
-ENTRYPOINT ["java", "-jar", "/app/fly-learner.jar"]
+ENTRYPOINT ["/app/entrypoint.sh"]

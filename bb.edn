@@ -55,10 +55,10 @@
              (clojure "-T:build uber"))}
 
   image
-  {:doc "The OCI image, fly-learner:latest, with docker or podman (whichever is on PATH):
+  {:doc "The OCI image, fly-learner:latest, with docker, podman or Apple's container (the first on PATH):
          bb image [tag]. Built from the Dockerfile, no local JDK nor Node needed"
-   :task (let [tool (or (first (filter fs/which ["docker" "podman"]))
-                        (throw (ex-info "Neither docker nor podman is on PATH" {})))
+   :task (let [tool (or (first (filter fs/which ["docker" "podman" "container"]))
+                        (throw (ex-info "None of docker, podman, container is on PATH" {})))
                tag  (or (first *command-line-args*) "fly-learner:latest")]
            (shell tool "build" "-t" tag "."))}
 

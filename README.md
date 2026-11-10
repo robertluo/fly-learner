@@ -180,7 +180,7 @@ Measured on real sources, at list prices:
 ## Install
 
 The whole learner is one OCI image: the app, its database and the page you open, with nothing else to install
-but Docker or Podman.
+but Docker, Podman or Apple's `container` (the same commands, `container` for `docker`).
 
 ```sh
 docker run -d --name fly-learner -p 8080:8080 -v fly-learner:/app/data \
@@ -198,7 +198,7 @@ or, from a checkout, `docker compose up -d` (`compose.yaml`; `--build` builds th
 - Everything it keeps is in the `fly-learner` volume (`/app/data`): the database, settings and keys, uploaded
   sources and your prompts. To upgrade, `docker pull` and run the new image on the same volume.
 
-To build it yourself: `bb image` (docker or podman, from the `Dockerfile`, no local JDK nor Node needed), or
+To build it yourself: `bb image` (docker, podman or `container`, from the `Dockerfile`, no local JDK nor Node needed), or
 `bb jar` for `target/fly-learner.jar`, which runs anywhere with Java 21: `java -jar fly-learner.jar` keeps its
 `data/` in the folder you run it from. Pushing to `main` or a `v*` tag publishes the image to GitHub's registry
 for amd64 and arm64 (`.github/workflows/image.yml`).

@@ -9,6 +9,7 @@
 !bb
 !src
 !resources
+!docker
 # made in the build, or local
 resources/public/js
 resources/public/vendor
