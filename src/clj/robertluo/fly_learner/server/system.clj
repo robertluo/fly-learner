@@ -37,7 +37,13 @@
   [:map
    [:db-dir :string]
    [:http [:map [:port :int]]]
-   [:anthropic {:optional true} :map]])
+   [:anthropic {:optional true} :map] ; the older form of :llm: Anthropic alone
+   [:llm {:optional true}
+    [:map
+     [:providers {:optional true}
+      [:map-of :keyword [:map [:type [:enum :anthropic :openai :ollama]]]]]
+     [:default {:optional true} :keyword]
+     [:models {:optional true} [:map-of :keyword :string]]]]])
 
 (defn load-config
   "resources/config.edn, validated."
@@ -98,11 +104,11 @@
     ;; the client is built on the first ask, so the server runs without an API
     ;; key until then; in a map, since fun-map would deref a bare delay
     ::llm
-    (fnk [::cfg] {:client (delay (llm/client (:anthropic cfg)))})
+    (fnk [::cfg] {:client (delay (llm/client (llm/settings cfg)))})
 
     ::api-fn
     (fnk [::cfg ::db ::llm ::learning]
-         (api/make-api (:conn db) (:client llm) {:models (get-in cfg [:anthropic :models])} learning))
+         (api/make-api (:conn db) (:client llm) {:models (:models (llm/settings cfg))} learning))
 
     ::ring-app
     (fnk [::db ::api-fn] (make-ring-app (:conn db) api-fn))

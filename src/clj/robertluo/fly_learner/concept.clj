@@ -297,7 +297,7 @@ Assign every new keyword to exactly one concept, or ignore it.
 
 (defn llm-resolver
   "Resolver backed by Claude (the :strong tier unless `:model` is given).
-  opts: :models tier overrides (config.edn [:anthropic :models]), :model"
+  opts: :models tier overrides (config.edn [:llm :models]), :model"
   [client {:keys [models model]}]
   (let [model (or model (llm/model-for models :strong))]
     (fn [batch]

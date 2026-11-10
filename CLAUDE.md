@@ -43,10 +43,16 @@ Web stack follows flybot.sg (github.com/flybot-sg/lasagna-pattern, `examples/fly
   - `ingest/outline` — blocks -> section tree (drops cover pages, contents, bibliography, ...)
   - `fold` — regroup long sections, bottom-up summaries, flatten to nodes, keyword cross-links, `->tx`; `estimate`:
     a rough cost of folding a tree before any call (calibrated on the first thesis)
-  - `llm` — Anthropic Java SDK; `complete`, `complete-json` (structured outputs), `usage`/`cost` per model.
-    Two tiers in `config.edn` `[:anthropic :models]`: `:strong` (Sonnet: sections, chapters, quizzes) and
-    `:common` (Haiku: paragraph groups). The system prompt carries a cache breakpoint; keep it identical
-    across calls (fold puts the document outline there) and put per-call content in the user prompt.
+  - `llm` — models by provider (`config.edn` `:llm`, `settings`; the older `:anthropic` map still read):
+    `:anthropic` (Java SDK: structured outputs, cached system prompt, refusal fallback), `:openai` (any
+    OpenAI-compatible server: oMLX, LM Studio, llama.cpp, vLLM; JSON schema mode, else the schema in the prompt,
+    remembered per client), `:ollama` (its own API: `:num-ctx`, `:think`); a provider's key from `:api-key-env`,
+    `:keychain` or `:api-key`, `:concurrency`, `:timeout-s`, `:body` merged into requests. A model is
+    `"provider/id"`, else the `:default` provider's (`route`); `complete`, `complete-json` (lenient `json-reply`
+    and one retry for non-Anthropic models), `usage`/`cost` per model (local ones free). Two tiers in
+    `[:llm :models]`: `:strong` (sections, chapters, quizzes) and `:common` (paragraph groups). The system prompt
+    carries a cache breakpoint; keep it identical across calls (fold puts the document outline there) and put
+    per-call content in the user prompt.
   - `server/system` — fun-map `life-cycle-map` (db, api-fn, ring app, http-kit)
   - `server/files` — `/files/sources/<id>` the original file; an EPUB's or a Markdown folder's `/pages` (JSON array of
     page HTML, cached per version, `ingest/page-version`) and `/res/<name>` (its images, sent with CSP `sandbox`)

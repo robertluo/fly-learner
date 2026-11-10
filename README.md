@@ -11,7 +11,7 @@
 <p align="center">
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-2f6f5e" alt="MIT license"></a>
   <img src="https://img.shields.io/badge/Clojure%20%2B%20ClojureScript-2f6f5e" alt="Clojure and ClojureScript">
-  <img src="https://img.shields.io/badge/models-Claude%20Sonnet%20%2B%20Haiku-2f6f5e" alt="Claude Sonnet and Haiku">
+  <img src="https://img.shields.io/badge/models-Claude%20%C2%B7%20oMLX%20%C2%B7%20Ollama-2f6f5e" alt="Claude, oMLX or Ollama">
 </p>
 
 Reading a long text word for word, you lose track of where you are and what it is for. Fly Learner reads it first.
@@ -19,8 +19,9 @@ It folds the source into layers, from a bird's-eye view down to the original par
 and what each one needs before it, and keeps the original beside you, page by page. Then it helps you learn: it asks
 you questions, grades your answers, notices what you are forgetting, and tells you what to study next.
 
-It is a personal tool. It runs on your machine, keeps everything in a local database, and calls Claude only to
-read and to ask.
+It is a personal tool. It runs on your machine, keeps everything in a local database, and calls a language model
+only to read and to ask: Claude, or a model on your own machine through oMLX, Ollama or any OpenAI-compatible
+server.
 
 ## What you can do
 
@@ -166,8 +167,9 @@ Measured on real sources, at list prices:
 
 ## Getting started
 
-You need [devenv](https://devenv.sh) (it brings the JDK, Clojure, Node and babashka) and an Anthropic API key, in
-`ANTHROPIC_API_KEY` or in the macOS keychain item named in `resources/config.edn`.
+You need [devenv](https://devenv.sh) (it brings the JDK, Clojure, Node and babashka) and a language model: an
+Anthropic API key (in `ANTHROPIC_API_KEY`, or the macOS keychain item named in `resources/config.edn`), or a local
+server.
 
 ```sh
 devenv shell
@@ -184,11 +186,36 @@ one writer), so reload the browser to see the result.
 
 Other tasks: `bb serve` (a release build on :8080), `bb test` (Kaocha + Rich Comment Tests), `bb lint`.
 
+### Choosing models
+
+Two tiers do all the work: `:strong` writes summaries of sections and chapters, quizzes and explorations, and
+`:common` does the high-volume routine reading. Each can be any model you configure in `resources/config.edn`:
+
+```clojure
+:llm {:providers {:anthropic {:type :anthropic :keychain {:service "learner" :account "anthropic"}}
+                  :omlx      {:type :openai :base-url "http://localhost:8000/v1" :api-key-env "OMLX_API_KEY"
+                              :concurrency 4}
+                  :ollama    {:type :ollama :num-ctx 32768}}
+      :default   :anthropic
+      :models    {:strong "claude-sonnet-5-5"
+                  :common "omlx/mlx-community/Qwen3.8-27B-4bit"}}
+```
+
+- A model is named `"provider/model"`, or plainly for the `:default` provider.
+- `:openai` works with any OpenAI-compatible server: oMLX, LM Studio, llama.cpp, vLLM, or Ollama's `/v1`.
+- `:ollama` uses Ollama's own API, which can set the context length for each request (Ollama's default is short).
+- A provider's key comes from `:api-key-env`, `:keychain` or `:api-key`. `:concurrency` caps requests in flight,
+  and `:body` adds fields to every request (`{:temperature 0.2}`, or a server's switch for thinking).
+- Claude's replies are guaranteed to match the JSON shape asked for. A local model is asked for the same shape (in
+  the server's JSON schema mode when it has one), its reply is read leniently, and it is asked again once when the
+  reply is not JSON. Local models cost nothing in the printed totals.
+
 ## Built with
 
 Clojure on the JVM and ClojureScript with [Replicant](https://github.com/cjohansen/replicant), a single pull-pattern
 API ([lasagna-pattern](https://github.com/flybot-sg/lasagna-pattern), the stack of [flybot.sg](https://www.flybot.sg)),
-[Datalevin](https://github.com/juji-io/datalevin), the Anthropic Java SDK, PDFBox and pdf.js, jsoup, commonmark-java,
+[Datalevin](https://github.com/juji-io/datalevin), the Anthropic Java SDK (or any OpenAI-compatible server, or
+Ollama), PDFBox and pdf.js, jsoup, commonmark-java,
 KaTeX, and http-kit with [fun-map](https://github.com/robertluo/fun-map).
 
 Folding a document into layers was inspired by [textfold](https://github.com/chenxiachan/textfold). The project is

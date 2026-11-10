@@ -210,7 +210,7 @@
   EPUB or a folder of Markdown, `formats`), replacing an earlier ingest of
   the same source (`same-source`: the same content, the same path, or most
   of the text with the old file gone), whose id it keeps. Prints progress.
-  opts: :models  tier -> model id overrides (config.edn [:anthropic :models])
+  opts: :models  tier -> model id overrides (config.edn [:llm :models])
         :skip    a Markdown folder's parts or files left out (kept with the
                  source: ingesting the same path again leaves them out too)
   Returns {:source-id .. :nodes n :fold-file ..}."

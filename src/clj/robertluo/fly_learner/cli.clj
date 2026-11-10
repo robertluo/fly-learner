@@ -104,14 +104,14 @@
     (when (seq unknown)
       (throw (ex-info (str "Not a PDF, EPUB or Markdown: " (str/join ", " unknown)) {:unknown (vec unknown)})))
     (if outline?
-      (let [models (get-in (sys/load-config) [:anthropic :models])]
+      (let [models (:models (llm/settings (sys/load-config)))]
         (vec (for [p paths]
                (let [r (ingest/preview p {:skip skip :models models})]
                  (print-preview! p r)
                  r))))
     (let [cfg    (sys/load-config)
-          models (get-in cfg [:anthropic :models])
-          client (llm/client (:anthropic cfg))
+          models (:models (llm/settings cfg))
+          client (llm/client (llm/settings cfg))
           own    (when-not (sys/conn) (sys/connect cfg))
           conn   (or (sys/conn) own)
           before (llm/cost)]

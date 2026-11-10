@@ -1,6 +1,21 @@
 {:db-dir "data/db"
  :http   {:port 8080}
- ;; API key lookup when ANTHROPIC_API_KEY is unset (macOS keychain)
- :anthropic {:keychain {:service "learner" :account "anthropic"}
-             ;; :strong = synthesis (sections, chapters, quizzes); :common = paragraph runs
-             :models   {:strong "claude-sonnet-5-5" :common "claude-haiku-5-5"}}}
+
+ ;; Language models (robertluo.fly-learner.llm). A model is named
+ ;; "provider/model" for one of :providers, else it is the :default one's.
+ :llm
+ {:providers
+  {;; key: ANTHROPIC_API_KEY, else this macOS keychain item
+   :anthropic {:type :anthropic :keychain {:service "learner" :account "anthropic"}}
+
+   ;; any OpenAI-compatible server: oMLX, LM Studio, llama.cpp, vLLM, Ollama's /v1
+   ;; :omlx {:type :openai :base-url "http://localhost:8000/v1" :api-key-env "OMLX_API_KEY"
+   ;;        :concurrency 4}
+
+   ;; Ollama's own API: sets the context length (its default is short)
+   ;; :ollama {:type :ollama :num-ctx 32768}
+   }
+  :default :anthropic
+  ;; :strong = synthesis (sections, chapters, quizzes); :common = paragraph runs
+  ;; e.g. :common "omlx/mlx-community/Qwen3.8-27B-4bit" or "ollama/qwen3:14b"
+  :models {:strong "claude-sonnet-5-5" :common "claude-haiku-5-5"}}}
