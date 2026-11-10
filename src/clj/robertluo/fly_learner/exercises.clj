@@ -20,7 +20,8 @@
   (and the answers given to them). A re-ingest drops them with the source
   (robertluo.fly-learner.ingest/remove-source!) and finds them again.
   `:exercise/concepts` follows merges (robertluo.fly-learner.concept)."
-  (:require [clojure.string :as str]
+  (:require [robertluo.fly-learner.prompts :as prompts]
+            [clojure.string :as str]
             [datalevin.core :as d]
             [robertluo.fly-learner.llm :as llm]))
 
@@ -167,7 +168,12 @@
 ;;=============================================================================
 
 (def ^:private system-prompt
-  "You read exercises an author wrote for the readers of their book, each
+  (prompts/prompt!
+   :exercises/extract
+   {:group "Reading" :title "Find the book's exercises"
+    :about "After an ingest, a chapter's exercises five a call with the concepts the chapter mentions (strong tier): the concepts each tests, a one-line summary, key points from the solution. The reply is JSON."
+    :default
+    "You read exercises an author wrote for the readers of their book, each
 with the author's solution when there is one, and the concepts of the
 chapter they are in. The text comes from the book's file; from a PDF, tables
 and formulas may be flattened into runs of numbers and symbols.
@@ -180,7 +186,7 @@ For each exercise:
   e.g. \"Find the Nash equilibria of a three-player envelope game\".
 - points: the 2-5 key points a full answer covers, each one short line,
   following the author's solution when given (its results, values and the
-  reasoning that gets there); without a solution, as you would solve it.")
+  reasoning that gets there); without a solution, as you would solve it."}))
 
 (def ^:private schema
   {"type" "object"
@@ -225,7 +231,7 @@ For each exercise:
   [client model concepts es by-label]
   (let [{:keys [exercises]}
         (llm/complete-json client
-                           {:system     system-prompt
+                           {:system     (prompts/text system-prompt)
                             :prompt     (str "# Concepts of the chapter\n"
                                              (str/join "\n" (for [{:concept/keys [label gloss]} concepts]
                                                               (str "- " label (when gloss (str ": " gloss)))))
@@ -313,7 +319,12 @@ For each exercise:
 ;;=============================================================================
 
 (def ^:private transcribe-prompt
-  "You transcribe exercises from a book, each with the author's solution when
+  (prompts/prompt!
+   :exercises/transcribe
+   {:group "Reading" :title "Transcribe the exercises"
+    :about "After an ingest, about 6,000 characters a call (strong tier): each exercise and its solution as Markdown with TeX, tables rebuilt, faithfully. The reply is JSON."
+    :default
+    "You transcribe exercises from a book, each with the author's solution when
 there is one, into Markdown with TeX. The text was extracted from the book's
 file: from a PDF, tables, matrices and fractions are flattened into runs of
 numbers and symbols, and lines may be broken anywhere; from an EPUB, the
@@ -335,7 +346,7 @@ plain lines.
   footers caught in the text.
 - solution: the same for the author's solution; empty when none is given.
 - n and label: the exercise's number in brackets and its label, as given
-  (\"[3] Exercise 4.9\": n 3, label \"4.9\"). Transcribe every exercise.")
+  (\"[3] Exercise 4.9\": n 3, label \"4.9\"). Transcribe every exercise."}))
 
 (def ^:private transcribe-schema
   {"type" "object"
@@ -355,7 +366,7 @@ plain lines.
   [client model xs]
   (let [{:keys [exercises]}
         (llm/complete-json client
-                           {:system     transcribe-prompt
+                           {:system     (prompts/text transcribe-prompt)
                             :prompt     (str (str/join "\n\n"
                                                        (map-indexed (fn [i {:keys [label text solution]}]
                                                                       (str "## [" (inc i) "] Exercise " label "\n" text

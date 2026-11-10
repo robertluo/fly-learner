@@ -17,7 +17,8 @@
     concept       a concept's page, a cluster's, the concept index
     graph         the concept graph
     home          the map of every cluster
-    explorations  interactive explorations of a passage"
+    explorations  interactive explorations of a passage
+    settings      adding sources, the models, the prompts"
   (:require [robertluo.fly-learner.ui.core.db :as db]
             [robertluo.fly-learner.ui.core.views.ask :as ask-ui]
             [robertluo.fly-learner.ui.core.views.concept :as concept-ui]
@@ -31,6 +32,7 @@
             [robertluo.fly-learner.ui.core.views.document :as doc-ui]
             [robertluo.fly-learner.ui.core.views.quiz :as quiz-ui]
             [robertluo.fly-learner.ui.core.views.selection :as selection-ui]
+            [robertluo.fly-learner.ui.core.views.settings :as settings-ui]
             [robertluo.fly-learner.ui.core.views.template :as t]
             #?(:cljs [clojure.string :as str])))
 
@@ -88,6 +90,10 @@
               {:class (when (= :concepts (:view db)) "here") :title "Every concept, A to Z"} "Concepts")
     (nav/link dispatch! {:db db/open-notebook :pull :ideas :history :push} "/b"
               {:class (when (= :notebook (:view db)) "here") :title "What you wrote while reading, as a book"} "Notebook")
+    (nav/link dispatch! {:db db/open-settings :pull :settings :history :push} "/s"
+              {:class (when (= :settings (:view db)) "here")
+               :title (if (db/ingesting? db) "A source is being ingested" "Add sources; the models; the prompts")}
+              "Settings" (when (db/ingesting? db) [:span.busy-dot]))
     (for [{:cluster/keys [id] :keys [score] :as c} (db/learning-clusters db)]
       (nav/cluster-link dispatch! c {:replicant/key (str id)
                                      :class ["learning" (when (= id (:cluster-id db)) "here")]}
@@ -152,4 +158,5 @@
      :notebook (notebook-ui/notebook-view db dispatch!)
      :study    (quiz-ui/study-view db dispatch!)
      :explore  (explore-ui/explore-view db dispatch!)
+     :settings (settings-ui/settings-view db dispatch!)
      (home-ui/home-view db dispatch!))])

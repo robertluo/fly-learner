@@ -178,6 +178,26 @@
         {:request (api/fetch :named {:term t})
          :then    (fn [nodes] {:db #(db/named-fetched % t nodes)})}))
 
+    ;; the settings page: the models, the ingest jobs, the prompts
+    :settings
+    {:request (api/batch {:settings (api/fetch :settings) :ingests (api/fetch :ingests) :prompts (api/fetch :prompts)})
+     :then    (fn [{:keys [ingests] :as r}]
+                (cond-> {:db #(db/settings-fetched % r)}
+                  (some db/ingest-active? ingests) (assoc :later {:ms 2000 :effects {:pull :ingests-poll}})))}
+
+    ;; while a source is ingested, wherever the learner is: its progress; once
+    ;; every job is done, the knowledge it changed
+    :ingests-poll
+    {:request (api/fetch :ingests)
+     :then    (fn [jobs]
+                (if (some db/ingest-active? jobs)
+                  {:db #(db/ingests-fetched % jobs) :later {:ms 2000 :effects {:pull :ingests-poll}}}
+                  {:db #(db/ingests-done % jobs) :pull [:init :universe :learning]}))}
+
+    :prompts
+    {:request (api/fetch :prompts)
+     :then    (fn [ps] {:db #(db/prompts-fetched % ps)})}
+
     :keyword
     (let [kw (:keyword db)]
       (when (and kw (not (contains? (:keyword-results db) kw)))
@@ -222,6 +242,30 @@
   {:request (api/delete :clusters {:cluster/id id})
    :then    (fn [_] {:db #(db/go-home (db/knowledge-changed %)) :history :push :pull [:universe :learning :ideas]})})
 
+(defn ingest-create
+  "Ingest what upload `id` holds, as checked (db/upload-request)."
+  [id request]
+  {:request (api/create :ingests request)
+   :then    (fn [job] {:db #(db/ingest-started % id job) :later {:ms 1000 :effects {:pull :ingests-poll}}})})
+
+(defn ingest-forget
+  "Take finished ingest job `id` off the list."
+  [id]
+  {:request (api/delete :ingests {:ingest/id id})
+   :then    (fn [_] {:db #(db/ingest-forgotten % id)})})
+
+(defn prompt-save
+  "Keep `text` as the learner's version of prompt `id`."
+  [id text]
+  {:request (api/change :prompts {:prompt/id id} {:prompt/text text})
+   :then    (fn [p] {:db #(db/prompt-saved % p)})})
+
+(defn prompt-reset
+  "Prompt `id` back to its default."
+  [id]
+  {:request (api/delete :prompts {:prompt/id id})
+   :then    (fn [_] {:db #(db/prompt-dropped % id) :pull :prompts})})
+
 (defn for-route
   "Pull operation needed after navigating to a parsed route."
   [{:keys [view]}]
@@ -237,6 +281,7 @@
     :concepts [:concept-index :ideas]
     :study    :learning
     :explore  [:exploration :explorations]
+    :settings :settings
     nil))
 
 ^:rct/test
@@ -300,4 +345,9 @@
   ;; learning a topic, or not
   (:request (goal id true)) ;=> {:op :create :coll :goals :value {:cluster/id #uuid "00000000-0000-0000-0000-000000000001"}}
   (:request (goal id false)) ;=> {:op :delete :coll :goals :key {:cluster/id #uuid "00000000-0000-0000-0000-000000000001"}}
+  (for-route {:view :settings}) ;=> :settings
+  (:request (ingest-create :u1 {:ingest/paths ["a"] :ingest/skip []}))
+  ;=> {:op :create :coll :ingests :value {:ingest/paths ["a"] :ingest/skip []}}
+  (:request (prompt-save :fold/summarise "Do it."))
+  ;=> {:op :update :coll :prompts :key {:prompt/id :fold/summarise} :value {:prompt/text "Do it."}}
   (for-route {:view :home})) ;=> nil

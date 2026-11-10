@@ -22,7 +22,8 @@
     store      the question, answer and cited node ids; reading it back
                rebuilds the cited subgraph from the current graph, so it is
                drilled into like the whole one"
-  (:require [clojure.string :as str]
+  (:require [robertluo.fly-learner.prompts :as prompts]
+            [clojure.string :as str]
             [datalevin.core :as d]
             [robertluo.fly-learner.llm :as llm]))
 
@@ -168,7 +169,12 @@
 ;;=============================================================================
 
 (def ^:private system-prompt
-  "You answer questions from a personal knowledge base. It was built by folding
+  (prompts/prompt!
+   :ask/answer
+   {:group "Asking" :title "Answer a question"
+    :about "Every question you ask, about the knowledge base or a selection (common tier): an answer from numbered entries, citing them, in Markdown with TeX. The reply is JSON."
+    :default
+    "You answer questions from a personal knowledge base. It was built by folding
 documents the user studies into a graph: each document has an overview, chapters
 and sections with summaries, passages, and the original paragraphs.
 
@@ -200,7 +206,7 @@ PDF, with formulas garbled, or from an EPUB; read it together with the entries i
   items; TeX for formulas, $..$ inline and $$..$$ displayed (unpack a garbled
   formula from a PDF into TeX; a dollar sign that is money as \\$). No headings; bold only for a term being defined. Keep
   the documents' notation, and the citations outside formulas. Usually one to
-  three paragraphs.")
+  three paragraphs."}))
 
 (def ^:private answer-schema
   {"type"                 "object"
@@ -331,7 +337,7 @@ PDF, with formulas garbled, or from an EPUB; read it together with the entries i
         [entries from] (focus-entries db overview (when quote (:nodes focus)) (map :node ranked))
         model   (llm/model-for models :common)
         {:keys [title answer followups]}
-        (llm/complete-json client {:system     system-prompt
+        (llm/complete-json client {:system     (prompts/text system-prompt)
                                    :prompt     (prompt question entries (when quote {:quote quote :from from}))
                                    :model      model
                                    :max-tokens 4000

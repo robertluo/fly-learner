@@ -9,6 +9,7 @@
     /c/<uuid>    a concept
     /q           study: what you know, quizzes
     /x           explorations; /x/<uuid> one kept, /x/<name> an example
+    /s           settings: add sources, the models, the prompts
   The server serves index.html for these paths (robertluo.fly-learner.server.system)."
   (:require [clojure.string :as str]))
 
@@ -32,6 +33,7 @@
     :concepts "/c"
     :notebook "/b"
     :study    "/q"
+    :settings "/s"
     :explore  (if exploration-id (str "/x/" (url-encode (str exploration-id))) "/x")
     :keyword (str "/k/" (url-encode keyword))
     :term    (str "/t/" (url-encode term))
@@ -51,6 +53,7 @@
       (when (re-matches #"/c/?" path) {:view :concepts})
       (when (re-matches #"/b/?" path) {:view :notebook})
       (when (re-matches #"/q/?" path) {:view :study})
+      (when (re-matches #"/s/?" path) {:view :settings})
       (when (re-matches #"/x/?" path) {:view :explore})
       (when-let [[_ id] (re-matches #"/x/([0-9a-f-]{36})/?" path)]
         {:view :explore :id (parse-uuid id)})
@@ -104,6 +107,7 @@
   ;=> {:view :ask :id #uuid "00000000-0000-0000-0000-000000000001"}
   (state->path {:view :ask :ask-id nil}) ;=> nil
   (state->path {:view :concepts}) ;=> "/c"
+  (path->state (state->path {:view :settings})) ;=> {:view :settings}
   (path->state (state->path {:view :cluster :cluster-id #uuid "00000000-0000-0000-0000-000000000002"}))
   ;=> {:view :cluster :id #uuid "00000000-0000-0000-0000-000000000002"}
   (path->state "/c/") ;=> {:view :concepts}

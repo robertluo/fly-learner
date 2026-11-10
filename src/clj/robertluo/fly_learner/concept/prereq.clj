@@ -32,7 +32,8 @@
 
   Claims are stored as the model made them (:prereq/*, schema in
   robertluo.fly-learner.db); `dag` is derived on read."
-  (:require [clojure.string :as str]
+  (:require [robertluo.fly-learner.prompts :as prompts]
+            [clojure.string :as str]
             [datalevin.core :as d]
             [robertluo.fly-learner.concept.graph :as graph]
             [robertluo.fly-learner.db :as db]
@@ -192,7 +193,12 @@
 ;;=============================================================================
 
 (def ^:private judge-instructions
-  "You map what a learner must understand before what, in a knowledge base built
+  (prompts/prompt!
+   :prereq/judge
+   {:group "Concepts" :title "Judge what comes first"
+    :about "After an ingest, the new concepts eight a call (common tier): what each needs first and the background it assumes. The index of every concept is added after it. The reply is JSON."
+    :default
+    "You map what a learner must understand before what, in a knowledge base built
 from documents. Each document is split into passages tagged with concepts; the
 index of every concept (label: gloss) is below.
 
@@ -224,7 +230,7 @@ concept of another document is a valid need only when it is the same idea:
 \"type\" in a type theory text is not a player's type in a game.
 
 Concept index:
-")
+"}))
 
 (defn- catalogue
   "The concept index for the system prompt: label [the sources mentioning
@@ -332,7 +338,7 @@ Concept index:
         short   #(source-name titles %)
         names   (by-name concepts)
         model   (llm/model-for models tier)
-        system  (str judge-instructions (catalogue concepts pages short))
+        system  (str (prompts/text judge-instructions) (catalogue concepts pages short))
         done    (atom 0)
         pool    (java.util.concurrent.Executors/newFixedThreadPool threads)
         run     (fn [chunk]
@@ -378,7 +384,12 @@ Concept index:
 ;; auditing
 
 (def ^:private audit-instructions
-  "You check claims of a learning map built from documents. Each claim says a
+  (prompts/prompt!
+   :prereq/audit
+   {:group "Concepts" :title "Audit prerequisites"
+    :about "Run by hand from the REPL (prereq/audit): checks the direction of each prerequisite claim. The reply is JSON."
+    :default
+    "You check claims of a learning map built from documents. Each claim says a
 learner must understand concept A before concept B, with the reason a model
 gave. Judge each:
 
@@ -395,7 +406,7 @@ gave. Judge each:
 
 Judge by what the concepts mean (their glosses), not by wording alone. Most
 claims are ok; say otherwise only when you are confident. Give a short note
-for anything not ok.")
+for anything not ok."}))
 
 (def ^:private audit-schema
   {:type "object"
@@ -424,7 +435,7 @@ for anything not ok.")
         run   (fn [chunk]
                 (let [{:keys [verdicts]}
                       (llm/complete-json client
-                                         {:system     audit-instructions
+                                         {:system     (prompts/text audit-instructions)
                                           :prompt     (str/join "\n\n" (map-indexed (fn [i {:keys [of needs why]}]
                                                                                        (str "Claim " (inc i) "\nA: " (line needs) "\nB: " (line of)
                                                                                             "\nReason: " why))
@@ -446,7 +457,12 @@ for anything not ok.")
 ;; hidden concepts
 
 (def ^:private consolidate-instructions
-  "You curate the background knowledge a knowledge base assumes. Concepts of
+  (prompts/prompt!
+   :prereq/consolidate
+   {:group "Concepts" :title "Name the background"
+    :about "After judging: merges the background the concepts assume into hidden concepts (common tier). The reply is JSON."
+    :default
+    "You curate the background knowledge a knowledge base assumes. Concepts of
 its documents were each judged for knowledge they take for granted that no
 concept of the index names. You receive those names, each with the glosses
 given and how many concepts need it.
@@ -459,7 +475,7 @@ exactly one group. When a group is in fact a concept of the index below, give
 its index label as existing (else an empty string).
 
 Concept index:
-")
+"}))
 
 (def ^:private consolidate-schema
   {:type "object"
@@ -486,7 +502,7 @@ Concept index:
           names  (by-name concepts)
           by-lbl (group-by :label background)
           {:keys [groups]}
-          (llm/complete-json client {:system     (str consolidate-instructions
+          (llm/complete-json client {:system     (str (prompts/text consolidate-instructions)
                                                       (catalogue concepts (first-pages db) #(source-name titles %)))
                                      :prompt     (str "Background names (concepts needing it; glosses given):\n"
                                                       (str/join "\n" (for [[l bs] (sort-by key by-lbl)]

@@ -12,7 +12,8 @@
   Summarisation is a function argument so folding can be tested without a
   model. See `llm-summarizer` for the real one.
   Reference: https://github.com/chenxiachan/textfold"
-  (:require [clojure.string :as str]
+  (:require [robertluo.fly-learner.prompts :as prompts]
+            [clojure.string :as str]
             [robertluo.fly-learner.llm :as llm])
   (:import (java.util.concurrent Semaphore)))
 
@@ -138,7 +139,12 @@
 ;; --- LLM summariser -------------------------------------------------------
 
 (def ^:private system-prompt
-  "You are building a layered study map of a document, so a learner can
+  (prompts/prompt!
+   :fold/summarise
+   {:group "Reading" :title "Summarise a part"
+    :about "Folding a source into layers, bottom up: one call per run of paragraphs (common tier) and per section, chapter and the whole document (strong tier). The document's outline is added after it. The reply is JSON: title, summary, keywords."
+    :default
+    "You are building a layered study map of a document, so a learner can
 understand it top-down and drill into detail only where needed.
 
 You receive one part of the document: either original passages, or the
@@ -155,7 +161,7 @@ titles and summaries of its sub-parts. Produce:
   concept across parts, so related parts can be linked.
 
 The document's outline is below for orientation; the part you summarise is
-named in the request.")
+named in the request."}))
 
 (defn outline-text
   "Indented heading list of a section tree, used as shared context."
@@ -193,7 +199,7 @@ named in the request.")
         :on-call  invoked after each request"
   [client {:keys [outline models concurrency on-call] :or {concurrency 8 on-call (fn [])}}]
   (let [permits (Semaphore. concurrency)
-        system  (cond-> system-prompt outline (str "\n\n<outline>\n" outline "\n</outline>"))]
+        system  (cond-> (prompts/text system-prompt) outline (str "\n\n<outline>\n" outline "\n</outline>"))]
     (fn [{:keys [path heading kind items]}]
       (let [prompt (str "Part: " (str/join " > " path) "\n"
                         (when heading (str "Heading: " heading "\n"))
@@ -228,7 +234,7 @@ named in the request.")
   outline written to the cache once per tier, then read from it."
   ([tree] (estimate tree nil))
   ([tree models]
-   (let [system (quot (+ (count system-prompt) (count (outline-text tree))) 4)
+   (let [system (quot (+ (count (prompts/text system-prompt)) (count (outline-text tree))) 4)
          calls  (letfn [(walk [t root?]
                           (when (internal? t)
                             (cons {:tier  (tier-for (cond root? :source (:group t) :group :else :section))

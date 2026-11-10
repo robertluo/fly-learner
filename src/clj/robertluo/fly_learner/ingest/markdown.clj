@@ -412,7 +412,8 @@
 
 (defn- layout
   "What the book at `path` (a folder, or one Markdown file) holds, before
-  reading it: {:dir :base (names start there) :repo :manifest :title
+  reading it: {:dir :base (names start there) :repo :manifest :title :parts
+  (the top entries of the manifest: {:title :skip}, what `:skip` takes)
   :chapters [{:file File :name :depth :title :parts [[title depth] ..]}]
   :redirects {name name} :left-out [title ..] :unlisted [file ..] :missing
   [file ..]}. opts: :skip, parts or files left out. Drafts are left out."
@@ -448,6 +449,11 @@
      :manifest  (:name m)
      :title     (:title m)
      :chapters  chapters
+     :parts     (let [ps (keep (fn [{:keys [title file]}]
+                                 (when-let [k (or title file)]
+                                   {:title (or title (last (str/split file #"/"))) :skip k}))
+                               (:entries m))]
+                  (when (< 1 (count ps)) (vec ps)))
      :redirects (into {} (for [[from to] (:redirects m)] [(name (file from)) (name (file to))]))
      :left-out  (into (vec (keep :title @out)) (map #(str (last (str/split % #"/")) " (draft)") @drafts))
      :missing   missing
@@ -535,7 +541,7 @@
   ([path opts]
    (let [{:keys [layout] :as pkg} (package path opts)]
      (assoc (book/extract pkg)
-            :about (-> (select-keys layout [:manifest :left-out :unlisted :missing])
+            :about (-> (select-keys layout [:manifest :left-out :unlisted :missing :parts])
                        (assoc :chapters (count (:chapters layout))
                               :repo (some-> (:repo layout) (update :root str))))))))
 

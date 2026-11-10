@@ -53,10 +53,21 @@ Web stack follows flybot.sg (github.com/flybot-sg/lasagna-pattern, `examples/fly
     `[:llm :models]`: `:strong` (sections, chapters, quizzes) and `:common` (paragraph groups). The system prompt
     carries a cache breakpoint; keep it identical across calls (fold puts the document outline there) and put
     per-call content in the user prompt.
-  - `server/system` — fun-map `life-cycle-map` (db, api-fn, ring app, http-kit)
+  - `server/system` — fun-map `life-cycle-map` (db, api-fn, ring app, http-kit; `:max-body` fits an upload);
+    `connect` also points `prompts` at `data/prompts.edn` (config `:prompts-file`)
+  - `server/pipeline` — `run!`: ingest sources and everything after (concepts, topics, prerequisites, key
+    sentences, exercises, explorations), printing progress and the cost: what `bb ingest` and the settings page run;
+    `source-path`
+  - `server/ingests` — the settings page adding sources: `upload!` (`POST /files/upload?name=..`, the file as the
+    body; kept under `data/sources/uploads/`, a zip unpacked with no entry outside its folder, bounded),
+    `candidates` (each PDF/EPUB, the deepest folder holding all the Markdown), `describe` (no model: title, pages,
+    rough cost, a folder's `:parts` to leave out, `:known` = already in the library by hash); `start!` a background
+    job (one at a time), what `pipeline/run!` prints kept as its log (a fold's progress line replaced), `jobs`
   - `server/files` — `/files/sources/<id>` the original file; an EPUB's or a Markdown folder's `/pages` (JSON array of
     page HTML, cached per version, `ingest/page-version`) and `/res/<name>` (its images, sent with CSP `sandbox`)
-  - `server/api` — lasagna-remote pull API on `/api`: `:sources`, `:asks` (collections; creating an ask runs the
+  - `server/api` — lasagna-remote pull API on `/api`: `:ingests` (collection: create = ingest uploaded paths under
+    `data/sources` with `:ingest/skip`), `:prompts` (collection: update = edit, delete = back to the default),
+    `:settings` (lazy: models by tier, providers without keys), `:sources`, `:asks` (collections; creating an ask runs the
     model), `:concepts` (collection: create adds a concept the model missed, delete removes one: `server/curation`), `:nodes` (with `:node/concepts`; `:node/keywords` keeps only
     keywords naming no concept), `:keywords`, `:search` (lookups), `:goto` (lookup: the concepts and book exercises the top box's text names, as typed), `:learning` (lazy overview), `:universe` (lazy:
     every cluster with its score), `:clusters` (a cluster's next items; delete removes a topic and its concepts), `:goals` (create/delete: learn a
@@ -138,7 +149,7 @@ Web stack follows flybot.sg (github.com/flybot-sg/lasagna-pattern, `examples/fly
   lasagna-remote pull pattern, `answer` reads the reply back, `send!` transit+json to `/api`, `source-url`; a new API
   format changes this namespace only, architecture test), `pull` (what to fetch when: `{:request :then}`, `:then` gets
   the answer; named ops in `resolve-pull`, `idea-create`/`idea-delete`/`goal` take arguments),
-  `history` (URL <-> state; `/` the map, `/g/<id>` a cluster, `/x/<id>` an exploration, `/b` the notebook, `/t/<term>` a term of the
+  `history` (URL <-> state; `/` the map, `/g/<id>` a cluster, `/x/<id>` an exploration, `/b` the notebook, `/s` settings, `/t/<term>` a term of the
   learner's; `re-matches` in ClojureScript is not anchored like the JVM's: no lazy `(.+?)` groups), `views` (Replicant hiccup,
   the root composes the header, popover and one view per route from `views.*`: `template` (generic: icons, score
   bars, zoom controls, the split divider; requires nothing of the app), `markdown` (rich text: what the model writes is
@@ -147,7 +158,10 @@ Web stack follows flybot.sg (github.com/flybot-sg/lasagna-pattern, `examples/fly
   (split views, pannable drawings, full screen), `node`, `document` (the source beside the text, page by page,
   whatever its format: toolbar, page box, marks (key sentences, quotes, the open bar); `source-doc` -> `{:kind :pdf|:html
   :url}` picks how a page is drawn: pdf.js canvas + text layer, or the server's HTML page; db `doc-*`, state `:doc`), `ideas`, `selection`, `ask`, `quiz`, `concept`,
-  `graph`, `home`, `explorations`, `notebook` (what the learner wrote, as a book: by source and chapter in reading
+  `graph`, `home`, `explorations`, `settings` (drop files: each upload's candidates, checked, parts to leave out,
+  Ingest; jobs with their log, polled every 2 s while one runs (`:ingests-poll`, wherever the learner is; when all
+  are done the knowledge is fetched again), the library, the models, the prompts by group with an editor:
+  `db/prompt-*`, `pull/prompt-save`, `prompt-reset`; the header's Settings link pulses while ingesting), `notebook` (what the learner wrote, as a book: by source and chapter in reading
   order, or newest first; highlights if asked; each note rewritten in place, the composer with `db/draft-edit`; downloaded
   as one Markdown file, `db/notebook-markdown`, `[[..]]` kept); one flow, map ->
   cluster -> concept -> passage; a concept page's "Learn first": its prerequisite path not yet known, foundations
@@ -163,7 +177,7 @@ Web stack follows flybot.sg (github.com/flybot-sg/lasagna-pattern, `examples/fly
   (incremental force layout on primitive arrays: broader-above and prerequisite-above are constraints (`above-edges`
   drops one that would close a loop), label boxes never overlap;
   unconnected parts laid out apart and packed in rows below the largest, else repulsion strands them far away; tween)
-- `src/cljs/robertluo/fly_learner/ui/` — `core` (dispatch-of effects `:db`/`:pull`/`:history`/`:animate`, requests via `api/send!`, render,
+- `src/cljs/robertluo/fly_learner/ui/` — `core` (dispatch-of effects `:db`/`:pull`/`:history`/`:animate`/`:upload` (`api/upload!`)/`:later` (effects after a delay), requests via `api/send!`, render,
   mouseup -> text selection), `pdf` (pdf.js: render a page, its selectable text layer, `page-text`), `html` (an EPUB's or
   a Markdown folder's pages: fetched once, formulas typeset by KaTeX then (`typeset`), `page-text` from the page's text
   nodes, a formula's being its TeX annotation, not its glyphs, so it matches the passage text; `when-laid-out!`), `pages` (whatever draws them: `find-each!`,
@@ -241,7 +255,10 @@ Each layer knows the one below as little as possible, so any part can be reimple
     :source/id :node/title}`: re-found by title in the source after a re-ingest
 - **app** (`server.*`, `ui.*`; the UI knows item ids `[:concept id]` / `[:relation a b]` for the heat map) composes: `server.system` merges schemas and picks the model (mastery + decay)
   and the curriculum
-- `cli` — command-line tasks (app layer): `ingest!`; `server.system/connect` opens the db with every layer's schema
+- `prompts` — the system prompts given to the models (infra: any layer may use it): each namespace registers its own
+  (`prompt!` id, group, title, about, default) and reads it at call time (`text`): the learner's version (`edit!`,
+  kept in `data/prompts.edn` via `use-file!`) else the default; `reset!`, `all`
+- `cli` — command-line tasks (app layer): `ingest!` (options, `--outline`, then `server.pipeline/run!`); `server.system/connect` opens the db with every layer's schema
 - `dev/user.clj` — `(start!)` / `(stop!)` / `(cljs!)`, ingest snippet
 - Tests: Kaocha runs `test/clj` plus Rich Comment Tests (`^:rct/test` comment blocks in `src/`)
 

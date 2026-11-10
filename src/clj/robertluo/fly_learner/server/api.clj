@@ -37,6 +37,13 @@
   A node (:nodes) carries :node/explore: its proposal, if any, and its explorations.
     '{:keypoints {{:source/id #uuid \"..\"} ?k}}  ; a source's key sentences [{:page :para :node :quote :label}]
     '{:pages {{:source/id #uuid \"..\" :page 40 :near #uuid \"..\"} ?n}} ; the node (as :nodes) to show beside a page
+    '{:ingests ?jobs}                              ; ingest jobs of this run, newest first, with their logs
+    {:ingests {nil {:ingest/paths [..] :ingest/skip [..]}}} ; ingest uploaded sources in the background
+    {:ingests {{:ingest/id id} nil}}               ; take a finished job off the list
+    '{:prompts ?all}                               ; the prompts given to the models, as edited
+    {:prompts {{:prompt/id :fold/summarise} {:prompt/text \"..\"}}} ; edit one; {:prompts {{..} nil}} resets it
+    '{:settings ?s}                                ; models by tier and providers (no keys)
+  Files to add are uploaded apart: POST /files/upload (server.ingests).
 
   Personal app: no roles."
   (:require [clojure.string :as str]
@@ -47,9 +54,13 @@
             [robertluo.fly-learner.db :as db]
             [robertluo.fly-learner.explore.knowledge :as explore]
             [robertluo.fly-learner.explore.store :as explore.store]
+            [robertluo.fly-learner.ingest :as ingest]
+            [robertluo.fly-learner.llm :as llm]
             [robertluo.fly-learner.keypoints :as keypoints]
+            [robertluo.fly-learner.prompts :as prompts]
             [robertluo.fly-learner.server.curation :as curation]
             [robertluo.fly-learner.server.ideas :as ideas]
+            [robertluo.fly-learner.server.ingests :as ingests]
             [robertluo.fly-learner.server.study :as study]
             [sg.flybot.pullable.collection :as coll]))
 
@@ -203,6 +214,51 @@
     (if (and (uuid? id) (map? data)) (ideas/update! conn id data) {:error {:type :invalid :message "Which idea?"}}))
   (delete! [_ {:idea/keys [id]}] (boolean (and (uuid? id) (ideas/delete! conn id)))))
 
+(defrecord IngestsDataSource [conn client opts]
+  coll/DataSource
+  (fetch [_ {:ingest/keys [id]}] (when (uuid? id) (ingests/job id)))
+  (list-all [_] (ingests/jobs))
+  (create! [_ {:ingest/keys [paths skip]}]
+    (cond
+      (not (and (sequential? paths) (seq paths) (every? string? paths)))
+      {:error {:type :invalid :message "Ingest which files?"}}
+      (not (every? #(and (ingests/under-sources? %) (ingest/source-type %)) paths))
+      {:error {:type :invalid :message "Only sources added here (under data/sources) can be ingested"}}
+      (not (or (nil? skip) (and (sequential? skip) (every? string? skip))))
+      {:error {:type :invalid :message "Leave out which parts?"}}
+      :else (ingests/start! conn client (:models opts) {:paths paths :skip skip})))
+  (update! [_ _ _] {:error {:type :forbidden}})
+  (delete! [_ {:ingest/keys [id]}] (boolean (and (uuid? id) (ingests/forget! id)))))
+
+(defn- prompt-entry [{:keys [id group title about default text edited?]}]
+  {:prompt/id id :prompt/group group :prompt/title title :prompt/about about
+   :prompt/default default :prompt/text text :prompt/edited? edited?})
+
+(defn- find-prompt [id] (some #(when (= id (:id %)) (prompt-entry %)) (prompts/all)))
+
+(defrecord PromptsDataSource []
+  coll/DataSource
+  (fetch [_ {:prompt/keys [id]}] (find-prompt id))
+  (list-all [_] (mapv prompt-entry (prompts/all)))
+  (create! [_ _] {:error {:type :forbidden :message "prompts are the code's"}})
+  (update! [_ {:prompt/keys [id]} {:prompt/keys [text]}]
+    (cond
+      (not (find-prompt id))                     {:error {:type :not-found :message "No such prompt"}}
+      (not (string? text))                       {:error {:type :invalid :message "A prompt is text"}}
+      (> (count text) 100000)                    {:error {:type :invalid :message "Up to 100,000 characters"}}
+      :else (do (prompts/edit! id text) (find-prompt id))))
+  (delete! [_ {:prompt/keys [id]}]
+    (boolean (when (find-prompt id) (prompts/reset! id) true))))
+
+(defn- settings-view
+  "The model settings to show: models by tier, providers without their keys."
+  [{:keys [models default providers]}]
+  {:models    (merge llm/default-models models)
+   :default   default
+   :providers (vec (for [[k p] (sort-by key providers)]
+                     (cond-> {:name (name k) :type (:type p)}
+                       (:base-url p) (assoc :base-url (:base-url p)))))})
+
 (defn- lazy-value
   "A value computed by `f` only when a pattern binds it (serialised via ->wire)."
   [f]
@@ -238,6 +294,8 @@
                                     (some->> (db/node-at-page db id page near) (node-of db))))))
         kps     (query-lookup (fn [{:source/keys [id]}] (when (uuid? id) (keypoints/for-source (d/db conn) id))))
         named   (query-lookup (fn [{:keys [term]}] (ideas/named (d/db conn) term)))
+        ingest-jobs (coll/collection (->IngestsDataSource conn client ask-opts) {:id-key :ingest/id})
+        prompt-coll (coll/collection (->PromptsDataSource) {:id-key :prompt/id})
         kws     (query-lookup (fn [{:keys [keyword]}] (when (string? keyword)
                                                         (db/nodes-with-keyword (d/db conn) keyword))))]
     (fn [_request]
@@ -250,6 +308,9 @@
                 :clusters clusters
                 :questions questions :answers answers
                 :ideas idea-coll
-                :explorations explorations}
+                :explorations explorations
+                :ingests ingest-jobs
+                :prompts prompt-coll
+                :settings (lazy-value #(settings-view (:llm ask-opts)))}
        :errors {:detect :error
                 :codes  {:forbidden 403 :not-found 404 :invalid 400 :refused 422 :llm-error 502}}})))

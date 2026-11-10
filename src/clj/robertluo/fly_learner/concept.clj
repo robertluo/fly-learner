@@ -35,7 +35,8 @@
   replay the edit after a rebuild.
 
   The concept graph and its operations: robertluo.fly-learner.concept.graph."
-  (:require [clojure.string :as str]
+  (:require [robertluo.fly-learner.prompts :as prompts]
+            [clojure.string :as str]
             [datalevin.core :as d]
             [robertluo.fly-learner.llm :as llm]))
 
@@ -233,7 +234,12 @@
 ;; the model
 
 (def ^:private system-prompt
-  "You maintain the concept index of a personal knowledge base. Documents are
+  (prompts/prompt!
+   :concepts/resolve
+   {:group "Concepts" :title "Resolve keywords into concepts"
+    :about "After an ingest, the keywords no concept covers yet, in batches (strong tier): each joins a concept or makes a new one with a label, a gloss and broader concepts, or is ignored as too generic. The reply is JSON."
+    :default
+    "You maintain the concept index of a personal knowledge base. Documents are
 folded into summarised parts, and each part is tagged with keywords. Keywords
 are plain strings, so one idea appears under several spellings (\"equality
 type\", \"equality types\"), and one spelling may name different ideas in
@@ -261,7 +267,7 @@ Assign every new keyword to exactly one concept, or ignore it.
   may create a concept without keywords only to serve as a broader parent of
   others.
 - ignored: keywords too generic to name a specific idea, e.g. \"proof\",
-  \"definition\", \"example\", \"motivation\".")
+  \"definition\", \"example\", \"motivation\"."}))
 
 (def ^:private reply-schema
   {:type "object"
@@ -301,7 +307,7 @@ Assign every new keyword to exactly one concept, or ignore it.
   [client {:keys [models model]}]
   (let [model (or model (llm/model-for models :strong))]
     (fn [batch]
-      (assoc (llm/complete-json client {:system     system-prompt
+      (assoc (llm/complete-json client {:system     (prompts/text system-prompt)
                                         :prompt     (resolver-prompt batch)
                                         :model      model
                                         :max-tokens 32000
@@ -312,10 +318,15 @@ Assign every new keyword to exactly one concept, or ignore it.
 ;; A concept added by hand without a gloss gets one from the passages naming it.
 
 (def ^:private gloss-system
-  "You write the gloss of a concept in a personal knowledge base: one sentence
+  (prompts/prompt!
+   :concepts/gloss
+   {:group "Concepts" :title "Gloss a concept you add"
+    :about "When you add a concept without a gloss (common tier): one sentence from the passages naming it. The reply is the sentence."
+    :default
+    "You write the gloss of a concept in a personal knowledge base: one sentence
 fixing its sense as the given passages use it, as a textbook glossary would
 (\"A strategy profile from which no player gains by deviating alone.\").
-Do not start with the concept's name; no citations.")
+Do not start with the concept's name; no citations."}))
 
 (defn llm-gloss
   "(fn [label passages] gloss) backed by Claude (the :common tier): the sense
@@ -323,7 +334,7 @@ of `label` in `passages` (texts), in one sentence. opts: :models"
   [client {:keys [models]}]
   (let [model (llm/model-for models :common)]
     (fn [label passages]
-      (-> (llm/complete client {:system     gloss-system
+      (-> (llm/complete client {:system     (prompts/text gloss-system)
                                 :prompt     (str "Concept: " label "\n\nPassages:\n\n"
                                                  (str/join "\n\n" (map #(str "- " %) passages)))
                                 :model      model

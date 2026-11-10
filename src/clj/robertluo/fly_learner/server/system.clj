@@ -16,9 +16,11 @@
             [robertluo.fly-learner.learning.decay :as decay]
             [robertluo.fly-learner.learning.store :as learning.store]
             [robertluo.fly-learner.llm :as llm]
+            [robertluo.fly-learner.prompts :as prompts]
             [robertluo.fly-learner.quiz :as quiz]
             [robertluo.fly-learner.server.api :as api]
             [robertluo.fly-learner.server.files :as files]
+            [robertluo.fly-learner.server.ingests :as ingests]
             [malli.core :as m]
             [malli.error :as me]
             [org.httpkit.server :as http-kit]
@@ -37,6 +39,7 @@
   [:map
    [:db-dir :string]
    [:http [:map [:port :int]]]
+   [:prompts-file {:optional true} :string] ; the learner's versions of the prompts (data/prompts.edn)
    [:anthropic {:optional true} :map] ; the older form of :llm: Anthropic alone
    [:llm {:optional true}
     [:map
@@ -60,11 +63,16 @@
 (defn- spa-route?
   "Client-side routes served by index.html (see robertluo.fly-learner.ui.core.history)."
   [uri]
-  (or (#{"/" "/b" "/c" "/q" "/x"} uri) (some #(str/starts-with? uri %) ["/n/" "/k/" "/t/" "/a/" "/c/" "/g/" "/x/"])))
+  (or (#{"/" "/b" "/c" "/q" "/s" "/x"} uri) (some #(str/starts-with? uri %) ["/n/" "/k/" "/t/" "/a/" "/c/" "/g/" "/x/"])))
 
-(defn make-ring-app [conn api-fn]
-  (-> (fn [{:keys [uri request-method]}]
-        (or (when (= :get request-method)
+(defn make-ring-app
+  "The app: the API, a source's files, uploads to add sources (`upload-fn`:
+  ring request -> response), index.html for the UI's routes."
+  [conn api-fn upload-fn]
+  (-> (fn [{:keys [uri request-method] :as req}]
+        (or (when (and (= :post request-method) (= "/files/upload" uri))
+              (upload-fn req))
+            (when (= :get request-method)
               (or (files/response conn uri)
                   (when (spa-route? uri)
                     (-> (resp/resource-response "public/index.html")
@@ -83,6 +91,8 @@
   "Open the db at the config's :db-dir with every layer's schema (each layer
   owns its own)."
   [cfg]
+  ;; the learner's versions of the prompts, kept beside the db
+  (prompts/use-file! (or (:prompts-file cfg) "data/prompts.edn"))
   (db/connect (:db-dir cfg) learning.store/schema quiz/schema ideas.store/schema explore.store/schema))
 
 (defn make-system [cfg]
@@ -108,15 +118,18 @@
 
     ::api-fn
     (fnk [::cfg ::db ::llm ::learning]
-         (api/make-api (:conn db) (:client llm) {:models (:models (llm/settings cfg))} learning))
+         (api/make-api (:conn db) (:client llm) {:models (:models (llm/settings cfg)) :llm (llm/settings cfg)} learning))
 
     ::ring-app
-    (fnk [::db ::api-fn] (make-ring-app (:conn db) api-fn))
+    (fnk [::cfg ::db ::api-fn]
+         (make-ring-app (:conn db) api-fn
+                        (partial ingests/upload-response (:conn db) (:models (llm/settings cfg)))))
 
     ::http-server
     (fnk [::cfg ::ring-app]
          (let [port (get-in cfg [:http :port])
-               stop (http-kit/run-server ring-app {:port port})]
+               ;; a dropped source comes whole in the request body
+               stop (http-kit/run-server ring-app {:port port :max-body (+ ingests/max-upload (* 1024 1024))})]
            (println "fly-learner listening on" (str "http://localhost:" port))
            (closeable {:port port} #(stop :timeout 100))))}))
 

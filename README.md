@@ -47,6 +47,11 @@ bb ingest data/sources/repo/docs --outline          # chapters, pages and a cost
 bb ingest data/sources/repo/docs --skip Reference
 ```
 
+Or open **Settings** in the app and drop the files there: PDFs, EPUBs, Markdown, or a zip of them (the Markdown in a
+zip is read as one book). Each shows what it would make, its pages, chapters and a rough cost, with checkboxes to
+leave parts out. Ingest runs in the background and shows its progress, and the map takes in the new knowledge when
+it is done.
+
 A source is its document, not its file. If you move it, rename it or fix a typo and ingest it again, it is the same
 source, and your notes, bookmarks and progress stay with it.
 
@@ -115,6 +120,13 @@ is kept, so it is safe to open, and you can ask for it to be made again ("a 3×3
 - **The notebook.** Everything you wrote, as a book of your own, arranged by source and chapter in reading order. You
   can download it as one Markdown file with the `[[links]]` kept.
 - **Your notes never move your scores.** What you write and what you know are kept apart on purpose.
+
+### Tune what the models are told
+
+Settings › Advanced lists every prompt the app gives a model, grouped by when it is used: reading a source, building
+concepts, asking, learning, exploring. Each says what it does and which model tier runs it. Edit one and the next
+call uses your version; one click goes back to the default. Your versions are kept in `data/prompts.edn`, outside
+the code.
 
 ### Correct the model
 

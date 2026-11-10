@@ -14,7 +14,8 @@
     anchors   a node as {:node/id :source/id :node/title}: after a
               re-ingest (new node ids) it is found again by its title in the
               same source"
-  (:require [clojure.string :as str]
+  (:require [robertluo.fly-learner.prompts :as prompts]
+            [clojure.string :as str]
             [datalevin.core :as d]
             [jsonista.core :as json]
             [robertluo.fly-learner.db :as db]
@@ -92,7 +93,12 @@
 ;;=============================================================================
 
 (def ^:private propose-system
-  "You read passages of documents a learner studies, by their summaries, and pick the
+  (prompts/prompt!
+   :explore/propose
+   {:group "Exploring" :title "Pick passages to explore"
+    :about "After an ingest, new sections thirty a call by their summaries (common tier): which could become an interactive exploration, and its pitch. The reply is JSON."
+    :default
+    "You read passages of documents a learner studies, by their summaries, and pick the
 few that would be understood better by trying something out than by reading: an
 interactive exploration, built later from the passage's own text.
 
@@ -122,7 +128,7 @@ plot, diagram, steps, predict, slider), `pitch` one line saying what the learner
 will do, concrete and specific to the passage, starting with a verb: \"Step through
 the normal-order reduction of K z Ω and watch Ω vanish\", \"Move the temptation
 payoff and watch which cells stay Nash equilibria\". Return an empty list when
-none qualifies.")
+none qualifies."}))
 
 (def ^:private propose-schema
   {"type" "object"
@@ -168,7 +174,7 @@ none qualifies.")
     (reduce
      (fn [acc chunk]
        (let [{:keys [proposals]}
-             (llm/complete-json client {:system     propose-system
+             (llm/complete-json client {:system     (prompts/text propose-system)
                                         :prompt     (str "Passages:\n\n"
                                                          (str/join "\n\n" (map-indexed #(propose-entry db %1 %2) chunk))
                                                          "\n\nWhich of these would make a good exploration?")
@@ -211,7 +217,12 @@ none qualifies.")
                     els)))))
 
 (def ^:private make-system
-  "You build explorations: small interactive pages that let a learner understand a
+  (prompts/prompt!
+   :explore/make
+   {:group "Exploring" :title "Build an exploration"
+    :about "Explore it (strong tier): writes the exploration's spec in the language this prompt describes; the app checks it by running it. Change the language and the specs stop working."
+    :default
+    "You build explorations: small interactive pages that let a learner understand a
 passage of a document they study by trying it out. You write the page as a spec,
 data in the language below; the app draws it and runs it.
 
@@ -336,7 +347,7 @@ The spec as one JSON object, and nothing else: no prose, no code fence.
 Your spec is run before it is kept: every expression read, the page shown from its
 start and from each state one action away (each frame, each slider at both ends,
 each option, each click). If something fails you get the problems back; return the
-whole spec corrected.")
+whole spec corrected."}))
 
 (defn- entries-text [entries]
   (str/join "\n\n" (map-indexed (fn [i {:keys [text]}] (str "[" (inc i) "] " text)) entries)))
@@ -383,7 +394,7 @@ whole spec corrected.")
 (defn- write-spec
   "[reply-text spec-or-unreadable]"
   [client model prompt]
-  (let [text (llm/complete client {:system make-system :prompt prompt :model model :max-tokens 16000})]
+  (let [text (llm/complete client {:system (prompts/text make-system) :prompt prompt :model model :max-tokens 16000})]
     [text (read-reply text)]))
 
 (defn make!

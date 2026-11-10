@@ -21,7 +21,8 @@
                  they needed; they leave their clusters (`drop-concepts!`).
     universe     the stored clusters for display: members, the source most of
                  their passages come from, links between clusters."
-  (:require [clojure.string :as str]
+  (:require [robertluo.fly-learner.prompts :as prompts]
+            [clojure.string :as str]
             [datalevin.core :as d]
             [robertluo.fly-learner.concept :as concept]
             [robertluo.fly-learner.concept.graph :as graph]
@@ -319,7 +320,12 @@
 ;;=============================================================================
 
 (def ^:private namer-system
-  "You name the topics of a personal knowledge base. Its concepts were grouped
+  (prompts/prompt!
+   :topics/name
+   {:group "Concepts" :title "Name the topics"
+    :about "After clustering: a name for each new topic from its most mentioned concepts (strong tier). The reply is JSON."
+    :default
+    "You name the topics of a personal knowledge base. Its concepts were grouped
 into clusters by how they connect (shared passages, is-a links). For each
 cluster you get its most mentioned concepts with their glosses.
 
@@ -329,7 +335,7 @@ Give each cluster:
 - gloss: one sentence on what the cluster covers, for a learner deciding
   whether to study it.
 
-Labels must be distinct from each other and from the topics already named.")
+Labels must be distinct from each other and from the topics already named."}))
 
 (def ^:private namer-schema
   {"type"                 "object"
@@ -358,7 +364,7 @@ Labels must be distinct from each other and from the topics already named.")
   [client {:keys [models]}]
   (let [model (llm/model-for models :strong)]
     (fn [batch]
-      (let [{:keys [names]} (llm/complete-json client {:system     namer-system
+      (let [{:keys [names]} (llm/complete-json client {:system     (prompts/text namer-system)
                                                        :prompt     (namer-prompt batch)
                                                        :model      model
                                                        :max-tokens 4000

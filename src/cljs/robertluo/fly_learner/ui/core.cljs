@@ -7,7 +7,10 @@
              or a vector of these (sent in parallel, see robertluo.fly-learner.ui.core.api)
     :history :push or :replace the URL for the new state
     :animate true: play the concept graph's layout change (advances
-             [:graph :t] from 0 to 1 over `animation-ms`)"
+             [:graph :t] from 0 to 1 over `animation-ms`)
+    :upload  [{:id :file} ..]: send dropped files to be read (api/upload!),
+             the answers to db/upload-read (or upload-failed) by id
+    :later   {:ms :effects}: dispatch effects after a while (polling)"
   (:require [robertluo.fly-learner.ui.core.api :as api]
             [robertluo.fly-learner.ui.core.db :as db]
             [robertluo.fly-learner.ui.core.history :as history]
@@ -22,7 +25,7 @@
 
 (defonce app-db (atom db/initial-state))
 
-(def ^:private effect-order [:db :pull :history :animate])
+(def ^:private effect-order [:db :pull :history :animate :upload :later])
 
 (def ^:private animation-ms 450)
 
@@ -59,7 +62,12 @@
               :history (if (= :replace effect)
                          (history/replace-state! @app-db)
                          (history/push-state! @app-db))
-              :animate (animate! app-db))))]
+              :animate (animate! app-db)
+              :upload  (doseq [{:keys [id file]} effect]
+                         (api/upload! file
+                                      #(@self {:db (fn [d] (db/upload-read d id %))})
+                                      #(@self {:db (fn [d] (db/upload-failed d id %))})))
+              :later   (js/setTimeout #(@self (:effects effect)) (:ms effect)))))]
     (vreset! self dispatch!)
     dispatch!))
 

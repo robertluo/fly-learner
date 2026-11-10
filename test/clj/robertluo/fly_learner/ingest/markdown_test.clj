@@ -52,7 +52,8 @@
           (is (= 3 pages))
           (is (some #(= "Run it:\ntool run" (:text %)) blocks)))
         (is (= {:manifest "docs.json" :chapters 3 :left-out ["Reference"] :unlisted ["notes.md"] :missing []}
-               (dissoc about :repo))))
+               (dissoc about :repo :parts)))
+        (is (= ["Start" "Guides" "Reference"] (map :title (:parts about))) "the parts that can be left out"))
       (let [html (md/page-html (str dir) {:skip ["Reference"]} #(str "/res/" %))
             p1   (first html)]
         (testing "links inside the book go to their pages, by GitHub's anchors and the manifest's redirects"

@@ -34,6 +34,7 @@
       (= n "robertluo.fly-learner.ideas.store")       :ideas-store
       (= n "robertluo.fly-learner.ideas.knowledge")   :ideas-adapter
       (= n "robertluo.fly-learner.llm")               :infra
+      (= n "robertluo.fly-learner.prompts")           :infra
       (or (= n "robertluo.fly-learner.explore")
           (= n "robertluo.fly-learner.explore.examples")) :explore
       (= n "robertluo.fly-learner.explore.store")     :explore-store

@@ -13,7 +13,8 @@
                 ([] when none), so a re-ingest drops them with the passage
                 and the next pass makes them again
     for-source  every key sentence of a source with its page, for the reader"
-  (:require [clojure.string :as str]
+  (:require [robertluo.fly-learner.prompts :as prompts]
+            [clojure.string :as str]
             [datalevin.core :as d]
             [robertluo.fly-learner.llm :as llm]))
 
@@ -62,7 +63,12 @@
 ;;=============================================================================
 
 (def ^:private system-prompt
-  "You read passages of documents a learner studies and pick, in each, the sentences
+  (prompts/prompt!
+   :keypoints/pick
+   {:group "Reading" :title "Pick the key sentences"
+    :about "After an ingest, a few passages a call (common tier): the 1-3 sentences that carry each, with a short label. The reply is JSON; a quote not found word for word in its paragraph is dropped."
+    :default
+    "You read passages of documents a learner studies and pick, in each, the sentences
 that carry it: the ones a reader skimming the page should not miss. They are the
 passage's hidden headings.
 
@@ -79,7 +85,7 @@ character, odd spacing, hyphens and formula fragments included: it is searched
 for in the text. A long sentence may be cut to the clause that carries it (at
 least 6 words). Give the paragraph's number, and a label: 2 to 6 words naming its
 point like a heading, in the document's terms (\"IDSDS output survives
-rationality\", \"Definition of strict dominance\").")
+rationality\", \"Definition of strict dominance\")."}))
 
 (def ^:private schema
   {"type" "object"
@@ -124,7 +130,7 @@ rationality\", \"Definition of strict dominance\").")
   "{group-id [keypoint ..]} for the passages `gids` (one model call)."
   [db client model gids]
   (let [{:keys [passages]}
-        (llm/complete-json client {:system     system-prompt
+        (llm/complete-json client {:system     (prompts/text system-prompt)
                                    :prompt     (str (str/join "\n\n" (map-indexed #(passage-text db %1 %2) gids))
                                                     "\n\nThe key sentences of each passage?")
                                    :model      model

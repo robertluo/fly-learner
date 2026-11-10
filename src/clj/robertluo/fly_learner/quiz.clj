@@ -9,7 +9,8 @@
   author's answer); an author's counts `authored-weight` times, for each
   item it tests. Knows nothing of concepts, passages or how scores are computed.
   `schema` (questions) is merged into the database's at the composition root."
-  (:require [clojure.string :as str]
+  (:require [robertluo.fly-learner.prompts :as prompts]
+            [clojure.string :as str]
             [datalevin.core :as d]
             [robertluo.fly-learner.learning :as learning]
             [robertluo.fly-learner.llm :as llm]))
@@ -41,7 +42,12 @@
 ;;=============================================================================
 
 (def ^:private ask-system
-  "You are a tutor writing questions that test whether a learner really knows
+  (prompts/prompt!
+   :quiz/question
+   {:group "Learning" :title "Write a quiz question"
+    :about "Quiz me (strong tier): a question from an item's material, with a model answer and key points. The reply is JSON."
+    :default
+    "You are a tutor writing questions that test whether a learner really knows
 something, not whether they recognise wording.
 
 - Ask the learner to explain, apply or connect ideas; avoid yes/no and pure
@@ -54,7 +60,7 @@ something, not whether they recognise wording.
 - Write the question, the model answer and the points in Markdown: a table
   for a game's payoffs, a matrix or anything in rows and columns; lists for
   steps; TeX for formulas, $..$ inline and $$..$$ displayed; a dollar sign
-  that is money as \\$. No headings.")
+  that is money as \\$. No headings."}))
 
 (def ^:private questions-schema
   {:type "object"
@@ -72,7 +78,7 @@ something, not whether they recognise wording.
   "`n` (default 1) questions testing `item` of `curriculum`."
   [client curriculum item {:keys [n models] :or {n 1}}]
   (let [material (learning/material curriculum item)]
-    (->> (llm/complete-json client {:system ask-system
+    (->> (llm/complete-json client {:system (prompts/text ask-system)
                                     :prompt (str (render-material material) "\n\nWrite " n " question(s).")
                                     :model  (llm/model-for models :strong)
                                     :schema questions-schema})
@@ -132,7 +138,12 @@ something, not whether they recognise wording.
 ;;=============================================================================
 
 (def ^:private grade-system
-  "You grade a learner's free-text answer to a study question, against a model
+  (prompts/prompt!
+   :quiz/grade
+   {:group "Learning" :title "Grade an answer"
+    :about "Every answer you give (strong tier): a grade from 0 to 1 against the model answer or the author's solution, with feedback. The reply is JSON."
+    :default
+    "You grade a learner's free-text answer to a study question, against a model
 answer and the key points a full answer covers.
 
 - grade: from 0 to 1, the share of the key points the answer gets right in
@@ -145,7 +156,7 @@ answer and the key points a full answer covers.
 - feedback: two or three sentences to the learner: what was right, what was
   missing or wrong, and the idea to remember. Address them as \"you\".
   Markdown, TeX for formulas ($..$); a small table only when it shows the
-  point best.")
+  point best."}))
 
 (def ^:private grade-schema
   {:type "object"
@@ -156,7 +167,7 @@ answer and the key points a full answer covers.
 (defn grade
   "Grade `response` to `question`: {:grade 0..1 :feedback str}."
   [client {:question/keys [prompt answer points by context]} response {:keys [models]}]
-  (-> (llm/complete-json client {:system grade-system
+  (-> (llm/complete-json client {:system (prompts/text grade-system)
                                  :prompt (str (when context (str "It builds on:\n" context "\n\n"))
                                               "Question: " prompt
                                               (if (= :author by) "\n\nThe author's solution: " "\n\nModel answer: ")

@@ -16,7 +16,8 @@
   posted as transit+json to `endpoint`. `pattern` spells a request, `answer`
   reads the server's reply back, `failure` its errors; `send!` (browser)
   does the round trip. Moving to another API format changes this namespace
-  only. Files are served apart: `source-url`, `source-pages-url`."
+  only. Files are served apart: `source-url`, `source-pages-url`; a file to
+  add as a source is sent apart too (`upload!`)."
   #?(:cljs (:require [cognitect.transit :as t])))
 
 ;;=============================================================================
@@ -110,7 +111,23 @@
                                    (if (.-ok resp)
                                      (on-answer (answer req body))
                                      (on-error (failure body (.-status resp))))))))))
-           (.catch (fn [e] (on-error {:code :network :reason (str e)})))))))
+           (.catch (fn [e] (on-error {:code :network :reason (str e)})))))
+
+     (defn upload!
+       "Send dropped file `file` (a js File) to be kept and read:
+       (on-read {:file name :candidates [..]}) (server.ingests/upload!), else
+       (on-error message)."
+       [^js file on-read on-error]
+       (-> (js/fetch (str "/files/upload?name=" (js/encodeURIComponent (.-name file)))
+                     #js {:method "POST" :body file})
+           (.then (fn [^js resp]
+                    (-> (.json resp)
+                        (.then (fn [j]
+                                 (let [r (js->clj j :keywordize-keys true)]
+                                   (if (.-ok resp)
+                                     (on-read r)
+                                     (on-error (or (:error r) (str "HTTP " (.-status resp)))))))))))
+           (.catch (fn [e] (on-error (str e))))))))
 
 ^:rct/test
 (comment

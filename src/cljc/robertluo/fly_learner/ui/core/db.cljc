@@ -17,7 +17,7 @@
 ;;=============================================================================
 
 (def initial-state
-  {:view            :home  ; :home (the map) | :cluster | :node | :keyword | :term | :ask | :concept | :concepts | :notebook | :study | :explore
+  {:view            :home  ; :home (the map) | :cluster | :node | :keyword | :term | :ask | :concept | :concepts | :notebook | :study | :explore | :settings
    :universe        nil    ; every cluster (server.study/universe) and the map's layout, once fetched
    :cluster-id      nil    ; cluster shown in :cluster view
    :clusters        {}     ; cluster-id -> detail (server.study/cluster): next items in it
@@ -81,6 +81,15 @@
    :split-drag      nil    ; that share while the divider is being dragged
    :fullscreen?     false  ; the browser is full screen, showing only the pane (map, graph, source document)
    :map-view        {}     ; the map's pan and zoom (robertluo.fly-learner.ui.core.viewport)
+   :settings        {:models   nil   ; models by tier and providers (server.api :settings), once fetched
+                     :ingests  nil   ; ingest jobs of the server's run, newest first, with their logs
+                     :prompts  nil   ; [{:prompt/id :prompt/group :prompt/title :prompt/about :prompt/default
+                                     ;   :prompt/text :prompt/edited?}], once fetched
+                     :uploads  []    ; files dropped: {:id :file :status (:uploading :ready :failed) :error
+                                     ;   :candidates [describe + :include? :skip #{part}]}
+                     :open     nil   ; the prompt being edited
+                     :drafts   {}    ; prompt-id -> the text being written
+                     :drag?    false}; files dragged over the drop zone
    :loading?        false
    :error           nil})  ; {:code :reason} or nil
 
@@ -330,6 +339,7 @@
     :notebook (open-notebook db)
     :study    (open-study db)
     :explore  (open-explore db id)
+    :settings (assoc db :view :settings :asking nil)
     (go-home db)))
 
 ;;=============================================================================
@@ -1822,3 +1832,156 @@
   ;; back to a page of the source, or to the node's own page
   (get-in (apply-route initial-state {:view :node :id id :page 88}) [:doc :page]) ;=> 88
   (get-in (apply-route (doc-goto (open-node initial-state id) :s 9) {:view :node :id id}) [:doc :page])) ;=> nil
+
+;;=============================================================================
+;; Settings: adding sources, the models, the prompts
+;;=============================================================================
+
+(defn open-settings [db] (assoc db :view :settings :asking nil))
+
+(defn ingest-active? [{:ingest/keys [status]}] (contains? #{:queued :running} status))
+
+(defn ingesting?
+  "Is a source being ingested?"
+  [db]
+  (boolean (some ingest-active? (get-in db [:settings :ingests]))))
+
+(defn ingests-fetched [db jobs] (assoc-in db [:settings :ingests] (vec jobs)))
+
+(defn prompts-fetched [db prompts] (assoc-in db [:settings :prompts] (vec prompts)))
+
+(defn settings-fetched
+  "What the settings page shows: {:settings :ingests :prompts} from the server."
+  [db {:keys [settings ingests prompts]}]
+  (-> db
+      (assoc-in [:settings :models] settings)
+      (ingests-fetched ingests)
+      (prompts-fetched prompts)))
+
+(defn ingests-done
+  "Every job finished (`jobs`): the knowledge changed, fetch it again."
+  [db jobs]
+  (-> db (ingests-fetched jobs) knowledge-changed))
+
+;; --- files dropped ----------------------------------------------------------
+
+(defn drag-over [db on?] (assoc-in db [:settings :drag?] (boolean on?)))
+
+(defn- update-upload [db id f]
+  (update-in db [:settings :uploads] (fn [us] (mapv #(if (= id (:id %)) (f %) %) us))))
+
+(defn upload-started
+  "File `file` (its name) dropped as upload `id`: being sent and read."
+  [db id file]
+  (-> db
+      (update-in [:settings :uploads] (fnil conj []) {:id id :file file :status :uploading})
+      (assoc-in [:settings :drag?] false)))
+
+(defn upload-read
+  "What upload `id` holds ({:candidates [..]}, server.ingests/upload!): each
+  candidate readable is ingested unless unchecked, with all its parts."
+  [db id {:keys [candidates]}]
+  (update-upload db id #(assoc % :status :ready
+                               :candidates (mapv (fn [c] (assoc c :include? (not (:error c)) :skip #{}))
+                                                 candidates))))
+
+(defn upload-failed [db id error] (update-upload db id #(assoc % :status :failed :error (str error))))
+
+(defn upload-dismissed [db id]
+  (update-in db [:settings :uploads] (fn [us] (filterv #(not= id (:id %)) us))))
+
+(defn- update-candidate [db id path f]
+  (update-upload db id (fn [u] (update u :candidates (fn [cs] (mapv #(if (= path (:path %)) (f %) %) cs))))))
+
+(defn candidate-toggled [db id path]
+  (update-candidate db id path #(update % :include? not)))
+
+(defn part-toggled
+  "Leave part `skip` of candidate `path` out of upload `id`, or in again."
+  [db id path skip]
+  (update-candidate db id path (fn [c] (update c :skip #(if (contains? % skip) (disj % skip) (conj % skip))))))
+
+(defn upload-request
+  "What ingesting upload `id` asks for: {:ingest/paths .. :ingest/skip ..},
+  nil when nothing is checked."
+  [db id]
+  (let [cs (->> (get-in db [:settings :uploads]) (some #(when (= id (:id %)) %)) :candidates (filter :include?))]
+    (when (seq cs)
+      {:ingest/paths (mapv :path cs)
+       :ingest/skip  (vec (sort (distinct (mapcat :skip cs))))})))
+
+(defn ingest-started
+  "Upload `id` is being ingested as `job`: its card gives way to the job."
+  [db id job]
+  (-> (upload-dismissed db id)
+      (update-in [:settings :ingests] #(into [job] (remove (fn [j] (= (:ingest/id j) (:ingest/id job)))) %))))
+
+(defn ingest-forgotten [db id]
+  (update-in db [:settings :ingests] (fn [js] (filterv #(not= id (:ingest/id %)) js))))
+
+;; --- prompts ----------------------------------------------------------------
+
+(defn prompt-groups
+  "The prompts by group, in the order they come: [[group [prompt ..]] ..]."
+  [db]
+  (let [ps (get-in db [:settings :prompts])]
+    (for [g (distinct (map :prompt/group ps))]
+      [g (filterv #(= g (:prompt/group %)) ps)])))
+
+(defn prompt-opened
+  "Edit prompt `id` (again: close it, its draft kept)."
+  [db id]
+  (update-in db [:settings :open] #(when-not (= % id) id)))
+
+(defn prompt-typed [db id text] (assoc-in db [:settings :drafts id] text))
+
+(defn prompt-draft
+  "The text of prompt `p` being written: the draft, else its text."
+  [db {:prompt/keys [id text]}]
+  (get-in db [:settings :drafts id] text))
+
+(defn prompt-changed?
+  "Does the draft of prompt `p` differ from what is kept?"
+  [db p]
+  (not= (prompt-draft db p) (:prompt/text p)))
+
+(defn prompt-dropped
+  "The draft of prompt `id` thrown away."
+  [db id]
+  (-> db
+      (update-in [:settings :drafts] dissoc id)
+      (update-in [:settings :open] #(when-not (= % id) %))))
+
+(defn prompt-saved
+  "Prompt `p` kept as written."
+  [db p]
+  (-> db
+      (update-in [:settings :prompts] (fn [ps] (mapv #(if (= (:prompt/id p) (:prompt/id %)) p %) ps)))
+      (update-in [:settings :drafts] dissoc (:prompt/id p))))
+
+^:rct/test
+(comment
+  (def dropped (upload-started (open-settings initial-state) :u1 "docs.zip"))
+  (map :status (get-in dropped [:settings :uploads])) ;=> [:uploading]
+  (def uploaded (upload-read dropped :u1 {:candidates [{:path "a" :type "markdown" :parts [{:title "Ref" :skip "Ref"}]}
+                                                   {:path "b.pdf" :type "pdf"}
+                                                   {:path "c.pdf" :error "Broken"}]}))
+  (map :include? (get-in uploaded [:settings :uploads 0 :candidates])) ;=> [true true false]
+  (upload-request (-> uploaded (part-toggled :u1 "a" "Ref") (candidate-toggled :u1 "b.pdf")) :u1)
+  ;=> {:ingest/paths ["a"] :ingest/skip ["Ref"]}
+  (upload-request (-> uploaded (candidate-toggled :u1 "a") (candidate-toggled :u1 "b.pdf")) :u1) ;=> nil
+  (def started (ingest-started uploaded :u1 {:ingest/id :j1 :ingest/status :queued}))
+  [(get-in started [:settings :uploads]) (ingesting? started)] ;=> [[] true]
+  (ingesting? (ingests-fetched started [{:ingest/id :j1 :ingest/status :done}])) ;=> false
+  (get-in (ingest-forgotten started :j1) [:settings :ingests]) ;=> []
+
+  (def ps (prompts-fetched initial-state [{:prompt/id :a :prompt/group "Reading" :prompt/text "A"}
+                                          {:prompt/id :b :prompt/group "Asking" :prompt/text "B"}
+                                          {:prompt/id :c :prompt/group "Reading" :prompt/text "C"}]))
+  (map (fn [[g xs]] [g (mapv :prompt/id xs)]) (prompt-groups ps)) ;=> [["Reading" [:a :c]] ["Asking" [:b]]]
+  (def editing (-> ps (prompt-opened :a) (prompt-typed :a "A2")))
+  [(prompt-draft editing {:prompt/id :a :prompt/text "A"}) (prompt-changed? editing {:prompt/id :a :prompt/text "A"})] ;=> ["A2" true]
+  (get-in (prompt-saved editing {:prompt/id :a :prompt/group "Reading" :prompt/text "A2"}) [:settings :drafts]) ;=> {}
+  (get-in (prompt-dropped editing :a) [:settings :open]) ;=> nil
+  (:view (apply-route initial-state {:view :settings})) ;=> :settings
+  )
