@@ -1,108 +1,199 @@
-# fly-learner
+<p align="center">
+  <img src="resources/public/favicon.svg" width="112" alt="Fly Learner">
+</p>
 
-Learn anything.
+<h1 align="center">Fly Learner</h1>
 
-This project is a personal learner for knowledge assisted by AI.
+<p align="center">
+  <b>Turn a book, a paper or a repository's docs into a map of what it knows, then learn it.</b>
+</p>
 
-## Source of knowledge
+<p align="center">
+  <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-2f6f5e" alt="MIT license"></a>
+  <img src="https://img.shields.io/badge/Clojure%20%2B%20ClojureScript-2f6f5e" alt="Clojure and ClojureScript">
+  <img src="https://img.shields.io/badge/models-Claude%20Sonnet%20%2B%20Haiku-2f6f5e" alt="Claude Sonnet and Haiku">
+</p>
 
-Should have multiple sources.
+Reading a long text word for word, you lose track of where you are and what it is for. Fly Learner reads it first.
+It folds the source into layers, from a bird's-eye view down to the original paragraphs, finds the ideas it teaches
+and what each one needs before it, and keeps the original beside you, page by page. Then it helps you learn: it asks
+you questions, grades your answers, notices what you are forgetting, and tells you what to study next.
 
- - PDF files. The first source.
- - EPUB books. Read as pages too: the server cuts the book's text into pages of about a printed page's worth, so everything after ingest (passages, key sentences, quotes, bookmarks, exercises, the source beside the text) is the same for both; only drawing a page differs (pdf.js for a PDF, the book's own HTML for an EPUB).
- - Folders of Markdown, such as a repository's `docs/`: read as a book, each file a chapter, in the order its manifest gives (`docs.json`, `SUMMARY.md`, else the folder's own), cut into pages as an EPUB is.
+It is a personal tool. It runs on your machine, keeps everything in a local database, and calls Claude only to
+read and to ask.
 
-## Knowledge breakdown
+## What you can do
 
-Ingest source, fold it by AI models to a multi layered view: DAG based, can store inside a database (datalevin for now).
+### Bring a source
 
-From highest level (birdview) to detailed (source paragraphs). In this way, the user does not need to read word for word like before - and human always lose track when they doing so.
+- **PDF** papers and books: paragraphs rebuilt across page breaks and formulas, and chapters recovered from
+  numbered headings even when the PDF has no outline.
+- **EPUB** books, cut into pages of about a printed page each so they read like a PDF. Code and display formulas
+  stay with their paragraph, and footnotes follow the paragraph that cites them.
+- **A folder of Markdown**, such as a repository's `docs/`. It is read as a book:
+  - The chapters follow the folder's own order: `docs.json`, `SUMMARY.md` (mdBook, GitBook) or front matter
+    (`sidebar_position`, `weight`, Docusaurus `_category_` files).
+  - Front matter adds titles, descriptions, tags, authors and dates, and drafts are left out.
+  - TeX is typeset the way GitHub reads it (`$x^2$`, `$$…$$`, ```` ```math ````), and "costs $5 or $10" stays text.
+  - Links between chapters go to their page, and links to the code they talk about open on GitHub at the commit
+    you have.
+  - `--skip Reference` leaves out a part you would rather look things up in than learn.
 
-A higher level can always drill down to lower levels, and linked keyword can turn into links, where user can click.
+```sh
+git clone --depth 1 --filter=blob:none --sparse https://github.com/owner/repo data/sources/repo
+git -C data/sources/repo sparse-checkout set docs
+bb ingest data/sources/repo/docs --outline          # chapters, pages and a cost estimate, no model calls
+bb ingest data/sources/repo/docs --skip Reference
+```
 
-https://github.com/chenxiachan/textfold is a good reference.
+A source is its document, not its file. If you move it, rename it or fix a typo and ingest it again, it is the same
+source, and your notes, bookmarks and progress stay with it.
 
-## Learn method for user
+### Read it as a map
 
-Learn means understanding, memorizing. Memorizing comes after real understanding.
+- **Layers.** The book becomes a bird's-eye summary, then chapters, then sections, then passages, then the source
+  paragraphs. Every layer has a title, a summary and keywords, so you can read a chapter from its outline and drill
+  down only where you need to.
+- **The source beside the text.** The PDF (drawn by pdf.js) or the book's own HTML pages sit in one scrolling
+  column. The passage you are reading is highlighted on its page, and as you scroll the page, the text on the left
+  follows.
+- **Key sentences.** In every passage, the one to three sentences that carry it are tinted on the page, with a
+  short label in the margin, so each page reads like an outline.
+- **Your place.** Bookmarks take you back to where you were reading, and every node, concept and answer has its own
+  URL.
 
-AI can generate questions on any level of knowledge on demand, using tests to avoid humans illusion of competent.
+### See what it knows
 
- - Record the user's progress, will continue challege on weak point.
- - For memorizing problems (like in foreign language's vocabulary or grammer)
+- **Concepts.** Keywords are resolved into concepts. Each has a label, a gloss that fixes its sense, the other
+  names it goes by, and the broader concept it belongs to. Every concept page lists the passages that mention it,
+  next to a graph you can expand one neighbour at a time.
+- **What to learn first.** Prerequisites are judged for every concept, including background the sources assume but
+  never teach. "Learn first" on a concept's page shows the path up to it, foundations first, and the graph draws it
+  with arrows.
+- **The map.** Concepts are grouped into topics by how they connect, whichever book they come from, and the model
+  names each topic. The home page draws them as bubbles that fill as you learn them. Adding a new source never
+  reshuffles the topics you already have.
 
+### Ask
 
-## Tech
+- **Ask the whole collection.** Answers come from your sources only (graph RAG over full-text search, the
+  layers and keyword links), cite the passages they use, and come with the part of the book they are drawn from.
+  About $0.001 a question.
+- **Ask about a selection.** Select a sentence, or a formula on the PDF page, and ask "what does ι mean here?". The
+  answer is grounded in that paragraph and its page, and any background the book never explains is marked as such.
+  Keep the answer as a note if it helped.
 
-In Clojure/Clojurescript. https://github.com/bhauman/clojure-mcp-light
+### Learn and remember
 
-## Roadmap
+- **Scores.** Each concept, and each relation between two concepts, has a score from 0 to 1, replayed from
+  everything you have answered. Scores fade with time since you last recalled them (FSRS-style), so reviews come
+  up on their own.
+- **What to study next** weighs how important an item is, how much room you have to grow on it, and whether you
+  know its prerequisites, so foundations come first. Choose a few topics to focus on, and the suggestions come from
+  them.
+- **Quizzes where you are.** "Quiz me" docks a question at the top of the left pane, beside the source, so you can
+  read while you answer. You write a free-text answer, Sonnet grades it against key points and gives feedback, and
+  you see how your scores moved.
+- **The author's own exercises.** A book's exercises and their solutions are found, transcribed with their tables
+  and formulas, and served as quizzes. They count double, are graded against the author's solution, and link back
+  to their page.
 
-  1. Backend first: the knowledge base from 1 source (we may have multiple sources, and they can interlink)
-  2. Frontend, a.k.a, user interface.
+### Explore by doing
 
-## Progress
+For a passage that is easier to understand by playing with it, such as a game's payoffs, a reduction or a
+recurrence, Fly Learner can build a small interactive page from the passage's own text: sliders, choices, tables,
+plots, diagrams, step-throughs, and "predict first" questions. A page is data, drawn by the app and checked before it
+is kept, so it is safe to open, and you can ask for it to be made again ("a 3×3 game").
 
-### 1. Backend: knowledge base from one source (in progress)
+### Write your own
 
-Done:
+- **Highlight, agree, disagree, restate.** Write a note on a concept, a relation, a passage or any sentence you
+  select, in the text or on the page. Notes are Markdown with formulas.
+- **Link your notes.** `[[a concept]]` links a concept, and `[[A]] needs [[B]]` says what comes first. What your
+  notes say shows up on concept pages, and a term no source names becomes your own term, with a page of its own.
+- **The notebook.** Everything you wrote, as a book of your own, arranged by source and chapter in reading order. You
+  can download it as one Markdown file with the `[[links]]` kept.
+- **Your notes never move your scores.** What you write and what you know are kept apart on purpose.
 
- - PDF ingest (PDFBox): paragraphs, page numbers dropped, paragraphs cut by page breaks or formulas rejoined, formula fragments kept as one block.
- - Structure recovered from headings ("Chapter 1", "1.1 ..."), since PDFs often have no outline. Cover pages, contents, list of figures, acknowledgments and bibliography are skipped.
- - EPUB ingest (jsoup): the spine's documents cleaned (no scripts, styles or navigation), cut into pages between blocks (a chapter file starts a page), headings at the depth the book's table of contents gives them; code and display formulas join the paragraph before them, and a footnote follows the paragraph citing it. The pages are served as HTML (`/files/sources/<id>/pages`, images from the book under `/res/`), cut at the same places, so a passage's page is where you see it. SICP: 421 pages, 291 headings.
- - Markdown folder ingest (commonmark-java, GitHub's flavour): `bb ingest <folder>` reads a folder (a repository's docs, cloned sparse so only that folder is checked out) as a book. The reading order and parts come from `docs.json` / `mint.json` (a JSON navigation tree), `SUMMARY.md` (mdBook, GitBook) or the folder itself (index first, then natural order, subfolders as parts); a part's title is a heading before its first chapter, and `--skip Reference` leaves a part out (remembered for the next ingest). Front matter (YAML, or Hugo's TOML) is read: a chapter's title, its description (shown under the heading and read as its first passage), its tags (shown, and the chapter's keywords), authors and date, its place in the folder's order (`sidebar_position`, `weight`, `nav_order`, Docusaurus `_category_` files), and drafts are left out. TeX formulas are read as GitHub reads them (`$x^2$`, `$$..$$`, ```` ```math ````; "costs $5 or $10" stays text) and typeset by KaTeX on the page; the knowledge base reads their TeX. Links between chapters go to their page (GitHub's heading anchors, the manifest's redirects); links to anything else in the repository, the code the docs talk about, open on GitHub at the commit checked out; images are served from inside the repository only. `--outline` previews the chapters, pages and a rough cost of folding before any model call. Pi's coding-agent docs without their Reference: 27 chapters, 151 pages, folding estimated at about $2.50.
- - Folding into a layered DAG that follows the document's own structure: birdview -> chapters -> sections -> paragraph groups -> source paragraphs. Every node above a paragraph has a title, summary and keywords; nodes sharing specific keywords are cross-linked.
- - Stored in Datalevin; re-ingesting a file replaces its earlier version. Each fold is also saved to `data/folds/`.
- - Models: Sonnet 5.5 for ideas that need synthesis (sections, chapters, whole document, quiz questions), Haiku 5.5 for routine paragraph groups. The system prompt (with the document outline) is cached across calls.
- - First source folded: a 116-page thesis -> 1,052 nodes in 68 s for about $0.23 (Opus 5.5 alone: $2.31).
- - Learning, as layers that know each other as little as possible (checked by a test). What the learner knows is a score from 0 to 1 per item of the graph (each concept, and each relation between two concepts), derived by replaying a log of evidence; the target is the weighted score of the whole graph. Forgetting is an addition: a model wrapping the basic one, so scores fade with time since the last recall (FSRS-style) and reviews are just the most valuable thing to study. What to study next weighs importance, room to grow and how well the prerequisites are known. Quizzes are built on learning alone: a question from an item's material (e.g. how erasure and pseudo-objects relate), a free-text answer graded by Sonnet against key points, with feedback; about $0.005 per question and grading.
- - Concepts: ideas with an identity, separate from the passages that mention them. Fold keywords are only strings ("equality type", "equality types", "untyped equality"), so Sonnet resolves them into concepts, each with a label, a gloss fixing its sense, aliases (the keywords naming it; each keyword names one concept) and broader concepts. On the first source: 406 keywords -> 209 concepts, 126 with a broader concept, 11 keywords ignored as too generic, in 6 calls for $0.24. Concepts are related by shared mentions (normalised PMI, the shared passages kept as evidence), so the graph supports neighbourhoods and the cheapest path between two concepts, each step citing its passages. Both writers make mistakes, so every change, by the model or by hand (merge, split, assign, rename, ignore, broader), is atomic and logged.
+### Correct the model
 
-To do:
+The model makes mistakes, so you can fix its work. Add a concept it missed (it is found in every passage that
+names it, and its prerequisites are judged). Remove a topic that is no knowledge, such as an edition's colophon, or a
+concept that is not one. Merging, splitting and renaming concepts are there too, from the REPL. Every change is
+logged, and an ingest never brings back what you removed.
 
- - Group paragraphs by length or by Lemma/Proof boundaries instead of fixed runs of 6.
- - Mark concepts as seen when their pages are read (`:seen` evidence), so exposure shows in the heat map.
- - Multiple sources and links between them (asking already searches across sources; concepts are resolved across sources).
- - Concept graph: zoom and pan for large graphs (text gets small past ~30 concepts), a path finder between two concepts, curation screens. Retrieval and reviews by concept.
+## How it works
 
-### 2. Frontend (in progress)
+```mermaid
+flowchart LR
+  S["PDF · EPUB · Markdown folder"] --> P["pages and blocks"]
+  P --> T["section tree"]
+  T --> F["fold: summaries, bottom-up<br/>(Sonnet for sections, Haiku for paragraph runs)"]
+  F --> N[("layered nodes<br/>Datalevin")]
+  N --> C["concepts"] --> R["prerequisites"] & K["topics"]
+  N --> KS["key sentences"] & EX["exercises"] & XP["explorations"]
+  C & R & K --> L["learning: scores, forgetting, what next"]
+  L --> Q["quizzes"]
+```
 
-Same stack as [flybot.sg](https://www.flybot.sg) ([source](https://github.com/flybot-sg/lasagna-pattern/tree/main/examples/flybot-site)): Replicant UI with an effect-map dispatch, a single pull-pattern API ([lasagna-pattern](https://github.com/flybot-sg/lasagna-pattern)) over Transit, http-kit + fun-map on the server, Kaocha + Rich Comment Tests. Storage stays on Datalevin.
+The code is in layers that know each other as little as possible, and an architecture test checks it:
 
-Done:
+- **Knowledge**: ingest, fold, concepts, prerequisites, topics, ask. It knows nothing of learning.
+- **Learning** is pure. It states what it needs as protocols (a curriculum, a model of memory) and derives scores
+  by replaying an evidence log. Forgetting is a model wrapping a model, and learning knows nothing of it.
+- **Features** such as quizzes depend on learning only.
+- **Ideas** (your notes) and **explorations** each have one bridge namespace to the knowledge, and none to
+  learning.
+- **The app** (server and UI) composes them.
 
- - Browse a source from the birdview down: breadcrumb, summary, keywords, drill-down cards (paragraph text shown inline), related nodes. A drill-down card's summary reads in full on a click (▾), or all of them with "Expand all" (remembered), so a section can be read from its list.
- - Zoom: the map and every concept graph (a topic's, a concept's) open with names readable (the whole map if it fits so, else around what you are learning); drag or scroll to pan, pinch or the buttons at its bottom right to zoom; zoomed far out, names give way to bubbles. The PDF zooms the same way (50%–300%, kept between visits), staying at the same spot of the page. Full screen (the last button) puts the browser full screen showing only that pane, map, graph or PDF; Esc or the button leaves it.
-- The original document beside it (a PDF drawn by pdf.js, an EPUB's pages as HTML whose type scales with the page as a PDF's does): every page in one scrolling column, opened at the selected node's page (only the pages near the view are drawn; scrolling turns the page, typing a number in the page box jumps there, and leaving the node's page is one step in history). The text beside it follows: once the scrolling pauses, the left pane shows the passage (or section, or paragraph: whatever kind was open) on that page, the PDF staying where it is; the one open stays while any of its text is still on the page. The node's source text is highlighted on the page (a paragraph, a passage's paragraphs, or a section's heading) and scrolled into view; text from ingest is matched against pdf.js's text in chunks, so formulas the two extract differently don't break it (on the first source, 98% of paragraphs have at least 90% of their text found).
- - Concept pages (`/c/<id>`): the concept's gloss, other spellings and every passage mentioning it, beside a concept graph to explore. The graph starts from the concept and its neighbours (broader, narrower, strongest related); clicking a concept opens it and expands its neighbours out of it, clicking again collapses it, and +/− expand or collapse without opening. Collapsing hides what only that concept revealed; expanding it again brings it back. Broader concepts are always above narrower ones, concepts already shown stay put, and changes animate. A node's tags link to its concepts; keywords naming no concept still open every node tagged with them. `/c` lists all concepts with a filter over names and glosses.
- - Correcting the model: "Add a concept the model missed" on `/c` takes a name, other names and a gloss (optional: Haiku writes it from the passages naming it). The concept is found in every passage naming it (whole words, any case), then its prerequisites are judged and it joins a topic, about 15 s and a cent. "Remove this topic" on a topic's page drops a topic that is no knowledge (an edition's colophon, say) with its concepts, and "Remove this concept" one concept; their names are ignored from then on so no ingest brings them back, and background concepts only they needed go too. Every change is logged like the rest of curation.
- - URLs per node (`/n/<id>`), concept (`/c/<id>`), keyword (`/k/<keyword>`) and answer (`/a/<id>`), back/forward work.
- - Ask the knowledge base from any page. Full-text matches show at once; then Haiku answers from the knowledge base only (graph RAG: full-text search over titles, keywords, summaries and paragraphs, scores spread to parent sections and keyword links, plus each source's overview), citing the nodes it used. The answer comes with its cited subgraph (document › chapter › section › node) to drill into, follow-up questions and other matches. Answers are stored and listed on the home page. Works across every ingested source; about 4–7 s and $0.001 per question.
- - Key sentences: in every passage, Haiku quotes the 1–3 sentences that carry it (a definition, a result, the claim argued, the conclusion) with a short label: the headings the passage would have if it had any. They are tinted in the PDF with their label in the page's margin, so a page reads like an outline, and listed as "Key points" on the passage's page (its paragraphs folded away); clicking one scrolls the PDF to it. A quote is kept only when found word for word in its paragraph. On the game theory book: 595 passages, 1,045 key sentences, $0.18. What is open on the left is a thin bar in the PDF's margin along it, on every page it covers.
- - Bookmarks: the bookmark button in the PDF toolbar marks the passage open at the page shown (again: takes it away). The home page lists them, newest first, with their source and page, and a source's overview lists its own under "Continue reading"; one click opens the passage at that page. A bookmark is found again after a re-ingest, like your ideas.
- - Your ideas on the knowledge: highlight any sentence you select (one click, a highlighter's yellow in the PDF and the text), agree or disagree with a concept, a relation, a passage or any sentence you select (in the text or in the PDF, which now has a selectable text layer), or write: a note, why you agree or disagree, or the idea restated in your own words (one stance a note), in Markdown with formulas, linked to your other ideas. `[[a concept]]` in what you write links the concept (suggested as you type; a term naming no concept yet is marked so). `[[A]] needs [[B]]` (or requires, builds on, ...; `[[B]] before [[A]]`) says what comes first. What your notes say shows as "In your notes" on a concept's page (what you say it needs, what you say it comes before, the notes naming it), and a term naming no concept is yours: its page has your notes and the passages of the sources naming it, from where you may make it a concept. All of it is derived from your notes (delete a note and what it said goes) and stays yours, beside the sources' knowledge: it never moves your scores nor orders what to study. The Notebook (header) gathers everything you wrote as a book of your own: by source and chapter in reading order, each note under the passage and quote it is about (or newest first, highlights optional); rewrite any note in place (Edit, there or wherever it is listed), and download the whole as one Markdown file, `[[links]]` kept. Quotes are marked in the text; concept and node pages list your ideas on them and on anything inside them; the concept graph shows them as diamonds by their concept or relation (toggle "My ideas"). Anchors survive the knowledge changing: a merged concept is followed, a re-ingested passage or quote is found again by its text, and a PDF quote no paragraph contains stays on its page. Ideas on text selected in the PDF are marked on the page in their stance's colour, and listed beside whichever passage is open on that page.
- - Resizable panes: drag the divider between the text and the source (PDF, graph) to share the width otherwise, from a quarter to three quarters; double-click it for halves. Remembered across visits; the PDF redraws its pages sharp when the divider is let go.
- - Full width: "⇤ Full width" on the PDF or concept-graph toolbar hides the left pane, so the source gets the whole screen (on a small screen, the PDF alone); remembered across visits.
- - Ask about a selection: select text in the article or the PDF and ask about it ("explain this", "what does ι mean here?"). The answer appears beside the selection, grounded in the paragraph it came from and the rest of its page (where a formula usually sits), citing them; background the documents never explain is given briefly and marked as such. Keep the answer as a note on the passage (edit it first), open it as a page with its sources, or let it go (it stays in the ask history).
- - The map (home): every topic of the knowledge, so a growing collection is seen whole. Concepts are clustered into topics by how they connect (Louvain over broader links and co-occurrence), and Sonnet names each one ("Nash equilibrium and refinements", "Reduction and confluence"); on the first two sources, 645 concepts make 32 topics, named for $0.05. Topics are drawn as bubbles sized by their concepts and filled by how well you know them, joined to their closest neighbours and placed by those links alone, whatever book their passages come from: knowledge two sources share is one group of topics, and only unconnected knowledge stands apart. A topic's page shows what it covers, how well you know it, what to study next in it, and its concepts as a graph. "Learn this topic" (a few at a time) puts it in the header and makes "what to study next" come from it. `bb ingest` clusters again: topics there are stay as they are and new concepts join them or form new topics, so a new source never reshuffles the others (clustering from scratch is an option; then a topic that is mostly the same keeps its name, and learning a topic that is gone moves to the one holding most of it).
- - Explorations (`/x`): passages better understood by doing offer "Explore it" on their page. Sonnet builds a small interactive page from the passage's own text, citing it, and it is kept for later. A page is data (state, values derived from it, and elements: sliders, choices, toggles, buttons, tables, plots, diagrams, step-throughs, "predict first" questions) drawn by the app, so it is safe, looks like the rest, and is checked before it is kept: every expression is read and run from the start and from each state one action away; problems go back to the model once. Which passages qualify is judged once per passage by Haiku from the summaries (`bb ingest` does it for new ones). Making one takes about 25 s and $0.04–0.05; "Make it again" takes a request ("a 3×3 game") and keeps the earlier version. Four written by hand show the range: the prisoner's dilemma, mixing in matching pennies, backward induction on an entry game, and normal vs applicative reduction of K z Ω.
- - Quizzes where you are: "Quiz me" on a concept or topic page does not leave it. The quiz docks at the top of the left pane and stays there as you open passages, so you can read the source beside it to answer; it folds to one line, and closes when done. The study page shows it in place.
- - Study page (`/q`): the score of the whole graph, what to study next (with a "Quiz me" for each), and quizzes: a question written by Sonnet from the item's material, a free-text answer (or "I don't know"), then the grade, feedback, the model answer with its key points, and how the item's and the graph's scores moved. A concept page shows how well you know it, with "Quiz me on this". The concept graph is a heat map: concepts fill and relations thicken with their score, and the toolbar and header show the whole graph's score.
+Any of them can be rewritten without touching the others.
 
-To do:
+## What it costs
 
- - Study inside the flow: quiz on a concept from its page or the passage you read, by how it connects to its neighbours (knowing a concept = knowing its edges); then retire the separate Study page.
- - Concepts that are homonyms across sources ("normal form" of a game vs of a λ-term, "type"): tell the resolver each concept's source, and split the few merged ones.
- - Map: zoom and pan for many topics.
- - Ask about a selection on the concept graph (concepts, relations); add an exchange to knowledge as a `:note` source.
- - Match PDF quotes to paragraphs through formulas (as the highlighting does); show a PDF mark's note on hover.
+Measured on real sources, at list prices:
 
-## Development
+| Work | Cost |
+| --- | --- |
+| Fold a 116-page thesis into 1,052 nodes (68 s) | $0.23 |
+| Resolve its 406 keywords into 209 concepts | $0.24 |
+| Name 32 topics over 645 concepts | $0.05 |
+| Key sentences for a textbook's 595 passages | $0.18 |
+| Ask a question | ~$0.001 |
+| Write and grade a quiz question | ~$0.005 |
+| Make an interactive exploration | $0.04–0.05 |
 
-Inside `devenv shell` (JDK, Clojure, Node, babashka, clojure-mcp-light):
+`bb ingest --outline` estimates the fold before any model call, and every ingest prints what it spent.
 
- - `bb dev` starts an nREPL; in it `(user/cljs!)` starts the backend (http://localhost:8080) and the frontend watch, then open http://localhost:3000
- - `bb serve` builds the frontend and serves everything from http://localhost:8080
- - `bb test`, `bb lint`
- - Anthropic API key: `ANTHROPIC_API_KEY`, or the macOS keychain item named in `resources/config.edn`
- - Ingest a PDF or an EPUB: put it in `data/sources/`, then `bb ingest data/sources/<file>.pdf` (or `.epub`; several at once is fine). It folds the document with Claude, resolves its new keywords into concepts, and prints progress and the cost; then reload the app. With `bb dev` running it ingests through that REPL (the app's db; only one process may write it), otherwise in a new JVM. Ingesting the same file again replaces it; your ideas on it are re-attached. Step by step from the REPL: the `comment` block in `dev/user.clj`
+## Getting started
+
+You need [devenv](https://devenv.sh) (it brings the JDK, Clojure, Node and babashka) and an Anthropic API key, in
+`ANTHROPIC_API_KEY` or in the macOS keychain item named in `resources/config.edn`.
+
+```sh
+devenv shell
+bb install                     # npm packages; vendors pdf.js and KaTeX
+bb dev                         # nREPL; in it, (user/cljs!) starts the app
+open http://localhost:3000
+
+bb ingest data/sources/book.pdf            # or .epub, or a folder of Markdown
+```
+
+`bb ingest` folds the source, then resolves its concepts, clusters topics, judges prerequisites, and finds key
+sentences, exercises and passages worth exploring. With `bb dev` running, it works through that REPL (Datalevin wants
+one writer), so reload the browser to see the result.
+
+Other tasks: `bb serve` (a release build on :8080), `bb test` (Kaocha + Rich Comment Tests), `bb lint`.
+
+## Built with
+
+Clojure on the JVM and ClojureScript with [Replicant](https://github.com/cjohansen/replicant), a single pull-pattern
+API ([lasagna-pattern](https://github.com/flybot-sg/lasagna-pattern), the stack of [flybot.sg](https://www.flybot.sg)),
+[Datalevin](https://github.com/juji-io/datalevin), the Anthropic Java SDK, PDFBox and pdf.js, jsoup, commonmark-java,
+KaTeX, and http-kit with [fun-map](https://github.com/robertluo/fun-map).
+
+Folding a document into layers was inspired by [textfold](https://github.com/chenxiachan/textfold). The project is
+developed with Claude Code and [clojure-mcp-light](https://github.com/bhauman/clojure-mcp-light).
+
+## License
+
+[MIT](LICENSE) © Luo Tian

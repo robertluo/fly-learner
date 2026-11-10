@@ -80,7 +80,8 @@
   question box: one way in, the rest follows from the page."
   [{:keys [asking] :as db} dispatch!]
   [:header.top
-   (nav/link dispatch! nav/map-effects "/" {:class "brand" :title "The map of everything you know"} "Fly Learner")
+   (nav/link dispatch! nav/map-effects "/" {:class "brand" :title "The map of everything you know"}
+              [:img.brand-icon {:src "/favicon.svg" :alt ""}] "Fly Learner")
    [:nav.top-nav
     (nav/link dispatch! nav/map-effects "/" {:class (when (= :home (:view db)) "here")} "Map")
     (nav/link dispatch! {:db db/open-concepts :pull [:concept-index :ideas] :history :push} "/c"

@@ -1,0 +1,20 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-label="Fly Learner">
+  <title>Fly Learner</title>
+  <!-- An open book whose pages lift like wings, a reader (or an idea) rising above it -->
+  <rect width="64" height="64" rx="14" fill="#2f6f5e"/>
+  <!-- left page -->
+  <path d="M32 51 C26 45.5 18 43.5 9.5 44.5 C9.8 34 8.2 22.5 4 10.5 C15.5 13 25.5 19.5 32 29 Z" fill="#ffffff"/>
+  <!-- right page -->
+  <path d="M32 51 C38 45.5 46 43.5 54.5 44.5 C54.2 34 55.8 22.5 60 10.5 C48.5 13 38.5 19.5 32 29 Z" fill="#ffffff"/>
+  <!-- the layers it is folded into -->
+  <g fill="none" stroke="#9cc8b8" stroke-width="2.4" stroke-linecap="round">
+    <path d="M13 26 C19 27 24 29.6 27.8 33.2"/>
+    <path d="M14 34.5 C19.2 35 23.6 36.8 27.5 39.8"/>
+    <path d="M51 26 C45 27 40 29.6 36.2 33.2"/>
+    <path d="M50 34.5 C44.8 35 40.4 36.8 36.5 39.8"/>
+  </g>
+  <!-- spine -->
+  <path d="M32 29 V51" stroke="#2f6f5e" stroke-width="1.6" stroke-linecap="round"/>
+  <!-- the learner -->
+  <circle cx="32" cy="16" r="5.4" fill="#f2c14e"/>
+</svg>

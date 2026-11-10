@@ -56,7 +56,8 @@ a:hover { text-decoration: underline; }
   border-bottom: 1px solid var(--border);
 }
 
-.brand { font-weight: 600; letter-spacing: .02em; color: var(--text); }
+.brand { font-weight: 600; letter-spacing: .02em; color: var(--text); display: inline-flex; align-items: center; gap: .45em; }
+.brand-icon { width: 1.5em; height: 1.5em; border-radius: .3em; }
 .top-nav a { color: var(--muted); font-size: .92rem; }
 .top-nav a:hover { color: var(--accent); }
 
