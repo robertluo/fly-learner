@@ -9,6 +9,18 @@
   (:require [robertluo.fly-learner.ui.core.api :as api]
             [robertluo.fly-learner.ui.core.db :as db]))
 
+(def ^:private names-polls
+  "How many times the map is fetched again for the names of its regions."
+  6)
+
+(defn- names-later
+  "Fetch the map again soon when universe `u` has regions the server is
+  still naming (it names them in the background)."
+  [effects u]
+  (cond-> effects
+    (some (complement :domain/label) (:domains u))
+    (assoc :later {:ms 15000 :effects {:pull :universe-names}})))
+
 (defn resolve-pull
   "Resolve a named pull operation against db. nil when nothing needs fetching."
   [op db]
@@ -16,16 +28,23 @@
     :init
     {:request (api/batch {:sources (api/fetch :sources) :asks (api/fetch :asks) :universe (api/fetch :universe)})
      :then    (fn [{:keys [sources asks universe]}]
-                {:db #(-> %
-                          (db/sources-fetched sources)
-                          (db/history-fetched asks)
-                          (db/universe-fetched universe))})}
+                (names-later {:db #(-> %
+                                       (db/sources-fetched sources)
+                                       (db/history-fetched asks)
+                                       (db/universe-fetched universe))}
+                             universe))}
 
     ;; every cluster with its score (the map; the header's clusters being learned)
     :universe
     (when (or (nil? (:universe db)) (get-in db [:universe :stale?]))
       {:request (api/fetch :universe)
-       :then    (fn [u] {:db #(db/universe-fetched % u)})})
+       :then    (fn [u] (names-later {:db #(db/universe-fetched % u)} u))})
+
+    ;; the map again, for the names of its regions (names-later)
+    :universe-names
+    (when (and (db/domains-unnamed? db) (< (:names-polls db 0) names-polls))
+      {:request (api/fetch :universe)
+       :then    (fn [u] (names-later {:db #(-> % (update :names-polls (fnil inc 0)) (db/universe-fetched u))} u))})
 
     ;; what to study next in the cluster shown
     :cluster

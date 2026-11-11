@@ -6,6 +6,7 @@
   `learning` below is {:model Model :curriculum (fn [db] Curriculum)}."
   (:require [datalevin.core :as d]
             [robertluo.fly-learner.concept.cluster :as cluster]
+            [robertluo.fly-learner.concept.domain :as domain]
             [robertluo.fly-learner.learning :as learning]
             [robertluo.fly-learner.learning.concepts :as learning.concepts]
             [robertluo.fly-learner.learning.store :as store]
@@ -71,7 +72,8 @@
 (defn universe
   "Every cluster with how well it is known and whether it is being learned:
   robertluo.fly-learner.concept.cluster/universe, each cluster with :score
-  and :learning?, plus :goals [cluster-id ..] and :overall."
+  and :learning?, plus :domains (concept.domain/named: the map's regions,
+  overlapping), :goals [cluster-id ..] and :overall."
   [db learning]
   (let [[c scores] (scored db learning (now))
         goals (set (goal-clusters db))
@@ -85,7 +87,31 @@
                                              :score (learning/overall (learning/restricted c its) scores)
                                              :learning? (contains? goals id))))
                                   cs)))
-        (assoc :goals (vec (goal-clusters db)) :overall (learning/overall c scores)))))
+        (assoc :domains (domain/named db u)
+               :goals (vec (goal-clusters db)) :overall (learning/overall c scores)))))
+
+(defonce ^:private naming (atom {:running? false :failed-at 0}))
+
+(def ^:private naming-retry-ms
+  "After the model failed to name domains (no key, say), wait this long before trying again."
+  (* 10 60 1000))
+
+(defn name-domains-later!
+  "Name the domains of universe `u` that have no name yet, in the background
+  (the :strong model, `client` a ref to it): one run at a time, and not again
+  soon after a failure. The map shows them unnamed meanwhile."
+  [conn client opts u]
+  (when (and (some (complement :domain/id) (:domains u))
+             (let [{:keys [running? failed-at]} @naming]
+               (and (not running?) (> (now) (+ failed-at naming-retry-ms))))
+             (compare-and-set! naming @naming (assoc @naming :running? true)))
+    (future
+      (try (domain/name! conn u (domain/llm-namer @client opts))
+           (swap! naming assoc :running? false)
+           (catch Throwable e
+             (println "Naming the map's domains failed:" (ex-message e))
+             (swap! naming assoc :running? false :failed-at (now)))))
+    nil))
 
 (defn cluster
   "Cluster `id` for its page: {:cluster/id :next [item ..]} where :next is

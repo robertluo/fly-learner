@@ -10,6 +10,7 @@
             [robertluo.fly-learner.ideas :as ideas]
             [robertluo.fly-learner.ui.core.graph :as graph]
             [robertluo.fly-learner.ui.core.layout :as layout]
+            [robertluo.fly-learner.ui.core.regions :as regions]
             [robertluo.fly-learner.ui.core.viewport :as viewport]))
 
 ;;=============================================================================
@@ -1086,12 +1087,19 @@
   joined to its strongest few), whatever sources their passages come from:
   the knowledge is what is mapped, so topics that share edges sit close and
   only unconnected knowledge stands apart (see layout/layout). Each topic's
-  box is its bubble with its name below, so none overlap."
-  [{:keys [clusters links]}]
-  (let [ids (set (map :cluster/id clusters))]
+  box is its bubble with its name below, so none overlap. Each domain (a
+  region of the map) has a hub joined to its topics, so a domain's topics
+  gather and one in two domains sits between them; the hubs' places are
+  where the regions' names go: {[::hub i] [x y]}."
+  [{:keys [clusters links domains]}]
+  (let [ids  (set (map :cluster/id clusters))
+        hubs (for [[i {:keys [topics]}] (map-indexed vector domains)
+                   :let [ts (filter ids topics)] :when (seq ts)]
+               [[::hub i] ts])]
     (when (seq ids)
-      (layout/layout ids
-                     (map #(assoc % :kind :related) (strongest-links links ids map-links-per-cluster))
+      (layout/layout (into ids (map first) hubs)
+                     (concat (map #(assoc % :kind :related) (strongest-links links ids map-links-per-cluster))
+                             (for [[hub ts] hubs, t ts] {:from t :to hub :kind :related}))
                      {} {}
                      {:length 150 :iterations 300 :aspect 1.0
                       ;; one box height for all (the layout's): a typical topic's, not the largest
@@ -1112,8 +1120,24 @@
 
 (defn current-cluster [db] (cluster-of db (:cluster-id db)))
 
+(defn- map-regions
+  "The map's regions (robertluo.fly-learner.ui.core.regions) around the
+  topics placed at `pos`, each named at its hub's place (map-layout)."
+  [{:keys [clusters domains]} pos]
+  (when (seq domains)
+    (regions/regions (vec (map-indexed (fn [i d] (assoc d :at (pos [::hub i]))) domains))
+                     (into {} (for [{:cluster/keys [id] :keys [concepts]} clusters
+                                    :let [[x y] (pos id)] :when x]
+                                [id {:x x :y y :r (bubble-radius (count concepts))}])))))
+
+(defn domains-unnamed?
+  "Whether some region of the map has no name yet (the server is naming it)."
+  [db]
+  (boolean (some (complement :domain/label) (get-in db [:universe :domains]))))
+
 (defn universe-fetched [db u]
-  (let [db (assoc db :universe (assoc u :pos (map-layout u)) :loading? false)]
+  (let [pos (map-layout u)
+        db  (assoc db :universe (assoc u :pos pos :regions (map-regions u pos)) :loading? false)]
     (if-let [c (and (= :cluster (:view db)) (current-cluster db))]
       (graph-scope db (:concepts c))
       db)))
@@ -1136,10 +1160,11 @@
 
 (defn map-scene
   "What the map draws: {:bubbles [{:id :label :lines :gloss :n :score
-  :learning? :x :y :r}] :links [{:x1 :y1 :x2 :y2 :weight}] :box [x y w h]},
-  in map units (fixed sizes, see map-font)."
+  :learning? :x :y :r}] :links [{:x1 :y1 :x2 :y2 :weight}] :regions [..]
+  (see regions/regions) :box [x y w h]}, in map units (fixed sizes, see
+  map-font)."
   [db]
-  (let [{:keys [clusters links pos]} (:universe db)
+  (let [{:keys [clusters links pos regions]} (:universe db)
         bubbles (vec (for [{:cluster/keys [id label gloss] :keys [concepts score learning?]} clusters
                            :let [[x y] (pos id)] :when x]
                        {:id id :label label :lines (label-lines label) :gloss gloss :n (count concepts)
@@ -1147,14 +1172,20 @@
                         :r (bubble-radius (count concepts))}))
         at      (into {} (map (juxt :id identity)) bubbles)]
     {:bubbles bubbles
+     :regions (vec regions)
      :links   (vec (for [{:keys [from to weight]} (strongest-links links (set (keys at)) map-links-per-cluster)
                          :let [a (at from) b (at to)]]
                      {:x1 (:x a) :y1 (:y a) :x2 (:x b) :y2 (:y b) :weight weight}))
-     :box     (layout/view-box (into {} (for [{:keys [id x y r label lines]} bubbles
+     :box     (layout/view-box (into {} (concat
+                                         (for [{:keys [id x y r label lines]} bubbles
                                               :let [hw (max r (/ (name-width label) 2))]
                                               [k p] [[[id 0] [(- x hw) (- y r)]]
                                                      [[id 1] [(+ x hw) (+ y r (* 1.3 map-font (inc (count lines))))]]]]
-                                          [k p]))
+                                          [k p])
+                                      ;; the regions' land reaches past the topics
+                                      (for [[i {[x0 y0 x1 y1] :box}] (map-indexed vector regions)
+                                            [k p] [[[::region i 0] [x0 y0]] [[::region i 1] [x1 y1]]]]
+                                        [k p])))
                                {:pad 20})}))
 
 (def ^:private graph-font

@@ -87,6 +87,14 @@
    :cluster/by       {:db/valueType :db.type/string} ; the model that named it
    :cluster/at       {:db/valueType :db.type/instant}
 
+   ;; domains: the map's regions, groups of topics that may overlap (robertluo.fly-learner.concept.domain)
+   :domain/id        {:db/valueType :db.type/uuid :db/unique :db.unique/identity}
+   :domain/label     {:db/valueType :db.type/string}
+   :domain/gloss     {:db/valueType :db.type/string}
+   :domain/topics    {}                              ; #{cluster-id ..} when named (EDN value): to know it again
+   :domain/by        {:db/valueType :db.type/string} ; the model that named it
+   :domain/at        {:db/valueType :db.type/instant}
+
    ;; asks: questions to the knowledge base and their answers (robertluo.fly-learner.ask)
    :ask/id          {:db/valueType :db.type/uuid :db/unique :db.unique/identity}
    :ask/question    {:db/valueType :db.type/string}

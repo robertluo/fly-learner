@@ -1,6 +1,7 @@
 (ns robertluo.fly-learner.ui.core.views.home
   "The map of everything: clusters (topics) placed by how they connect,
-  sized by concepts, filled by how well they are known."
+  sized by concepts, filled by how well they are known, on the land of the
+  domains they are in, named as a world map names its regions."
   (:require [robertluo.fly-learner.ui.core.db :as db]
             [robertluo.fly-learner.ui.core.views.ideas :as ideas-ui]
             [robertluo.fly-learner.ui.core.views.nav :as nav]
@@ -22,14 +23,29 @@
     (for [[i line] (map-indexed vector lines)]
       [:tspan {:replicant/key i :x 0 :dy (if (zero? i) 0 "1.15em")} line])]])
 
+(defn- map-region
+  "A domain's land (robertluo.fly-learner.ui.core.regions): translucent, so
+  overlapping domains mix their colours."
+  [{:keys [key label gloss d color]}]
+  [:path.region {:replicant/key (str key) :class (str "c" color) :d d :fill-rule "evenodd"}
+   (when label [:title (str label (when gloss (str ": " gloss)))])])
+
+(defn- region-name [{:keys [key label color lx ly font]}]
+  (when label
+    [:text.region-name {:replicant/key (str key) :class (str "c" color)
+                        :x lx :y ly :font-size font :text-anchor "middle"}
+     label]))
+
 (defn- knowledge-map [db dispatch!]
-  (let [{:keys [bubbles links]} (db/map-scene db)]
+  (let [{:keys [bubbles links regions]} (db/map-scene db)]
     (if (seq bubbles)
       [:svg.kmap (panes/pane-attrs db :map dispatch!)
+       [:g.regions (map map-region regions)]
        [:g.links
         (for [[i {:keys [x1 y1 x2 y2 weight]}] (map-indexed vector links)]
           [:line {:replicant/key i :x1 x1 :y1 y1 :x2 x2 :y2 y2
                   :style {:stroke-width (min 6 (+ 1 (* 0.5 weight)))}}])]
+       [:g.region-names (keep region-name regions)]
        [:g.bubbles (for [b bubbles] (map-bubble dispatch! b))]]
       [:p.muted.graph-empty
        (if (:universe db)

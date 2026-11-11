@@ -350,7 +350,8 @@
                 :concepts concepts
                 :concept-graph (lazy-value #(concept-view/graph (d/db conn)))
                 :learning (lazy-value #(study/overview (d/db conn) learning))
-                :universe (lazy-value #(study/universe (d/db conn) learning))
+                :universe (lazy-value #(doto (study/universe (d/db conn) learning)
+                                         (->> (study/name-domains-later! conn client ask-opts))))
                 :goals goals
                 :clusters clusters
                 :questions questions :answers answers

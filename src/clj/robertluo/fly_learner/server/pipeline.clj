@@ -6,8 +6,10 @@
   the books' exercises (and transcribe them), and the passages worth
   exploring. Prints progress and the cost as it goes."
   (:refer-clojure :exclude [run!])
-  (:require [robertluo.fly-learner.concept :as concept]
+  (:require [datalevin.core :as d]
+            [robertluo.fly-learner.concept :as concept]
             [robertluo.fly-learner.concept.cluster :as cluster]
+            [robertluo.fly-learner.concept.domain :as domain]
             [robertluo.fly-learner.concept.prereq :as prereq]
             [robertluo.fly-learner.exercises :as exercises]
             [robertluo.fly-learner.explore.knowledge :as explore]
@@ -61,6 +63,8 @@
       (println (format "  %d clusters: %d kept, %d new (named), %d gone" clusters kept named dropped))
       (when (seq moved)
         (println (format "  %d topic(s) you were learning regrouped: now learning their successors" (count moved)))))
+    (println "Naming the map's domains")
+    (println (format "  %d named" (domain/name! conn (cluster/universe (d/db conn)) (domain/llm-namer client opts))))
     (println "Judging what new concepts need first")
     (let [{:keys [judged claims hidden]} (prereq/judge! conn client nil opts)]
       (println (format "  %d concepts judged: %d prerequisites, %d hidden concepts (background the sources assume)"

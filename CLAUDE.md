@@ -144,6 +144,13 @@ Web stack follows flybot.sg (github.com/flybot-sg/lasagna-pattern, `examples/fly
     source, links). Stored as `:cluster/*`; `bb ingest` refreshes them and moves goals on a gone cluster to its
     successor (`study/clusters-replaced!`); `remove!` a topic that is no knowledge and its concepts,
     `remove-concepts!` concepts and the background only they needed (they leave their clusters)
+  - `concept/domain` — the map's regions: `groups` (pure: Louvain cores over the links between topics,
+    `cluster/communities` min 3, and every topic tied to another core at least half as strongly as to its best: domains
+    overlap, a topic may be in several), `named` (groups matched to stored names by Jaccard, `cluster/match`; the rest
+    unnamed), `name!` (the `:strong` model names the unnamed, prompt `:domains/name`; stored as `:domain/*`, the
+    topics kept only to know a domain again; stale ones go). `server.study/universe` adds `:domains`; the API's
+    `:universe` read names new ones in the background (`study/name-domains-later!`: one run at a time, 10 min after a
+    failure), and `pipeline/run!` names them after clustering
   - `keypoints` — key sentences: `extract!` (`:common` model, a few passages per call, 4 calls at a time) quotes
     1-3 sentences per passage verbatim with a 2-6 word label (the passage's hidden headings); `locate` keeps a quote
     only when found in its paragraph, as the paragraph's own text. Stored on the passage as `:node/keypoints`
@@ -186,7 +193,13 @@ Web stack follows flybot.sg (github.com/flybot-sg/lasagna-pattern, `examples/fly
   a concept needs and some of what needs it; prerequisite edges drawn with an arrow halfway), `layout`
   (incremental force layout on primitive arrays: broader-above and prerequisite-above are constraints (`above-edges`
   drops one that would close a loop), label boxes never overlap;
-  unconnected parts laid out apart and packed in rows below the largest, else repulsion strands them far away; tween)
+  unconnected parts laid out apart and packed in rows below the largest, else repulsion strands them far away; tween),
+  `regions` (the map's domains as land: per domain a field (distance to its bubbles and to the bridges of a shortest
+  tree over them, long hops left out: islands; smooth minimum), traced by marching squares into an even-odd SVG path;
+  colours: none a near or overlapping region has, least used first (`.region.cN`, translucent, multiply/screen);
+  names at the domain's hub: `db/map-layout` adds a hub per domain joined to its topics, so a domain gathers and a
+  topic in two sits between them; names faint while topics' names show, strong zoomed out (`.no-labels`); unnamed
+  domains drawn, the map fetched again for their names, `pull/:universe-names`)
 - `src/cljs/robertluo/fly_learner/ui/` — `core` (dispatch-of effects `:db`/`:pull`/`:history`/`:animate`/`:upload` (`api/upload!`)/`:later` (effects after a delay), requests via `api/send!`, render,
   mouseup -> text selection), `pdf` (pdf.js: render a page, its selectable text layer, `page-text`), `html` (an EPUB's or
   a Markdown folder's pages: fetched once, formulas typeset by KaTeX then (`typeset`), `page-text` from the page's text

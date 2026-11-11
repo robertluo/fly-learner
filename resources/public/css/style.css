@@ -895,6 +895,35 @@ ul.plain li { font-size: .9rem; line-height: 1.35; }
 .zoom-controls button + button { border-top: 1px solid var(--border); }
 .zoom-controls button:hover:not(:disabled) { background: var(--accent-soft); color: var(--accent); }
 .zoom-controls button:disabled { opacity: .35; cursor: default; }
+/* the map's regions (domains), coloured like a world map's; they overlap, so translucent */
+:root {
+  --r0: #6f9f5a; --r1: #d39a45; --r2: #5b93bd; --r3: #c9707f;
+  --r4: #8f7cc0; --r5: #b9a33e; --r6: #4fa197; --r7: #b97a4f;
+  --r0-ink: #3d6630; --r1-ink: #8a5a17; --r2-ink: #2d5f86; --r3-ink: #8c3a4a;
+  --r4-ink: #57468a; --r5-ink: #6f6115; --r6-ink: #22685f; --r7-ink: #7a4521;
+  --region-fill: .26; --region-blend: multiply;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --r0: #8cc276; --r1: #e8b062; --r2: #78b2dc; --r3: #e48e9c;
+    --r4: #ad9be0; --r5: #d8c25a; --r6: #6cc3b8; --r7: #d6976a;
+    --r0-ink: #a9d896; --r1-ink: #f0c486; --r2-ink: #9ccbec; --r3-ink: #efadb8;
+    --r4-ink: #c6b8ee; --r5-ink: #e6d685; --r6-ink: #93d6cd; --r7-ink: #e5b48f;
+    --region-fill: .16; --region-blend: screen;
+  }
+}
+.kmap .region { fill-opacity: var(--region-fill); stroke-width: 1.5; stroke-opacity: .5; stroke-linejoin: round; mix-blend-mode: var(--region-blend); }
+/* names as a world map's: the regions' when zoomed out, faint behind the topics' when zoomed in */
+.kmap .region-name { font-family: var(--font); font-weight: 600; letter-spacing: .14em; text-transform: uppercase; opacity: .22; pointer-events: none; }
+.kmap.no-labels .region-name { opacity: .85; }
+.kmap .region.c0 { fill: var(--r0); stroke: var(--r0); } .kmap .region-name.c0 { fill: var(--r0-ink); }
+.kmap .region.c1 { fill: var(--r1); stroke: var(--r1); } .kmap .region-name.c1 { fill: var(--r1-ink); }
+.kmap .region.c2 { fill: var(--r2); stroke: var(--r2); } .kmap .region-name.c2 { fill: var(--r2-ink); }
+.kmap .region.c3 { fill: var(--r3); stroke: var(--r3); } .kmap .region-name.c3 { fill: var(--r3-ink); }
+.kmap .region.c4 { fill: var(--r4); stroke: var(--r4); } .kmap .region-name.c4 { fill: var(--r4-ink); }
+.kmap .region.c5 { fill: var(--r5); stroke: var(--r5); } .kmap .region-name.c5 { fill: var(--r5-ink); }
+.kmap .region.c6 { fill: var(--r6); stroke: var(--r6); } .kmap .region-name.c6 { fill: var(--r6-ink); }
+.kmap .region.c7 { fill: var(--r7); stroke: var(--r7); } .kmap .region-name.c7 { fill: var(--r7-ink); }
 .kmap .links line { stroke: var(--border); stroke-opacity: .9; }
 .kmap .bubble { cursor: pointer; }
 .kmap .bubble .body { fill: var(--panel); stroke: var(--accent); stroke-width: 1.5; }

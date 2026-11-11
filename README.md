@@ -79,6 +79,9 @@ source, and your notes, bookmarks and progress stay with it.
 - **The map.** Concepts are grouped into topics by how they connect, whichever book they come from, and the model
   names each topic. The home page draws them as bubbles that fill as you learn them. Adding a new source never
   reshuffles the topics you already have.
+- **Domains, like regions on a world map.** Topics that sit together form a domain ("Game theory", "Type theory"),
+  named by the model and drawn as coloured land around its topics. A topic between two fields is in both, so domains
+  overlap and their colours mix. Zoomed out you read the domains' names; zoomed in, the topics'.
 
 ### Ask
 
