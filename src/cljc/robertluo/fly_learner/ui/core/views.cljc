@@ -20,6 +20,7 @@
     explorations  interactive explorations of a passage
     settings      adding sources, the models, the prompts"
   (:require [robertluo.fly-learner.ui.core.db :as db]
+            [robertluo.fly-learner.ui.core.history :as history]
             [robertluo.fly-learner.ui.core.views.ask :as ask-ui]
             [robertluo.fly-learner.ui.core.views.concept :as concept-ui]
             [robertluo.fly-learner.ui.core.views.explorations :as explore-ui]
@@ -83,6 +84,45 @@
    [:circle {:cx 12 :cy 12 :r 3.2}]
    [:path {:d "M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"}]])
 
+(defn- learning-menu
+  "The topics being learned, behind one button: a menu, so there may be any
+  number of them. The button names the one open, if any; picking one, a
+  click outside or Escape closes it."
+  [db dispatch!]
+  (let [cs     (db/learning-clusters db)
+        open?  (= :learning (:menu db))
+        here   (some #(when (= (:cluster/id %) (:cluster-id db)) %) cs)
+        close  #(dispatch! {:db db/menu-closed})
+        closed (fn [{f :db :as effects}] (assoc effects :db (comp db/menu-closed f)))]
+    [:div.menu {:class (when open? "open")
+                :on    {:keydown #(when (= "Escape" (.-key %)) (close))}}
+     [:button.menu-button {:type          "button"
+                           :class         ["learning" (when here "here")]
+                           :aria-haspopup "true" :aria-expanded (str open?)
+                           :title         "The topics you are learning"
+                           :on            {:click #(dispatch! {:db (fn [d] (db/menu-toggled d :learning))})}}
+      (if here
+        [:span.name (:cluster/label here)]
+        "Learning")
+      (when (seq cs) [:span.count (if here (t/percent (:score here)) (count cs))])
+      [:svg.caret {:viewBox "0 0 10 6" :width 10 :height 6 :aria-hidden "true" :fill "none" :stroke "currentColor"
+                   :stroke-width 1.6 :stroke-linecap "round" :stroke-linejoin "round"}
+       [:path {:d "M1 1l4 4 4-4"}]]]
+     (when open?
+       [:div.menu-backdrop {:on {:click close}}])
+     (when open?
+       [:div.menu-list {:role "menu"}
+        (if (seq cs)
+          (for [{:cluster/keys [id label] :keys [score] :as c} cs]
+            (nav/link dispatch! (closed (nav/cluster-effects id))
+                      (history/state->path {:view :cluster :cluster-id id})
+                      {:replicant/key (str id) :role "menuitem" :title (or (:cluster/gloss c) label)
+                       :class ["menu-item" (when (= id (:cluster-id db)) "here")]}
+                      [:span.name label] (t/score-bar score) [:span.pct (t/percent score)]))
+          [:p.muted.menu-empty "Nothing yet: pick a topic on the map, then “Learn this topic”."])
+        (nav/link dispatch! (closed nav/map-effects) "/"
+                  {:class "menu-foot" :role "menuitem"} "Choose topics on the map")])]))
+
 (defn- header
   "The map, the clusters being learned (each with its score), and the
   question box: one way in, the rest follows from the page."
@@ -96,10 +136,7 @@
               {:class (when (= :concepts (:view db)) "here") :title "Every concept, A to Z"} "Concepts")
     (nav/link dispatch! {:db db/open-notebook :pull :ideas :history :push} "/b"
               {:class (when (= :notebook (:view db)) "here") :title "What you wrote while reading, as a book"} "Notebook")
-    (for [{:cluster/keys [id] :keys [score] :as c} (db/learning-clusters db)]
-      (nav/cluster-link dispatch! c {:replicant/key (str id)
-                                     :class ["learning" (when (= id (:cluster-id db)) "here")]}
-                        (:cluster/label c) [:span.count (t/percent score)]))]
+    (learning-menu db dispatch!)]
    [:form.ask {:on {:submit #(submit-ask dispatch! %)}}
     [:input {:name "q" :type "search" :autocomplete "off" :disabled (boolean asking)
              :value (get-in db [:box :q])

@@ -1149,6 +1149,20 @@
   [db]
   (keep #(cluster-of db %) (get-in db [:universe :goals])))
 
+(defn menu-toggled
+  "Open the header's menu `k` (`:learning`), or close it when it is open."
+  [db k]
+  (update db :menu #(when (not= % k) k)))
+
+(defn menu-closed [db] (dissoc db :menu))
+
+^:rct/test
+(comment
+  (:menu (menu-toggled {} :learning)) ;=> :learning
+  (:menu (menu-toggled {:menu :learning} :learning)) ;=> nil
+  (:menu (menu-closed {:menu :learning})) ;=> nil
+  )
+
 (defn learning-toggled
   "Start (`on?`) or stop learning cluster `id`, shown at once. What to study
   next changes with it, so the learning overview is fetched again."
