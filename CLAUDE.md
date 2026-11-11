@@ -286,6 +286,9 @@ Each layer knows the one below as little as possible, so any part can be reimple
   `compose.yaml` (`host.docker.internal` for a local model server); `.github/workflows/image.yml` pushes
   `ghcr.io/<owner>/fly-learner` (main -> latest, `v*` tags -> semver) for amd64 + arm64. No keychain in a container:
   `llm/keychain-password` gives nil when `security` is missing
+- `fly-up [image]` / `fly-down` / `fly-logs` (devenv scripts) — the image in Apple's `container` on this project's `data/`
+  (default `ghcr.io/robertluo/fly-learner:latest`, or `FLY_IMAGE`; `FLY_PORT` 8080, `FLY_MEMORY` 4G); refuses while the
+  dev REPL answers (one writer); passes `ANTHROPIC_API_KEY` from the environment, else the keychain, by name (`-e NAME`)
 - `bb test`, `bb lint`; `bb install` / `bb vendor` copy pdf.js into `resources/public/vendor/pdfjs`
 - `bb ingest data/sources/<file>.pdf|.epub|<folder of Markdown> ... [--skip <part>,..] [--outline]` — `cli/ingest!`
   (`--outline`: only print chapters, pages and a rough cost, no model nor db; `--skip`: a folder's parts or files left

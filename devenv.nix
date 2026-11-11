@@ -44,6 +44,59 @@ in
   scripts.clj-nrepl-eval = cmlScript "Evaluate Clojure via nREPL from the command line" "clojure-mcp-light.nrepl-eval";
   scripts.clj-paren-repair = cmlScript "Fix Clojure delimiters in files on demand" "clojure-mcp-light.paren-repair";
 
+  # The learner in Apple's container on this project's data/ (the image: `bb image`, or
+  # the published one). Datalevin wants one writer: not while `bb dev` holds data/.
+  scripts.fly-up = {
+    description = "Run the learner in a container on data/ (http://localhost:8080): fly-up [image]";
+    exec = ''
+      set -euo pipefail
+      cd "$DEVENV_ROOT"
+      image="''${1:-''${FLY_IMAGE:-ghcr.io/robertluo/fly-learner:latest}}"
+      port="''${FLY_PORT:-8080}"
+      if [ -f .nrepl-port ] && (exec 3<>"/dev/tcp/localhost/$(cat .nrepl-port)") 2>/dev/null; then
+        echo "fly-up: the dev REPL (bb dev) has data/ open; stop it first (one writer)" >&2
+        exit 1
+      fi
+      container system status >/dev/null 2>&1 || container system start --enable-kernel-install
+      if container ls -q | grep -qx fly-learner; then
+        echo "fly-learner is already running (fly-down stops it)"
+        exit 0
+      fi
+      container rm fly-learner >/dev/null 2>&1 || true
+      # the key: the environment's, else the keychain's (no keychain inside the container)
+      if [ -z "''${ANTHROPIC_API_KEY:-}" ]; then
+        ANTHROPIC_API_KEY="$(security find-generic-password -s learner -a anthropic -w 2>/dev/null || true)"
+      fi
+      export ANTHROPIC_API_KEY
+      keyopt=()
+      [ -n "$ANTHROPIC_API_KEY" ] && keyopt=(-e ANTHROPIC_API_KEY)
+      container run -d --progress none --name fly-learner -p "$port:8080" -m "''${FLY_MEMORY:-4G}" \
+        -v "$DEVENV_ROOT/data:/app/data" "''${keyopt[@]}" "$image" >/dev/null
+      for _ in $(seq 1 60); do
+        if curl -s -o /dev/null "http://localhost:$port/"; then
+          echo "fly-learner: http://localhost:$port ($image; fly-logs, fly-down)"
+          exit 0
+        fi
+        container ls -q | grep -qx fly-learner || break
+        sleep 1
+      done
+      echo "fly-up: it did not come up; its log:" >&2
+      container logs -n 30 fly-learner >&2
+      exit 1
+    '';
+  };
+  scripts.fly-down = {
+    description = "Stop the learner's container (fly-up)";
+    exec = ''
+      container stop fly-learner >/dev/null 2>&1 || true
+      container rm fly-learner >/dev/null 2>&1 && echo "fly-learner stopped" || echo "fly-learner is not running"
+    '';
+  };
+  scripts.fly-logs = {
+    description = "Follow the learner container's log";
+    exec = ''exec container logs -f fly-learner'';
+  };
+
   # `devenv up`: nREPL (backend + shadow-cljs middleware); start things from the REPL.
   processes.repl.exec = "bb dev";
 
