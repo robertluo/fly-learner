@@ -112,16 +112,26 @@
      (when-not folded? (quiz-panel db dispatch!))]))
 
 (defn next-cards
-  "What to study next: [{:item :title :about :score :prerequisite?} ..]."
+  "What to study next: [{:item :title :about :score :prerequisite? :concepts} ..].
+  Its title links to what it is about: a concept's page (the passages
+  teaching it), or each of the two concepts of a relation; Read opens the
+  first."
   [dispatch! next]
   [:ul.cards.compact.next
-   (for [{:keys [item title about score prerequisite?]} next]
+   (for [{:keys [item title about score prerequisite? concepts]} next]
      [:li.card {:replicant/key (str item)}
       [:div.next-head
-       [:span.card-title title
+       [:span.card-title
+        (if (seq concepts)
+          (interpose " — " (for [c concepts]
+                             (nav/concept-link dispatch! c {:replicant/key (str (:concept/id c)) :class "read-link"})))
+          title)
         (when prerequisite?
           [:span.tag.prereq {:title "Not in this topic: concepts in it build on this one"} "prerequisite"])]
        (t/score-bar score)
+       (when-let [c (first concepts)]
+         (nav/concept-link dispatch! c {:class "btn read" :title (str "Read about " (:concept/label c) ": the passages teaching it")}
+                           "Read"))
        [:button.btn.primary {:on {:click #(dispatch! (nav/quiz-effects item))}} "Quiz me"]]
       [:p.preview about]])])
 

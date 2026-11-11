@@ -22,9 +22,15 @@
   (let [c (curriculum db)]
     [c (learning/scores model c (learning/states model (store/evidence db)) at)]))
 
-(defn- item-ref [c scores item]
-  (let [{:keys [title about]} (learning/material c item)]
-    {:item item :title title :about about :score (get scores item 0)}))
+(defn- item-ref
+  "An item to show: its title, what it is about, its score, and the concepts
+  it is about ([{:concept/id :concept/label}], to read them)."
+  [c scores [kind a b :as item]]
+  (let [{:keys [title about]} (learning/material c item)
+        ids   (case kind :concept [a] :relation [a b] [])
+        label #(if (= [:concept %] item) title (:title (learning/material c [:concept %])))]
+    {:item     item :title title :about about :score (get scores item 0)
+     :concepts (mapv (fn [id] {:concept/id id :concept/label (label id)}) ids)}))
 
 (defn- next-refs
   "What to study next in `scope` (part of curriculum `c`). An item outside

@@ -532,6 +532,9 @@ input.filter:focus { outline: 2px solid var(--accent-soft); border-color: var(--
 
 .next .next-head { display: flex; align-items: center; gap: .8rem; }
 .next .next-head .card-title { flex: 1; margin: 0; }
+.next .card-title .read-link { color: var(--text); }
+.next .card-title .read-link:hover { color: var(--accent); }
+a.btn { display: inline-block; text-decoration: none; line-height: normal; }
 
 /* ideas --------------------------------------------------------------- */
 
