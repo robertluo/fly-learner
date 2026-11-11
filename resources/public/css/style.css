@@ -1310,3 +1310,63 @@ input.provider-name { width: 10rem; }
   padding: .7rem 0; background: var(--bg); border-top: 1px solid var(--border); }
 .save-bar.dirty { border-top-color: var(--accent); }
 .save-bar .muted { font-size: .82rem; }
+
+/* motion ------------------------------------------------------------------
+   Moving between pages (ui.core render!): the page shown stays while the
+   next one loads, a bar under the header saying so; then a view transition,
+   by how the page moves (html.vt-*): deeper (to a passage) zooms in, back
+   (to the map) zooms out, across fades, within (a concept to another) fades
+   the text while the pane beside it (graph, source) stays live. Nothing
+   moves for a learner who asked for less motion. */
+
+.top::after {
+  content: ""; position: absolute; left: 0; right: 0; bottom: -1px; height: 2px;
+  background: var(--accent); transform-origin: left; transform: scaleX(0); opacity: 0; pointer-events: none;
+}
+.top.pending::after { opacity: 1; animation: pending-bar 1.6s cubic-bezier(.15, .7, .25, 1) .12s both; }
+@keyframes pending-bar { from { transform: scaleX(0); } to { transform: scaleX(.9); } }
+
+.skeleton { display: grid; gap: .75rem; padding: .4rem 0 1rem; animation: fade-in .3s .2s both; }
+.sk {
+  display: block; height: .85rem; border-radius: 4px;
+  background: linear-gradient(90deg, var(--border) 20%, var(--quote) 50%, var(--border) 80%);
+  background-size: 250% 100%; animation: shimmer 1.3s ease-in-out infinite;
+}
+.sk-title { height: 1.9rem; width: 55%; margin-bottom: .4rem; }
+@keyframes shimmer { from { background-position: 100% 0; } to { background-position: 0 0; } }
+@keyframes fade-in { from { opacity: 0; } to { opacity: 1; } }
+.graph-empty.loading { animation: breathe 1.6s ease-in-out infinite; }
+@keyframes breathe { 50% { opacity: .45; } }
+
+@media (prefers-reduced-motion: no-preference) {
+  .top { view-transition-name: top; }
+  ::view-transition-old(top), ::view-transition-new(top) { animation-duration: .2s; }
+
+  ::view-transition-old(root), ::view-transition-new(root) {
+    animation-duration: .34s; animation-timing-function: cubic-bezier(.2, .8, .2, 1);
+  }
+  ::view-transition-old(root) { animation-duration: .22s; animation-timing-function: ease-in; }
+  html.vt-deeper::view-transition-old(root) { animation-name: vt-out, vt-grow; }
+  html.vt-deeper::view-transition-new(root) { animation-name: vt-in, vt-from-small; }
+  html.vt-back::view-transition-old(root)   { animation-name: vt-out, vt-shrink; }
+  html.vt-back::view-transition-new(root)   { animation-name: vt-in, vt-from-big; }
+  html.vt-across::view-transition-new(root) { animation-name: vt-in, vt-rise; }
+  html.vt-within::view-transition-new(root) { animation-name: vt-in, vt-rise; animation-duration: .26s; }
+  html.vt-within main.split > :nth-child(2) { view-transition-name: side; }
+  html.vt-within::view-transition-old(side) { display: none; }
+  html.vt-within::view-transition-new(side) { animation: none; }
+
+  /* what arrives on a page shown: its text where a placeholder was, cards, menus, popovers */
+  article.node, article.concept, article.cluster, .concept-list, .overall-score,
+  .cards > li, .menu-list, .goto, .idea-popover, .quiz-dock, .chips > * {
+    transition: opacity .24s ease-out, translate .24s ease-out;
+    @starting-style { opacity: 0; translate: 0 6px; }
+  }
+}
+@keyframes vt-out { to { opacity: 0; } }
+@keyframes vt-in { from { opacity: 0; } }
+@keyframes vt-grow { to { transform: scale(1.04); } }
+@keyframes vt-from-small { from { transform: scale(.97); } }
+@keyframes vt-shrink { to { transform: scale(.97); } }
+@keyframes vt-from-big { from { transform: scale(1.03); } }
+@keyframes vt-rise { from { transform: translateY(8px); } }

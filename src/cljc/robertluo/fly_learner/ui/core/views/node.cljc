@@ -145,7 +145,7 @@
      [:h1 keyword]
      (cond
        (seq nodes) [:ul.cards (for [n nodes] (card dispatch! n))]
-       loading?    [:p.muted "Loading…"]
+       loading?    (t/skeleton)
        :else       [:p.muted "No nodes carry this keyword."])]))
 
 (defn- path-line [{:node/keys [path kind page]}]

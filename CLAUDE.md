@@ -200,7 +200,11 @@ Web stack follows flybot.sg (github.com/flybot-sg/lasagna-pattern, `examples/fly
   names at the domain's hub: `db/map-layout` adds a hub per domain joined to its topics, so a domain gathers and a
   topic in two sits between them; names faint while topics' names show, strong zoomed out (`.no-labels`); unnamed
   domains drawn, the map fetched again for their names, `pull/:universe-names`)
-- `src/cljs/robertluo/fly_learner/ui/` — `core` (dispatch-of effects `:db`/`:pull`/`:history`/`:animate`/`:upload` (`api/upload!`)/`:later` (effects after a delay), requests via `api/send!`, render,
+- `src/cljs/robertluo/fly_learner/ui/` — `core` (dispatch-of effects `:db`/`:pull`/`:history`/`:animate`/`:upload` (`api/upload!`)/`:later` (effects after a delay), requests via `api/send!`, render
+  (moving between pages, `db/scene`: the page shown stays, `db/held` with a bar under the header, while the next is
+  `:loading?`, `hold-ms` at most; then a view transition by `db/scene-move`: `html.vt-deeper|back|across|within` in
+  style.css, zoom in towards a passage, out towards the map, the side pane live within; none for reduced motion;
+  placeholders are `template/skeleton`; cards, menus and arriving text fade in, `@starting-style`),
   mouseup -> text selection), `pdf` (pdf.js: render a page, its selectable text layer, `page-text`), `html` (an EPUB's or
   a Markdown folder's pages: fetched once, formulas typeset by KaTeX then (`typeset`), `page-text` from the page's text
   nodes, a formula's being its TeX annotation, not its glyphs, so it matches the passage text; `when-laid-out!`), `pages` (whatever draws them: `find-each!`,

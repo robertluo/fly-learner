@@ -8,6 +8,7 @@
   editable and back to its default in one click."
   (:require [clojure.string :as str]
             [robertluo.fly-learner.ui.core.db :as db]
+            [robertluo.fly-learner.ui.core.views.template :as t]
             [robertluo.fly-learner.ui.core.pull :as pull]
             [robertluo.fly-learner.ui.core.views.nav :as nav]))
 
@@ -212,7 +213,7 @@
     [:section.models
      [:h2 "Models"]
      (if-not draft
-       [:p.muted "Loading…"]
+       (t/skeleton 3)
        [:div
         [:p.muted "Two tiers do the work. Each can be a model of any provider: Anthropic's, or one on this machine "
          "through oMLX, Ollama, LM Studio or any OpenAI-compatible server."]
@@ -277,7 +278,7 @@
        [:section.prompt-group {:replicant/key g}
         [:h3 g]
         [:ul.prompts (for [p ps] (prompt-row db dispatch! p))]])
-     [:p.muted "Loading…"])])
+     (t/skeleton 3))])
 
 (defn settings-view [db dispatch!]
   (let [{:keys [uploads ingests] :as s} (:settings db)]

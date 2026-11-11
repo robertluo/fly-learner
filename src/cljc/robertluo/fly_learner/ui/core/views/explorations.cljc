@@ -3,6 +3,7 @@
   the list with the hand-written examples."
   (:require [robertluo.fly-learner.explore :as explore]
             [robertluo.fly-learner.ui.core.db :as db]
+            [robertluo.fly-learner.ui.core.views.template :as t]
             [robertluo.fly-learner.ui.core.explore :as explore-view]
             [robertluo.fly-learner.ui.core.views.nav :as nav]
             [robertluo.fly-learner.ui.core.views.node :as node-ui]))
@@ -66,7 +67,7 @@
                                  (fn [action] (dispatch! {:db #(db/explored % exploration-id action)})))])
 
     (uuid? exploration-id)
-    [:main.single.explore (when loading? [:p.muted "Loading…"])]
+    [:main.single.explore (when loading? (t/skeleton))]
 
     :else
     [:main.single.explore

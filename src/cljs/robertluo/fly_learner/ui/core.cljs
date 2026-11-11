@@ -77,11 +77,73 @@
 ;; Rendering
 ;;=============================================================================
 
-(defn ^:export render!
-  "Re-render (also the shadow-cljs :after-load hook)."
-  []
+;; Moving between pages. The page shown stays while the next one waits for
+;; what it shows (`hold-ms` at most, a bar under the header saying so); then
+;; the browser's view transition moves from one to the other (CSS: html.vt-*):
+;; deeper (to a passage) zooms in, back (to the map) out, across fades, and
+;; within (a concept to another) fades the text while the graph or the source
+;; beside it stays live.
+
+(def ^:private hold-ms 1500)
+
+(defonce ^:private stage
+  ;; :drawn the scene on screen, :want the scene waited for (since when),
+  ;; :capturing? a transition is taking its picture of the old page
+  (atom {:drawn nil :want nil :since 0 :timer nil :capturing? false}))
+
+(declare render!)
+
+(defn- draw! [db]
   (when-let [el (js/document.getElementById "app")]
-    (r/render el (views/app-view @app-db dispatch!))))
+    (r/render el (views/app-view db dispatch!))))
+
+(defn- motion? []
+  (and (.-startViewTransition js/document)
+       (not (.-matches (js/window.matchMedia "(prefers-reduced-motion: reduce)")))))
+
+(defn- move-to!
+  "Show `db`'s scene, moving there (`move`, db/scene-move) as a view transition
+  where the browser has them."
+  [db move]
+  (js/clearTimeout (:timer @stage))
+  (swap! stage assoc :drawn (db/scene db) :want nil :timer nil)
+  (if (and move (motion?))
+    (let [root (.-classList js/document.documentElement)
+          cls  (str "vt-" (name move))]
+      (swap! stage assoc :capturing? true)
+      (.add root cls)
+      (let [vt (.startViewTransition js/document
+                                     (fn []
+                                       (swap! stage assoc :capturing? false)
+                                       (let [db @app-db]
+                                         (swap! stage assoc :drawn (db/scene db))
+                                         (draw! db))
+                                       (js/window.scrollTo 0 0)))]
+        (.then (.-finished vt) #(.remove root cls) #(.remove root cls))))
+    (do (draw! db)
+        (when move (js/window.scrollTo 0 0)))))
+
+(defn ^:export render!
+  "Re-render (also the shadow-cljs :after-load hook): the page as it is, or
+  the one before while the next waits for its content, or the move between."
+  []
+  (let [db    @app-db
+        sc    (db/scene db)
+        {:keys [drawn want since capturing?]} @stage]
+    (cond
+      capturing?        nil ; the transition draws the latest when it has its picture
+      (nil? drawn)      (do (swap! stage assoc :drawn sc) (draw! db))
+      (= sc drawn)      (do (when want (js/clearTimeout (:timer @stage)) (swap! stage assoc :want nil))
+                            (draw! db))
+      :else
+      (let [now   (js/performance.now)
+            since (if (= want sc) since now)]
+        (when (not= want sc)
+          (js/clearTimeout (:timer @stage))
+          (swap! stage assoc :want sc :since now :timer (js/setTimeout render! hold-ms)))
+        (if (and (:loading? db) (< (- now since) hold-ms))
+          (draw! (db/held db drawn))
+          (move-to! db (db/scene-move drawn sc)))))))
 
 (def ^:private source-only-key "fly-learner/source-only")
 (def ^:private doc-zoom-key "fly-learner/doc-zoom")
@@ -102,10 +164,7 @@
                (when (not= (:split old) (:split new))
                  (some-> js/window.localStorage (.setItem split-key (str (:split new)))))
                (when (not= (db/doc-zoom old) (db/doc-zoom new))
-                 (some-> js/window.localStorage (.setItem doc-zoom-key (str (db/doc-zoom new)))))
-               (when (not= (select-keys old [:view :node-id :ask-id :keyword :term :concept-id])
-                           (select-keys new [:view :node-id :ask-id :keyword :term :concept-id]))
-                 (js/window.scrollTo 0 0)))))
+                 (some-> js/window.localStorage (.setItem doc-zoom-key (str (db/doc-zoom new))))))))
 
 ;;=============================================================================
 ;; Init

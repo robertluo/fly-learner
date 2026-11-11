@@ -329,6 +329,52 @@
     (assoc-in db [:explore-states id] (explore/act spec (exploration-state db id) action))
     db))
 
+;;=============================================================================
+;; Scenes: what page is shown, and how the page moves to another
+;;=============================================================================
+
+(def ^:private scene-keys [:view :node-id :concept-id :cluster-id :ask-id :keyword :term :exploration-id])
+
+(defn scene
+  "What page `db` shows (its route), whatever else changes on it."
+  [db]
+  (into {} (filter (comp some? val)) (select-keys db scene-keys)))
+
+(def ^:private depth
+  "How far down from the map a view is: the map, a topic, a concept, a passage."
+  {:home 0 :concepts 1 :cluster 1 :notebook 1 :study 1 :settings 1
+   :concept 2 :term 2 :ask 2 :keyword 3 :node 3 :explore 3})
+
+(defn scene-move
+  "How the page moves from scene `a` to `b`: nil (the same page), :within (the
+  same kind of page, another one: a concept to a concept), :deeper (towards a
+  passage), :back (towards the map) or :across."
+  [a b]
+  (when (not= a b)
+    (let [da (depth (:view a) 0) db (depth (:view b) 0)]
+      (cond (= (:view a) (:view b)) :within
+            (< da db)               :deeper
+            (> da db)               :back
+            :else                   :across))))
+
+(defn held
+  "`db` drawn as scene `old` while scene `db` waits for what it shows: the old
+  page, marked :pending?."
+  [db old]
+  (merge (reduce #(assoc %1 %2 nil) db scene-keys) old {:loading? false :pending? true}))
+
+^:rct/test
+(comment
+  (scene-move {:view :home} {:view :cluster :cluster-id 1}) ;=> :deeper
+  (scene-move {:view :node :node-id 1} {:view :concept :concept-id 2}) ;=> :back
+  (scene-move {:view :concept :concept-id 1} {:view :concept :concept-id 2}) ;=> :within
+  (scene-move {:view :notebook} {:view :settings}) ;=> :across
+  (scene-move {:view :home} {:view :home}) ;=> nil
+  (scene (assoc initial-state :view :concept :concept-id 7 :box {:q "x"})) ;=> {:view :concept :concept-id 7}
+  (select-keys (held {:view :cluster :cluster-id 2 :loading? true} {:view :home}) [:view :cluster-id :loading? :pending?])
+  ;=> {:view :home :cluster-id nil :loading? false :pending? true}
+  )
+
 (defn apply-route
   "Apply a parsed URL ({:view .. :id .. :keyword .. :page ..}, see history) to db."
   [db {:keys [view id keyword term page]}]

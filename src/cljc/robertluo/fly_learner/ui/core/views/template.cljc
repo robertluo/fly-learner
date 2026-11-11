@@ -47,6 +47,16 @@
       (str (/ (Math/round (* 10.0 p)) 10.0) "%")
       (str (Math/round (double p)) "%"))))
 
+(defn skeleton
+  "Where a page's content will be, while it comes: a title and `n` lines,
+  shimmering (shown only if it takes a moment)."
+  ([] (skeleton 5))
+  ([n]
+   [:div.skeleton {:aria-busy "true" :aria-label "Loading"}
+    [:span.sk.sk-title]
+    (for [i (range n)]
+      [:span.sk {:replicant/key i :style {:width (str (- 100 (* 8 (mod (* 3 i) 5))) "%")}}])]))
+
 (defn score-bar [score]
   [:span.score-bar [:span.fill {:style {:width (str (* 100 (or score 0)) "%")}}]])
 

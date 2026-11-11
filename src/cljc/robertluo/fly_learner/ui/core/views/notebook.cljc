@@ -7,6 +7,7 @@
   so it opens as notes elsewhere)."
   (:require [clojure.string :as str]
             [robertluo.fly-learner.ui.core.db :as db]
+            [robertluo.fly-learner.ui.core.views.template :as t]
             [robertluo.fly-learner.ui.core.pull :as pull]
             [robertluo.fly-learner.ui.core.views.ideas :as ideas-ui]
             [robertluo.fly-learner.ui.core.views.nav :as nav]))
@@ -87,5 +88,5 @@
              (when ct [:h3 ct])
              (for [i es] (entry db dispatch! i))])])
 
-       (nil? (get-in db [:ideas :all])) [:p.muted "Loading…"]
+       (nil? (get-in db [:ideas :all])) (t/skeleton 6)
        :else [:p.muted "Nothing yet. Open a passage or a concept and write (✎ Write), or select a sentence and choose ✎ Note."])]))

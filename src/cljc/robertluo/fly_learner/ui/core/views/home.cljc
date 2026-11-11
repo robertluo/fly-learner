@@ -47,7 +47,7 @@
                   :style {:stroke-width (min 6 (+ 1 (* 0.5 weight)))}}])]
        [:g.region-names (keep region-name regions)]
        [:g.bubbles (for [b bubbles] (map-bubble dispatch! b))]]
-      [:p.muted.graph-empty
+      [:p.muted.graph-empty {:class (when-not (:universe db) "loading")}
        (if (:universe db)
          "No topics yet: ingest a source (bb ingest data/sources/<file>.pdf)."
          "Loading the map…")])))

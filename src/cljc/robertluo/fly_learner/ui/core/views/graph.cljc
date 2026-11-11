@@ -93,7 +93,7 @@
                          :transform (str (t/translate x y) " scale(" scale ")")}
             [:title (str (ideas-ui/stance-label stance) (when text (str ": " text)))]
             [:rect {:x -4.5 :y -4.5 :width 9 :height 9 :transform "rotate(45)"}]])]]
-       [:p.muted.graph-empty "Loading the concept graph…"])
+       [:p.muted.graph-empty.loading "Loading the concept graph…"])
      (when (seq nodes) (panes/pane-zoom-controls db :graph dispatch! "The whole graph"))
      [:p.graph-hint (if (get-in db [:graph :scope])
                       "The topic's concepts. Click one to open it. Filled: how well you know it."

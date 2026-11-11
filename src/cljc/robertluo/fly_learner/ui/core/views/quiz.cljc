@@ -146,7 +146,7 @@
         [:p.muted "of the whole knowledge graph: every concept and every relation between two, "
          "weighted by how much the sources discuss it. Scores fade as you forget; a review brings them back. "
          (when (pos? answers) (str answers (if (= 1 answers) " answer" " answers") " so far."))]]
-       (when loading? [:p.muted "Loading…"]))
+       (when loading? (t/skeleton 3)))
      (when (:status quiz) (quiz-panel db dispatch!))
      (when (and (seq next) (not (#{:asking :answering :grading} (:status quiz))))
        [:section

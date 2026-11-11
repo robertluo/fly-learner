@@ -145,7 +145,7 @@
         [:div.chips
          (for [cid concepts :let [cc (get-in ix [:concepts cid])] :when cc]
            (nav/concept-chip dispatch! cc))]
-        [:p.muted "Loading…"])]
+        (t/skeleton 2))]
      [:div.curate
       [:button.btn.quiet {:title "Not knowledge (an edition's colophon, say): remove the topic and its concepts; their names are ignored from now on"
                           :on {:click #(when #?(:cljs (js/confirm (str "Remove the topic \"" label "\" and its " (count concepts)
@@ -209,7 +209,7 @@
                                                       :pull :concept-create})}}
                 (if adding? "Adding…" "Make it a concept")]]
               (with-meta (node-ui/hit-cards dispatch! hits) {:key "hits"}))
-        loading? [:p.muted "Loading…"]
+        loading? (t/skeleton)
         :else    [:p.muted "No passage names it: it is new knowledge, yours."])]]))
 
 (defn concepts-view [{:keys [concept-index concept-filter loading?] :as db} dispatch!]
@@ -235,6 +235,6 @@
             (nav/concept-link dispatch! c {:class "concept-name"} label)
             [:span.count mentions]
             (when gloss [:span.gloss gloss])])])
-       (and loading? (nil? concept-index)) [:p.muted "Loading…"]
+       (and loading? (nil? concept-index)) (t/skeleton 8)
        (seq concept-index) [:p.muted "No concept matches."]
        :else [:p.muted "No concepts yet. Resolve keywords from the REPL (see dev/user.clj)."])]))

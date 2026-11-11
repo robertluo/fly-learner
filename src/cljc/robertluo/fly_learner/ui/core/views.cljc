@@ -127,7 +127,7 @@
   "The map, the clusters being learned (each with its score), and the
   question box: one way in, the rest follows from the page."
   [{:keys [asking] :as db} dispatch!]
-  [:header.top
+  [:header.top {:class (when (:pending? db) "pending")}
    (nav/link dispatch! nav/map-effects "/" {:class "brand" :title "The map of everything you know"}
               [:img.brand-icon {:src "/favicon.svg" :alt ""}] "Fly Learner")
    [:nav.top-nav
@@ -168,14 +168,14 @@
     (panes/split db dispatch!
                  (docked db dispatch! (node-ui/node-article db node dispatch!))
                  (doc-ui/source-pane db node dispatch!))
-    [:main.single [:p.muted (if (:loading? db) "Loading…" "Not found.")]]))
+    [:main.single (if (:loading? db) (t/skeleton) [:p.muted "Not found."])]))
 
 (defn- cluster-view [db dispatch!]
   (panes/split db dispatch!
                (docked db dispatch!
                        (if-let [c (db/current-cluster db)]
                          (concept-ui/cluster-article db c dispatch!)
-                         [:p.muted (if (or (:loading? db) (nil? (:universe db))) "Loading…" "Not found.")]))
+                         (if (or (:loading? db) (nil? (:universe db))) (t/skeleton) [:p.muted "Not found."])))
                (graph-ui/concept-graph db dispatch!)))
 
 (defn- concept-view [db dispatch!]
@@ -183,7 +183,7 @@
                (docked db dispatch!
                        (if-let [c (db/current-concept db)]
                          (concept-ui/concept-article db c (db/item-score db (db/concept-item (:concept/id c))) dispatch!)
-                         [:p.muted (if (:loading? db) "Loading…" "Not found.")]))
+                         (if (:loading? db) (t/skeleton) [:p.muted "Not found."])))
                (graph-ui/concept-graph db dispatch!)))
 
 (defn app-view [db dispatch!]

@@ -68,5 +68,5 @@
            [:h2 "Matches"]
            (node-ui/hit-cards dispatch! hits)]))
 
-       loading? [:p.muted "Loading…"]
+       loading? (t/skeleton)
        :else    [:p.muted "Not found."])]))
