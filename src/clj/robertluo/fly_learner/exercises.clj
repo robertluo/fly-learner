@@ -186,7 +186,9 @@ For each exercise:
   e.g. \"Find the Nash equilibria of a three-player envelope game\".
 - points: the 2-5 key points a full answer covers, each one short line,
   following the author's solution when given (its results, values and the
-  reasoning that gets there); without a solution, as you would solve it."}))
+  reasoning that gets there); without a solution, as you would solve it.
+
+Write the summary and points in the language and script of the exercise."}))
 
 (def ^:private schema
   {"type" "object"

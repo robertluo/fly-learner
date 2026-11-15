@@ -60,7 +60,11 @@ something, not whether they recognise wording.
 - Write the question, the model answer and the points in Markdown: a table
   for a game's payoffs, a matrix or anything in rows and columns; lists for
   steps; TeX for formulas, $..$ inline and $$..$$ displayed; a dollar sign
-  that is money as \\$. No headings."}))
+  that is money as \\$. No headings.
+
+Write in the language and script of the material you are given (classical
+Chinese: modern written Chinese in the same script), whatever the language
+of these instructions."}))
 
 (def ^:private questions-schema
   {:type "object"
@@ -156,7 +160,9 @@ answer and the key points a full answer covers.
 - feedback: two or three sentences to the learner: what was right, what was
   missing or wrong, and the idea to remember. Address them as \"you\".
   Markdown, TeX for formulas ($..$); a small table only when it shows the
-  point best."}))
+  point best.
+
+Write the feedback in the language of the question."}))
 
 (def ^:private grade-schema
   {:type "object"

@@ -113,7 +113,9 @@ Give each region:
   and compilers\"). Broader than any one of its topics; not a list.
 - gloss: one sentence on what the region covers.
 
-Labels must be distinct from each other and from the regions already named."}))
+Labels must be distinct from each other and from the regions already named.
+
+Write in the language and script of most of its topics."}))
 
 (def ^:private namer-schema
   {"type"                 "object"
@@ -138,17 +140,19 @@ Labels must be distinct from each other and from the regions already named."}))
                               domains))))
 
 (defn llm-namer
-  "Namer backed by the :strong model: {:domains [[{:label :gloss} ..] ..]
-  :named [label ..]} -> {:names [{:label :gloss} ..] :by model}."
+  "Namer backed by the :strong model, 12 domains a call: {:domains
+  [[{:label :gloss} ..] ..] :named [label ..]} -> {:names [{:label :gloss}
+  ..] :by model}."
   [client {:keys [models]}]
-  (let [model (llm/model-for models :strong)]
-    (fn [batch]
-      (let [{:keys [names]} (llm/complete-json client {:system     (prompts/text namer-system)
-                                                       :prompt     (namer-prompt batch)
-                                                       :model      model
-                                                       :max-tokens 3000
-                                                       :schema     namer-schema})]
-        {:names (vec names) :by model}))))
+  (let [model (llm/model-for models :strong)
+        call  (fn [batch]
+                (llm/complete-json client {:system     (prompts/text namer-system)
+                                           :prompt     (namer-prompt batch)
+                                           :model      model
+                                           :max-tokens 4000
+                                           :schema     namer-schema}))]
+    (fn [request]
+      {:names (cluster/in-batches call :domains request 12) :by model})))
 
 (defn name!
   "Name the domains of `universe` that have no name yet (`namer`, see

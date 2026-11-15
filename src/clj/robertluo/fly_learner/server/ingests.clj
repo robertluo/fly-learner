@@ -5,9 +5,10 @@
   these or of a folder of Markdown) is kept under `upload-dir` (`upload!`;
   a zip unpacked beside it, safely: no entry outside its folder, bounded in
   size and count). What it holds that can be a source (`candidates`: each
-  PDF and EPUB, and the folder holding all its Markdown) is read without a
-  model (`describe`: title, pages, a rough cost, a folder's parts, whether
-  it is already in the library). Ingesting is asked for separately
+  PDF and EPUB, and the folder holding all its Markdown) is described
+  (`describe`: title, pages, a rough cost, its parts, those the :common
+  model judged not the work unticked, whether it is already in the
+  library). Ingesting is asked for separately
   (`start!`) and runs in the background, one job at a time
   (robertluo.fly-learner.server.pipeline), what it prints kept as the job's
   log (`jobs`)."
@@ -123,17 +124,29 @@
     (d/q '[:find ?t . :in $ ?h :where [?s :source/hash ?h] [?s :source/title ?t]] db h)))
 
 (defn describe
-  "What ingesting `path` would make, without a model: {:path :type :title
-  :pages :chars :usd (a rough cost of folding) :parts [{:title :skip}] (a
-  Markdown folder's top-level parts, :skip what leaves one out) :known
-  (the title it already has in the library)}, or {:path :error}."
-  [db models path]
+  "What ingesting `path` would make: {:path :type :title :pages :chars :usd
+  (a rough cost of folding, without the parts not the work) :parts [{:title
+  :skip :pages :not-work}] (its parts: :skip what leaves one out, :not-work
+  what the model judged it, when not the work) :chapters (a Markdown
+  folder's) :known (the title it already has in the library)}, or {:path
+  :error}. `client`: a delay of the model client; when the model fails,
+  described without it (:warning)."
+  [db client models path]
   (try
     (let [type (ingest/source-type path)
-          {:keys [title pages chars about estimate]} (ingest/preview path {:models models})]
-      (cond-> {:path path :type type :title title :pages pages :chars chars :usd (:usd estimate)}
-        (seq (:parts about)) (assoc :parts (:parts about) :chapters (:chapters about))
-        true                 (assoc :known (known-title db path type))))
+          [p warning] (try [(ingest/preview path {:client @client :models models})]
+                           (catch Exception e
+                             [(ingest/preview path {:models models})
+                              (str "The model could not look at it: " (or (ex-message e) (str (class e))))]))
+          {:keys [title pages chars about estimate parts]} p]
+      (cond-> {:path path :type type :title title :pages pages :chars chars :usd (:usd estimate)
+               :known (known-title db path type)}
+        (< 1 (count parts)) (assoc :parts (mapv (fn [{:keys [title not-work page]}]
+                                                  (cond-> {:title title :skip title :page page}
+                                                    not-work (assoc :not-work not-work)))
+                                                parts))
+        (:chapters about)   (assoc :chapters (:chapters about))
+        warning             (assoc :warning warning)))
     (catch Exception e
       {:path path :error (or (ex-message e) (str (class e)))})))
 
@@ -142,7 +155,7 @@
   `upload-dir` (unpacked, if a zip) and describe what it holds:
   {:file name :candidates [(describe ..)]}. Throws on a file of no kind it
   reads, or too big."
-  [db models name in]
+  [db client models name in]
   (let [n    (safe-name name)
         kind (some-> (re-find #"(?i)\.([a-z0-9]+)$" n) second str/lower-case)]
     (when-not (#{"pdf" "epub" "md" "markdown" "zip"} kind)
@@ -169,19 +182,19 @@
                               (throw e))
                             (finally (.delete f))))
                      f)]
-        {:file n :candidates (mapv #(describe db models %) (candidates target))}))))
+        {:file n :candidates (mapv #(describe db client models %) (candidates target))}))))
 
 (defn upload-response
   "The ring response to POST /files/upload?name=<file name> (the file as the
   body): what it holds, as JSON (`upload!`)."
-  [conn models {:keys [query-string body]}]
+  [conn client models {:keys [query-string body]}]
   (let [name (some-> (re-find #"(?:^|&)name=([^&]*)" (str query-string)) second
                      (java.net.URLDecoder/decode "UTF-8"))
         json #(-> {:status %1 :headers {"Content-Type" "application/json; charset=utf-8"}
                    :body (json/write-value-as-string %2)})]
     (try
       (if (and name body)
-        (json 200 (upload! (d/db conn) models name body))
+        (json 200 (upload! (d/db conn) client models name body))
         (json 400 {:error "Which file?"}))
       (catch clojure.lang.ExceptionInfo e
         (json (or (:status (ex-data e)) 400) {:error (ex-message e)})))))
@@ -242,7 +255,8 @@
     (and (.exists f) (.startsWith (.toPath f) (.toPath root)))))
 
 (defn start!
-  "Ingest `paths` (with `skip`, a Markdown folder's parts left out) in the
+  "Ingest `paths` (with `skip`, the titles of parts left out; nil: those
+  judged not the work) in the
   background, after the jobs before it. `client` is a delay of the model
   client. Returns the job."
   [conn client models {:keys [paths skip]}]
@@ -256,7 +270,7 @@
                (swap! jobs* assoc-in [id :ingest/status] :running)
                (try
                  (let [r (binding [*out* (line-writer #(log! id %))]
-                           (pipeline/run! conn @client paths (cond-> {:models models} (seq skip) (assoc :skip skip))))]
+                           (pipeline/run! conn @client paths (cond-> {:models models} (some? skip) (assoc :skip (vec skip)))))]
                    (swap! jobs* update id assoc :ingest/status :done :ingest/finished (java.util.Date.)
                           :ingest/sources (mapv :source-id (:sources r)) :ingest/cost (:cost r)))
                  (catch Throwable e

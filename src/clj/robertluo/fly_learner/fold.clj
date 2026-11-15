@@ -14,7 +14,8 @@
   Reference: https://github.com/chenxiachan/textfold"
   (:require [robertluo.fly-learner.prompts :as prompts]
             [clojure.string :as str]
-            [robertluo.fly-learner.llm :as llm])
+            [robertluo.fly-learner.llm :as llm]
+            [robertluo.fly-learner.text :as text])
   (:import (java.util.concurrent Semaphore)))
 
 (defn- internal? [x] (contains? x :children))
@@ -80,18 +81,18 @@
                     kids (when (internal? x)
                            (doall (map-indexed (fn [i c] (walk c (inc level) i)) (:children x))))]
                 (vswap! out conj (cond-> {:node/id    id
-                                    :node/level level
-                                    :node/order order
-                                    :node/kind  (cond (not (internal? x)) :paragraph
-                                                      (:group x) :group
-                                                      (zero? level) :source
-                                                      :else :section)
-                                    :node/title (if (internal? x) (:title x) (leaf-title (:text x)))}
-                             (:page x)          (assoc :node/page (:page x))
-                             (:text x)          (assoc :node/text (:text x))
-                             (:summary x)       (assoc :node/summary (:summary x))
-                             (seq (:keywords x)) (assoc :node/keywords (:keywords x))
-                             kids               (assoc :node/children (vec kids))))
+                                          :node/level level
+                                          :node/order order
+                                          :node/kind  (cond (not (internal? x)) :paragraph
+                                                            (:group x) :group
+                                                            (zero? level) :source
+                                                            :else :section)
+                                          :node/title (if (internal? x) (:title x) (leaf-title (:text x)))}
+                                   (:page x)          (assoc :node/page (:page x))
+                                   (:text x)          (assoc :node/text (:text x))
+                                   (:summary x)       (assoc :node/summary (:summary x))
+                                   (seq (:keywords x)) (assoc :node/keywords (:keywords x))
+                                   kids               (assoc :node/children (vec kids))))
                 id))]
       (walk tree 0 0))
     @out))
@@ -159,6 +160,10 @@ titles and summaries of its sub-parts. Produce:
   \"strong normalization\", \"calculus of constructions\"), not generic words
   like \"proof\" or \"definition\". Prefer the same wording for the same
   concept across parts, so related parts can be linked.
+
+Write in the language and script of the material you are given (classical
+Chinese: modern written Chinese in the same script), whatever the language
+of these instructions.
 
 The document's outline is below for orientation; the part you summarise is
 named in the request."}))
@@ -229,18 +234,18 @@ named in the request."}))
 
 (defn estimate
   "About what folding `tree` (regrouped) with `llm-summarizer` costs, before
-  any call: {:calls {tier n} :usd x}. Tokens taken as characters / 4; a
-  sub-part's title and summary as 700 characters; the system prompt and
-  outline written to the cache once per tier, then read from it."
+  any call: {:calls {tier n} :usd x}. Tokens as `text/tokens` (characters
+  / 4, a Chinese character about one); a sub-part's title and summary as
+  175; the system prompt and outline written to the cache once per tier,
+  then read from it."
   ([tree] (estimate tree nil))
   ([tree models]
-   (let [system (quot (+ (count (prompts/text system-prompt)) (count (outline-text tree))) 4)
+   (let [system (text/tokens (str (prompts/text system-prompt) (outline-text tree)))
          calls  (letfn [(walk [t root?]
                           (when (internal? t)
                             (cons {:tier  (tier-for (cond root? :source (:group t) :group :else :section))
-                                   :input (quot (+ 300 (reduce + (map #(if (internal? %) 700 (count (:text %)))
-                                                                    (:children t))))
-                                                4)}
+                                   :input (+ 75 (reduce + (map #(if (internal? %) 175 (text/tokens (:text %)))
+                                                               (:children t))))}
                                   (mapcat #(walk % false) (:children t)))))]
                   (walk tree true))
          by     (group-by :tier calls)]

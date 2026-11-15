@@ -398,6 +398,11 @@
   (json-reply "Here it is: {\"b\": \"x\"} Hope it helps.") ;=> {:b "x"}
   )
 
+(defn truncated?
+  "Is `e` the error of a reply cut at :max-tokens (`complete`)?"
+  [e]
+  (= "Reply truncated at max-tokens" (ex-message e)))
+
 (defn complete-json
   "Like `complete` with a required :schema; returns the parsed reply
   (keyword keys). A model that guarantees nothing is asked again once when

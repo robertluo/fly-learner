@@ -11,7 +11,8 @@
   PDFs carry no outline; a book whose chapter openings are not recognised
   gets its chapters from its numbered sections (2.1 belongs to chapter 2)."
   (:require [clojure.java.io :as io]
-            [clojure.string :as str])
+            [clojure.string :as str]
+            [robertluo.fly-learner.text :as text])
   (:import (org.apache.pdfbox Loader)
            (org.apache.pdfbox.pdmodel PDDocument)
            (org.apache.pdfbox.text PDFTextStripper)))
@@ -28,12 +29,12 @@
          (remove str/blank?))))
 
 (defn clean-text
-  "Join hard-wrapped lines and undo end-of-line hyphenation."
+  "Join hard-wrapped lines (Chinese ones with no space) and undo
+  end-of-line hyphenation."
   [s]
   (-> s
       (str/replace #"(\p{Ll})-\s*\R\s*(\p{Ll})" "$1$2")
-      (str/replace #"\s*\R\s*" " ")
-      str/trim))
+      text/squeeze))
 
 (defn- page-number? [s] (re-matches #"(?i)\d{1,4}|[ivxlc]{1,7}" s))
 

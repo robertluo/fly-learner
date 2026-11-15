@@ -1246,6 +1246,7 @@ a.where:hover { color: var(--accent); }
 .candidate .note { color: var(--prereq); }
 .parts { display: flex; flex-wrap: wrap; gap: .3rem .9rem; margin: .45rem 0 0 1.6rem; font-size: .9rem; align-items: center; }
 .part { cursor: pointer; } .part.off { color: var(--muted); text-decoration: line-through; }
+.part-why { color: var(--muted); font-size: .85em; }
 .hint-inline { flex-basis: 100%; font-size: .8rem; }
 .upload .actions { display: flex; gap: .8rem; align-items: center; margin-top: .8rem; }
 .upload .actions .muted { font-size: .8rem; }

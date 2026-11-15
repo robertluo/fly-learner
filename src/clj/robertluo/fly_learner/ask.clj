@@ -206,7 +206,9 @@ PDF, with formulas garbled, or from an EPUB; read it together with the entries i
   items; TeX for formulas, $..$ inline and $$..$$ displayed (unpack a garbled
   formula from a PDF into TeX; a dollar sign that is money as \\$). No headings; bold only for a term being defined. Keep
   the documents' notation, and the citations outside formulas. Usually one to
-  three paragraphs."}))
+  three paragraphs.
+
+Answer in the language of the question."}))
 
 (def ^:private answer-schema
   {"type"                 "object"

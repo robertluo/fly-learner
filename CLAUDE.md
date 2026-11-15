@@ -14,8 +14,13 @@ Web stack follows flybot.sg (github.com/flybot-sg/lasagna-pattern, `examples/fly
     is its document, not its path: `same-source` finds it by content (`content-hash`: a file's bytes, a folder's book;
     `:source/hash`), else by path (changed in place), else by text (moved and changed: a source whose file is gone from
     its path sharing `moved-overlap` of its word 5-grams, `shingles`), and a re-ingest keeps its `:source/id` (a new one
-    derives from the hash); the path is only where to read it. `:skip` (a folder's parts left out) is stored,
-    `:source/skip`, and used again by a re-ingest of the path. `preview`: chapters, pages and `fold/estimate`, no model
+    derives from the hash); the path is only where to read it. `read-source`: blocks -> tree, what the format does not
+    say judged by the model once per content (`ingest/structure`, kept in `data/outlines/<hash>.edn`; without a client,
+    what was judged before): headings of a text mostly under none, and the parts not the work (`:not-work`). `:skip`
+    (titles of parts left out, any format; a Markdown folder's files too) is stored, `:source/skip`, and used again by
+    a re-ingest of the path; none given or stored: the parts judged not the work. `preview`: chapters, pages, `:parts`
+    (with `:not-work`) and `fold/estimate`, the model only through `read-source`. Nothing is left out by title rules or
+    by publisher: the learner decides
   - `ingest/pdf` — PDFBox paragraphs -> blocks (`:heading` / `:text`, each with its `:page`), headings recognised from text
   - `ingest/book` — a book of HTML documents read as pages, whatever made it: a package `{:title :docs [[name doc]]
     :toc {[name frag] depth} :redirects :outside}`; documents cleaned (`clean`: no scripts/styles/nav, SVG `<object>`
@@ -40,7 +45,18 @@ Web stack follows flybot.sg (github.com/flybot-sg/lasagna-pattern, `examples/fly
     (no space inside the delimiters, no digit after the closing one, no other `$`: "$5 or $10" is text), `$$..$$`,
     `$$` blocks, ```` ```math ```` fences (`math-fences!`) -> `<span|div data-tex="inline|display">` holding the TeX
     in its delimiters (what the knowledge base reads); the UI typesets them (`ui/html`)
-  - `ingest/outline` — blocks -> section tree (drops cover pages, contents, bibliography, ...)
+  - `ingest/outline` — blocks -> section tree, nothing dropped: text before the first heading is a part, `front-matter`;
+    `without` (parts left out by title, any depth), `parts` (what the learner chooses among: the top sections, or a lone
+    one's)
+  - `ingest/structure` — what a document is made of where its format does not say, by the `:common` model, knowing no
+    format, language or publisher: `needs-headings?` (most text under no heading), `find-headings` (its short lines with
+    the text after each and the known headings, 400 a call -> `{index {:depth :title}}`, `with-headings`), `judge-parts`
+    (top parts by title, size and opening -> `{title what}` not the work: licences, contents, indexes ..; offered
+    unticked, the learner decides). Prompts `:structure/headings`, `:structure/parts`
+  - `text` — text in any script: `squeeze` (whitespace; a line break between CJK characters is no space), `words` (a CJK
+    character a word: shingles, `concept` naming), `tokens` (a CJK character ~1 token: `fold/estimate`), `analyzer` (the
+    full-text analyzer: Datalevin's English one, Han runs as characters and pairs), `search-opts` (a registered UDF: the
+    db keeps its name, so every `get-conn` passes them; `db/connect`, `db/copy!`)
   - `fold` — regroup long sections, bottom-up summaries, flatten to nodes, keyword cross-links, `->tx`; `estimate`:
     a rough cost of folding a tree before any call (calibrated on the first thesis)
   - `llm` — models by provider (`config.edn` `:llm`, `settings`; the older `:anthropic` map still read):
@@ -65,8 +81,9 @@ Web stack follows flybot.sg (github.com/flybot-sg/lasagna-pattern, `examples/fly
     `source-path`
   - `server/ingests` — the settings page adding sources: `upload!` (`POST /files/upload?name=..`, the file as the
     body; kept under `data/sources/uploads/`, a zip unpacked with no entry outside its folder, bounded),
-    `candidates` (each PDF/EPUB, the deepest folder holding all the Markdown), `describe` (no model: title, pages,
-    rough cost, a folder's `:parts` to leave out, `:known` = already in the library by hash); `start!` a background
+    `candidates` (each PDF/EPUB, the deepest folder holding all the Markdown), `describe` (title, pages, rough cost,
+    `:parts` to leave out with `:not-work` from the `:common` model, `:known` = already in the library by hash; the model
+    failing: described without it, `:warning`); `start!` a background
     job (one at a time), what `pipeline/run!` prints kept as its log (a fold's progress line replaced), `jobs`
   - `server/files` — `/files/sources/<id>` the original file; an EPUB's or a Markdown folder's `/pages` (JSON array of
     page HTML, cached per version, `ingest/page-version`) and `/res/<name>` (its images, sent with CSP `sandbox`)
@@ -175,8 +192,8 @@ Web stack follows flybot.sg (github.com/flybot-sg/lasagna-pattern, `examples/fly
   :url}` picks how a page is drawn: pdf.js canvas + text layer, or the server's HTML page; db `doc-*`, state `:doc`), `ideas`, `selection`, `ask`, `quiz`, `concept`,
   `graph`, `home`, `explorations`, `settings` (the models: each tier's provider and model (suggested from what the
   provider serves), providers from presets with address, key, more; List its models, Try a tier; `db/models-draft`,
-  `models-request`, `pull/models-save`; drop files: each upload's candidates, checked, parts to leave out,
-  Ingest; jobs with their log, polled every 2 s while one runs (`:ingests-poll`, wherever the learner is; when all
+  `models-request`, `pull/models-save`; drop files: each upload's candidates, checked, parts to leave out (any format;
+  those judged not the work unticked, with what they are), Ingest; jobs with their log, polled every 2 s while one runs (`:ingests-poll`, wherever the learner is; when all
   are done the knowledge is fetched again), the library, the models, the prompts by group with an editor:
   `db/prompt-*`, `pull/prompt-save`, `prompt-reset`; the header's gear, top right, turns while ingesting), `notebook` (what the learner wrote, as a book: by source and chapter in reading
   order, or newest first; highlights if asked; each note rewritten in place, the composer with `db/draft-edit`; downloaded

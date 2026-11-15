@@ -17,7 +17,13 @@
   :source/id, so what refers to the source (ideas, bookmarks, exercises,
   explorations) keeps referring to it; the path is only where to read it.
   A new source's id derives from its content (`source-id`): the same
-  document gets the same id in a database built again."
+  document gets the same id in a database built again.
+
+  What the format does not say about a document, a model judges once
+  (`read-source`, robertluo.fly-learner.ingest.structure, kept by content
+  under `outlines-dir`): the headings of one whose text mostly stands under
+  none, and which of its parts are not the work (a licence, an index),
+  offered to the learner to leave out (`:skip`)."
   (:require [clojure.java.io :as io]
             [clojure.pprint :as pp]
             [clojure.set :as set]
@@ -27,7 +33,9 @@
             [robertluo.fly-learner.ingest.epub :as epub]
             [robertluo.fly-learner.ingest.markdown :as markdown]
             [robertluo.fly-learner.ingest.outline :as outline]
-            [robertluo.fly-learner.ingest.pdf :as pdf]))
+            [robertluo.fly-learner.ingest.pdf :as pdf]
+            [robertluo.fly-learner.ingest.structure :as structure]
+            [robertluo.fly-learner.text :as text]))
 
 (def formats
   "Source type -> its extract fn: (path opts) -> {:title :pages :blocks}.
@@ -60,12 +68,54 @@
                                     {:path (str path)})))]
     (extract path opts)))
 
+(declare content-hash)
+
+(def outlines-dir "Where what a model judged of each document is kept, by content." "data/outlines")
+
+(defn- judged
+  "What was judged of the document with content `hash` under key `k`, else
+  `(judge)` kept (when not nil) or nil when there is no `client`."
+  [hash k client judge]
+  (let [f    (io/file outlines-dir (str hash ".edn"))
+        kept (when (.exists f) (read-string (slurp f)))]
+    (if (contains? kept k)
+      (get kept k)
+      (when client
+        (let [v (judge)]
+          (when (some? v)
+            (io/make-parents f)
+            (spit f (pr-str (assoc kept k v))))
+          v)))))
+
+(defn read-source
+  "The source at `path` as a section tree: {:tree (regrouped, without the
+  parts in :skip) :full (all of it) :title :pages :about :hash :not-work}.
+  With a model `client`, headings its format does not mark are found
+  (structure/find-headings) and its parts that are not the work named
+  (`:not-work` {title what}, structure/judge-parts), each judged once per
+  content; without one, what was judged before, if anything.
+  opts: :client :models, :skip (titles of parts left out; a Markdown
+  folder's files too, `formats`)."
+  [path {:keys [client skip] :as opts}]
+  (let [type  (source-type path)
+        {:keys [title pages blocks about]} (extract path opts)
+        hash  (content-hash path type (select-keys opts [:skip]))
+        heads (judged hash :headings client #(when (structure/needs-headings? blocks)
+                                              (structure/find-headings client opts title blocks)))
+        full  (outline/tree title (structure/with-headings blocks heads))
+        not-work (judged hash :not-work client #(structure/judge-parts client opts full))]
+    {:tree     (fold/regroup (outline/without full skip))
+     :full     full
+     :title    (:title full)
+     :pages    pages
+     :about    about
+     :hash     hash
+     :not-work (or not-work {})}))
+
 (defn outline
-  "Extract `path` into a regrouped section tree (no model calls). opts as `formats`."
+  "Extract `path` into a regrouped section tree. opts as `read-source`."
   ([path] (outline path {}))
-  ([path opts]
-   (let [{:keys [title blocks]} (extract path opts)]
-     (fold/regroup (outline/tree title blocks)))))
+  ([path opts] (:tree (read-source path opts))))
 
 (defn tree-texts
   "The paragraph texts of section tree `tree` (`outline`)."
@@ -82,19 +132,24 @@
     (vec (mapcat #(walk % 1) (:children tree)))))
 
 (defn preview
-  "What ingesting `path` would make, calling no model: {:title :type :pages
-  :chars :sections (down to depth 3) :about (a Markdown folder's manifest,
-  parts left out, ..) :estimate (of folding it, fold/estimate)}.
-  opts: :skip (as `formats`), :models."
-  [path {:keys [models] :as opts}]
-  (let [{:keys [title pages blocks about]} (extract path opts)
-        tree (fold/regroup (outline/tree title blocks))]
-    {:title    (:title tree)
+  "What ingesting `path` would make: {:title :type :pages :chars :sections
+  (down to depth 3) :parts [{:title :page :chars :not-work what}] (to leave
+  out, `:skip`) :about (a Markdown folder's manifest, ..) :estimate (of
+  folding it, fold/estimate)}, the parts not the work left out unless opts
+  :skip says which. opts as `read-source`."
+  [path {:keys [models skip] :as opts}]
+  (let [r    (read-source path opts)
+        r    (if (some? skip) r (assoc r :tree (fold/regroup (outline/without (:full r) (keys (:not-work r))))))
+        tree (:tree r)]
+    {:title    (:title r)
      :type     (source-type path)
-     :pages    pages
+     :pages    (:pages r)
      :chars    (reduce + (map count (tree-texts tree)))
      :sections (sections tree 3)
-     :about    about
+     :parts    (vec (for [p (outline/parts (:full r))]
+                      (cond-> {:title (:title p) :page (:page p) :chars (reduce + (map count (tree-texts p)))}
+                        ((:not-work r) (:title p)) (assoc :not-work ((:not-work r) (:title p))))))
+     :about    (:about r)
      :estimate (fold/estimate tree models)}))
 
 (defn- internal-count [tree]
@@ -137,9 +192,6 @@
   [hash]
   (java.util.UUID/nameUUIDFromBytes (.getBytes (str "source#" hash) "UTF-8")))
 
-(defn- words [s]
-  (re-seq #"[\p{L}\p{N}]+" (str/lower-case s)))
-
 (def ^:private shingle-size 5)
 
 (defn shingles
@@ -147,7 +199,7 @@
   versions of a document share most of them, however their paragraphs
   were edited or regrouped."
   [texts]
-  (into #{} (comp (mapcat #(partition shingle-size 1 (words %))) (map hash)) texts))
+  (into #{} (comp (mapcat #(partition shingle-size 1 (text/words %))) (map hash)) texts))
 
 (defn overlap
   "How much of the smaller of shingle sets `a` and `b` the other contains, in [0, 1]."
@@ -211,16 +263,23 @@
   the same source (`same-source`: the same content, the same path, or most
   of the text with the old file gone), whose id it keeps. Prints progress.
   opts: :models  tier -> model id overrides (config.edn [:llm :models])
-        :skip    a Markdown folder's parts or files left out (kept with the
-                 source: ingesting the same path again leaves them out too)
+        :skip    titles of the parts left out (a Markdown folder's files
+                 too), kept with the source: ingesting the same path again
+                 leaves them out too. Else those of the last ingest of the
+                 path, else the parts the model judged not the work
+                 (`read-source`)
   Returns {:source-id .. :nodes n :fold-file ..}."
   ([conn client path] (ingest-source! conn client path {}))
   ([conn client path {:keys [models skip]}]
   (let [type  (source-type path)
         skip  (if (some? skip) (vec skip) (stored-skip (d/db conn) (str path)))
-        opts  {:skip skip}
-        hash  (content-hash path type opts)
-        tree  (outline path opts)
+        read  (read-source path {:client client :models models :skip skip})
+        judged? (nil? skip)
+        skip  (or skip (vec (sort (keys (:not-work read)))))
+        _     (when (seq skip)
+                (println (str "  left out" (when judged? " (judged not the work)") ": " (str/join ", " skip))))
+        hash  (content-hash path type {:skip skip})
+        tree  (fold/regroup (outline/without (:full read) skip))
         found (same-source (d/db conn) {:path (str path) :hash hash :texts (tree-texts tree)})
         old   (:source/id found)
         _     (when (= :text (:by found))

@@ -41,6 +41,20 @@
 (defn- by-label [db]
   (into {} (map (juxt :concept/label identity)) (concept/concepts db)))
 
+(deftest resolve-across-batches
+  (testing "a keyword an earlier batch's concept is named by is no longer to resolve"
+    ;; batch \"dependent intersection\" makes concept \"intersection types\" (its label names it);
+    ;; the later batch \"intersection types\" must not give that name to another concept
+    (let [r (concept/resolve! *conn* (reply {:concepts [{:label "intersection types" :gloss "Types of terms in both."
+                                                         :keywords ["dependent intersection"] :broader []}
+                                                        {:label "intersection type" :gloss "The same, singular."
+                                                         :keywords ["intersection types"] :broader []}]
+                                             :ignored []})
+                              {:batch-size 1})]
+      (is (map? r))
+      (is (= #{"dependent intersection" "intersection types"}
+             (:concept/aliases (get (by-label (d/db *conn*)) "intersection types")))))))
+
 (deftest resolve-and-curate
   (let [r (concept/resolve! *conn* (reply first-reply))
         cs (by-label (d/db *conn*))]

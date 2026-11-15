@@ -45,7 +45,7 @@
   (let [x (or usd 0)]
     (if (< x 0.01) "under a cent" (str "about $" #?(:cljs (.toFixed x 2) :clj (format "%.2f" (double x)))))))
 
-(defn- candidate [dispatch! upload-id {:keys [path type title pages chapters usd parts known error include? skip]}]
+(defn- candidate [dispatch! upload-id {:keys [path type title pages chapters usd parts known error warning include? skip]}]
   [:li.candidate {:replicant/key path :class (when-not include? "off")}
    [:label.candidate-head
     [:input {:type "checkbox" :checked (boolean include?) :disabled (some? error)
@@ -58,16 +58,22 @@
       (when usd (str " · folding " (money usd)))]]]
    [:div.candidate-path.muted path]
    (when error [:p.error-text "Cannot read it: " error])
+   (when warning [:p.note warning])
    (when known [:p.note "Already in your library as “" known "”: ingesting it again replaces it, your notes kept."])
    (when (and include? (seq parts))
      [:div.parts
       [:span.muted "Parts:"]
-      (for [{p :title k :skip} parts]
-        [:label.part {:replicant/key k :class (when (contains? skip k) "off")}
+      (for [{p :title k :skip what :not-work} parts]
+        [:label.part {:replicant/key k :class (when (contains? skip k) "off")
+                      :title (when what (str "Not the work, it seems: " what))}
          [:input {:type "checkbox" :checked (not (contains? skip k))
                   :on {:change #(dispatch! {:db (fn [d] (db/part-toggled d upload-id path k))})}}]
-         " " p])
-      [:span.muted.hint-inline "Uncheck a part to leave it out, a reference you would look up rather than learn."]])])
+         " " p
+         (when what [:span.part-why " (" what ")"])])
+      [:span.muted.hint-inline
+       (if (some :not-work parts)
+         "Unchecked: what seems no part of the work itself. Check it to read it too; uncheck a part to leave it out."
+         "Uncheck a part to leave it out, a reference you would look up rather than learn.")]])])
 
 (defn- upload-card [db dispatch! {:keys [id file status error candidates]}]
   (let [request (db/upload-request db id)]

@@ -1975,10 +1975,13 @@
 
 (defn upload-read
   "What upload `id` holds ({:candidates [..]}, server.ingests/upload!): each
-  candidate readable is ingested unless unchecked, with all its parts."
+  candidate readable is ingested unless unchecked, with its parts but those
+  judged not the work (:not-work), unless checked."
   [db id {:keys [candidates]}]
   (update-upload db id #(assoc % :status :ready
-                               :candidates (mapv (fn [c] (assoc c :include? (not (:error c)) :skip #{}))
+                               :candidates (mapv (fn [c] (assoc c :include? (not (:error c))
+                                                                :skip (set (keep (fn [p] (when (:not-work p) (:skip p)))
+                                                                                 (:parts c)))))
                                                  candidates))))
 
 (defn upload-failed [db id error] (update-upload db id #(assoc % :status :failed :error (str error))))
@@ -2059,12 +2062,14 @@
 (comment
   (def dropped (upload-started (open-settings initial-state) :u1 "docs.zip"))
   (map :status (get-in dropped [:settings :uploads])) ;=> [:uploading]
-  (def uploaded (upload-read dropped :u1 {:candidates [{:path "a" :type "markdown" :parts [{:title "Ref" :skip "Ref"}]}
+  (def uploaded (upload-read dropped :u1 {:candidates [{:path "a" :type "markdown" :parts [{:title "Ref" :skip "Ref"}
+                                                                                                      {:title "Licence" :skip "Licence" :not-work "a licence"}]}
                                                    {:path "b.pdf" :type "pdf"}
                                                    {:path "c.pdf" :error "Broken"}]}))
   (map :include? (get-in uploaded [:settings :uploads 0 :candidates])) ;=> [true true false]
   (upload-request (-> uploaded (part-toggled :u1 "a" "Ref") (candidate-toggled :u1 "b.pdf")) :u1)
-  ;=> {:ingest/paths ["a"] :ingest/skip ["Ref"]}
+  ;=> {:ingest/paths ["a"] :ingest/skip ["Licence" "Ref"]}
+  (upload-request (-> uploaded (part-toggled :u1 "a" "Licence")) :u1) ;=> {:ingest/paths ["a" "b.pdf"] :ingest/skip []}
   (upload-request (-> uploaded (candidate-toggled :u1 "a") (candidate-toggled :u1 "b.pdf")) :u1) ;=> nil
   (def started (ingest-started uploaded :u1 {:ingest/id :j1 :ingest/status :queued}))
   [(get-in started [:settings :uploads]) (ingesting? started)] ;=> [[] true]

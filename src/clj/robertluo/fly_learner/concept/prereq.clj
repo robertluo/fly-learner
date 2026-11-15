@@ -225,6 +225,8 @@ reader of the documents might really lack, most often none, rarely more than
 two. Never name a concept of the index as background, and never name the
 document's field itself (\"game theory\", \"type theory\").
 
+Name background in the language and script of the concepts it serves.
+
 Each index line names the documents mentioning the concept in brackets. A
 concept of another document is a valid need only when it is the same idea:
 \"type\" in a type theory text is not a player's type in a game.
@@ -329,7 +331,8 @@ Concept index:
   Returns {:by model :judged [id ..] :claims [{:of :needs :why}]
   :background [{:of :label :gloss :why}]}: needs naming no concept become
   background. opts: :models, :tier (:common), :batch (8), :threads (4),
-  :on-batch (fn [{:done :total}])."
+  :on-batch (fn [{:done :total}]). A reply cut at its length is asked
+  again in halves."
   [db client ids {:keys [models tier batch threads on-batch] :or {tier :common batch 8 threads 4}}]
   (let [{:keys [concepts] :as g} (graph/load-graph db)
         adj     (graph/edges g)
@@ -341,7 +344,7 @@ Concept index:
         system  (str (prompts/text judge-instructions) (catalogue concepts pages short))
         done    (atom 0)
         pool    (java.util.concurrent.Executors/newFixedThreadPool threads)
-        run     (fn [chunk]
+        run1    (fn [chunk]
                   (let [{reply :concepts}
                         (llm/complete-json client {:system     system
                                                    :prompt     (str (str/join "\n" (map #(concept-brief db g adj pages short %) chunk))
@@ -365,7 +368,14 @@ Concept index:
                         r {:claims     (vec (concat (mapcat :claims out) (filter :needs (mapcat :background out))))
                            :background (vec (remove :needs (mapcat :background out)))}]
                     (when on-batch (on-batch {:done (swap! done + (count chunk)) :total (count ids)}))
-                    r))]
+                    r))
+        run     (fn run [chunk]
+                  (try (run1 chunk)
+                       (catch clojure.lang.ExceptionInfo e
+                         (if (and (llm/truncated? e) (< 1 (count chunk)))
+                           (let [[a b] (split-at (quot (count chunk) 2) chunk)]
+                             (merge-with into (run (vec a)) (run (vec b))))
+                           (throw e)))))]
     (try
       (let [[c0 & more] (partition-all batch ids)
             ;; the first call alone writes the cached system prompt the others read
@@ -474,6 +484,8 @@ Keep different ideas apart even when their words overlap. Every name goes to
 exactly one group. When a group is in fact a concept of the index below, give
 its index label as existing (else an empty string).
 
+Write labels and glosses in the language and script of the names they cover.
+
 Concept index:
 "}))
 
@@ -489,6 +501,8 @@ Concept index:
    :required ["groups"]
    :additionalProperties false})
 
+(def ^:private consolidate-names "Background names consolidated a call." 120)
+
 (defn consolidate
   "Merge the background of `judgement` (see `judge`) into hidden concepts.
   Returns the judgement with :hidden [{:label :gloss :needed-by [{:of :why}]}]
@@ -501,17 +515,22 @@ Concept index:
           titles (into {} (d/q '[:find ?id ?t :where [?s :source/id ?id] [?s :source/title ?t]] db))
           names  (by-name concepts)
           by-lbl (group-by :label background)
-          {:keys [groups]}
-          (llm/complete-json client {:system     (str (prompts/text consolidate-instructions)
-                                                      (catalogue concepts (first-pages db) #(source-name titles %)))
-                                     :prompt     (str "Background names (concepts needing it; glosses given):\n"
-                                                      (str/join "\n" (for [[l bs] (sort-by key by-lbl)]
-                                                                       (str "- \"" l "\" (" (count bs) "; "
-                                                                            (->> bs (map :gloss) (remove str/blank?) distinct (take 2) (str/join " | "))
-                                                                            ")"))))
-                                     :model      (llm/model-for models tier)
-                                     :max-tokens 16000
-                                     :schema     consolidate-schema})
+          system (str (prompts/text consolidate-instructions)
+                      (catalogue concepts (first-pages db) #(source-name titles %)))
+          ;; `consolidate-names` names a call; a name in two calls' groups goes to the first
+          groups (vec (mapcat
+                       (fn [names]
+                         (:groups (llm/complete-json
+                                   client {:system     system
+                                           :prompt     (str "Background names (concepts needing it; glosses given):\n"
+                                                            (str/join "\n" (for [[l bs] names]
+                                                                             (str "- \"" l "\" (" (count bs) "; "
+                                                                                  (->> bs (map :gloss) (remove str/blank?) distinct (take 2) (str/join " | "))
+                                                                                  ")"))))
+                                           :model      (llm/model-for models tier)
+                                           :max-tokens 16000
+                                           :schema     consolidate-schema})))
+                       (partition-all consolidate-names (sort-by key by-lbl))))
           ;; each name to its first group
           [groups _] (reduce (fn [[out taken] g]
                                (let [ns (->> (:names g) (map norm) (filter by-lbl) (remove taken) distinct vec)]
@@ -553,20 +572,26 @@ Concept index:
           [{:edit/op :prereqs :edit/by by :edit/at (java.util.Date.)
             :edit/args {:judged (count judged) :claims (count claims) :hidden (mapv :label hidden)}}]))))
 
+(def ^:private judge-round "Concepts judged, consolidated and stored together." 160)
+
 (defn judge!
   "Judge the pending concepts of source `source-id` (all when nil), merge
-  their background into hidden concepts and store it all. opts as `judge`.
+  their background into hidden concepts and store it all, `judge-round`
+  concepts at a time (a failure keeps the rounds before it; a later round
+  sees the hidden concepts of the earlier). opts as `judge`.
   Returns {:judged n :claims n :hidden n}."
   [conn client source-id opts]
-  (let [db  (d/db conn)
-        ids (pending db source-id)]
-    (if (empty? ids)
-      {:judged 0 :claims 0 :hidden 0}
-      (let [j (consolidate db client (judge db client ids opts) opts)]
-        ;; a keyword ignored as too generic that now names hidden background is ignored no more
-        (d/transact! conn (into (->tx j)
-                                (for [{:keys [label]} (:hidden j)
-                                      :let [e (d/entid db [:ignored/keyword label])] :when e]
-                                  [:db/retractEntity e])))
-        {:judged (count ids) :claims (+ (count (:claims j)) (reduce + (map (comp count :needed-by) (:hidden j))))
-         :hidden (count (:hidden j))}))))
+  (reduce
+   (fn [acc ids]
+     (let [db (d/db conn)
+           j  (consolidate db client (judge db client ids opts) opts)]
+       ;; a keyword ignored as too generic that now names hidden background is ignored no more
+       (d/transact! conn (into (->tx j)
+                               (for [{:keys [label]} (:hidden j)
+                                     :let [e (d/entid db [:ignored/keyword label])] :when e]
+                                 [:db/retractEntity e])))
+       (merge-with + acc {:judged (count ids)
+                          :claims (+ (count (:claims j)) (reduce + (map (comp count :needed-by) (:hidden j))))
+                          :hidden (count (:hidden j))})))
+   {:judged 0 :claims 0 :hidden 0}
+   (partition-all judge-round (pending (d/db conn) source-id))))

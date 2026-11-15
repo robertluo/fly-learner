@@ -20,22 +20,30 @@
   (swap! calls conj req)
   {:title (str "T" (count items)) :summary "s" :keywords ["Shared" (str "k" (count path))]})
 
+(defn- studied
+  "The tree of `blocks` without the parts a learner left out."
+  []
+  (outline/without (outline/tree "doc" blocks) ["front matter" "Bibliography"]))
+
 (deftest outline-tree
   (let [t (outline/tree "doc" blocks)]
-    (testing "cover text before the first heading and skipped sections are dropped"
-      (is (= ["1 Intro"] (map :title (:children t)))))
+    (testing "nothing is dropped: text before the first heading is the front matter"
+      (is (= ["Front matter" "1 Intro" "Bibliography"] (map :title (:children t))))
+      (is (= ["cover page"] (map :text (:children (first (:children t)))))))
+    (testing "parts left out by title"
+      (is (= ["1 Intro"] (map :title (:children (studied))))))
     (testing "subsection nests under its chapter after the chapter's paragraphs"
-      (is (= "1.1 Long" (:title (last (:children (first (:children t))))))))))
+      (is (= "1.1 Long" (:title (last (:children (first (:children (studied)))))))))))
 
 (deftest regroup-long-runs
-  (let [t  (fold/regroup (outline/tree "doc" blocks) {:max-children 10 :group-size 6})
+  (let [t  (fold/regroup (studied) {:max-children 10 :group-size 6})
         ss (-> t :children first :children last)]
     (is (= [6 6 2] (map (comp count :children) (:children ss))))
     (is (every? :group (:children ss)))))
 
 (deftest fold-pipeline
   (reset! calls [])
-  (let [tree  (fold/regroup (outline/tree "doc" blocks))
+  (let [tree  (fold/regroup (studied))
         nodes (-> (fold/summarize-tree fake-summarize tree) fold/flatten-tree fold/link-by-keywords)
         by-id (into {} (map (juxt :node/id identity)) nodes)
         root  (first (filter #(zero? (:node/level %)) nodes))]

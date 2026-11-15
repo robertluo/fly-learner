@@ -2,7 +2,8 @@
   "Datalevin storage for knowledge: sources, the folded knowledge DAG,
   concepts and asks. Layers above (learning, quiz) bring their own schema;
   they are merged at the composition root (robertluo.fly-learner.server.system)."
-  (:require [datalevin.core :as d]))
+  (:require [datalevin.core :as d]
+            [robertluo.fly-learner.text :as text]))
 
 (def schema
   {;; sources -----------------------------------------------------------
@@ -110,9 +111,12 @@
 
 (defn connect
   "Open (or create) the database at `dir`, with the knowledge `schema` and
-  any `more` schemas (from other layers)."
+  any `more` schemas (from other layers); full-text search reads Chinese
+  and Japanese too (robertluo.fly-learner.text/analyzer: text indexed
+  before it, by Datalevin's analyzer, is found only by whole runs of
+  characters until re-ingested, or `copy!`)."
   [dir & more]
-  (d/get-conn dir (apply merge schema more)))
+  (d/get-conn dir (apply merge schema more) (text/search-opts)))
 
 (defn close [conn]
   (d/close conn))
@@ -143,8 +147,8 @@
   (datalevin.core/re-index is not used: on 1.2.10 it dropped most of the
   full-text index.)"
   [from to]
-  (let [src  (d/get-conn from)
-        dst  (d/get-conn to schema)
+  (let [src  (d/get-conn from nil (text/search-opts))
+        dst  (d/get-conn to schema (text/search-opts))
         ref? #(= :db.type/ref (get-in schema [% :db/valueType]))]
     (try
       ;; one transaction: refs are tempids, resolved within it

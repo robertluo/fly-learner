@@ -85,7 +85,11 @@ character, odd spacing, hyphens and formula fragments included: it is searched
 for in the text. A long sentence may be cut to the clause that carries it (at
 least 6 words). Give the paragraph's number, and a label: 2 to 6 words naming its
 point like a heading, in the document's terms (\"IDSDS output survives
-rationality\", \"Definition of strict dominance\")."}))
+rationality\", \"Definition of strict dominance\").
+
+Write the label in the language and script of the paragraph (classical
+Chinese: modern written Chinese in the same script), whatever the language of
+these instructions."}))
 
 (def ^:private schema
   {"type" "object"

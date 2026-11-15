@@ -122,9 +122,9 @@
          (api/make-api (:conn db) (:client llm) cfg learning))
 
     ::ring-app
-    (fnk [::cfg ::db ::api-fn]
+    (fnk [::cfg ::db ::api-fn ::llm]
          (make-ring-app (:conn db) api-fn
-                        (fn [req] (ingests/upload-response (:conn db) (:models (settings/llm cfg)) req))))
+                        (fn [req] (ingests/upload-response (:conn db) (:client llm) (:models (settings/llm cfg)) req))))
 
     ::http-server
     (fnk [::cfg ::ring-app]

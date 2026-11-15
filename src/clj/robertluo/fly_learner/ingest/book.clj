@@ -31,7 +31,8 @@
   the page. A block with data-aside is shown but not read (a chapter's
   tags, its byline). Footnotes are shown where the book puts them, but their
   text goes after the paragraph citing them: it is about that paragraph."
-  (:require [clojure.string :as str])
+  (:require [clojure.string :as str]
+            [robertluo.fly-learner.text :as text])
   (:import (java.net URI)
            (org.jsoup.nodes Comment Document Document$OutputSettings$Syntax Element Node TextNode)))
 
@@ -183,7 +184,7 @@
   3000)
 
 (defn- leaf-text [{:keys [nodes]}]
-  (str/trim (str/replace (apply str (map node-text nodes)) #"\s+" " ")))
+  (text/squeeze (apply str (map node-text nodes))))
 
 (defn- paginate
   "Leaves of each document ([[name leaves] ..]) with :page and :doc: a new
@@ -233,7 +234,7 @@
 (defn- heading-title
   "A heading's text, its parts spaced (\"<span>1.1</span><span>The..</span>\")."
   [^Element h]
-  (str/trim (str/replace (str/join " " (map node-text (.childNodes h))) #"\s+" " ")))
+  (text/squeeze (str/join " " (map node-text (.childNodes h)))))
 
 (defn- block-text [{:keys [nodes] :as l}]
   (let [[^Node n] nodes]

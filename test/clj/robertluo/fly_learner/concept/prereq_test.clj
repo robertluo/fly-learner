@@ -1,9 +1,11 @@
 (ns robertluo.fly-learner.concept.prereq-test
-  (:require [clojure.test :refer [deftest is]]
+  (:require [clojure.string :as str]
+            [clojure.test :refer [deftest is]]
             [datalevin.core :as d]
             [robertluo.fly-learner.concept :as concept]
             [robertluo.fly-learner.concept.prereq :as prereq]
-            [robertluo.fly-learner.db :as db]))
+            [robertluo.fly-learner.db :as db]
+            [robertluo.fly-learner.llm :as llm]))
 
 (deftest stored-judgement
   (let [dir     (str (System/getProperty "java.io.tmpdir") "/fly-learner-prereq-" (random-uuid))
@@ -60,4 +62,33 @@
       (prereq/claim! conn b a "one of its defining properties")
       (is (= [{:of b :needs a :why "one of its defining properties" :by "human"}] (prereq/claims (d/db conn))))
       (is (= [:prereqs :unclaim :claim] (map :edit/op (concept/edits (d/db conn)))))
+      (finally (d/close conn)))))
+
+(deftest judged-in-halves-when-cut
+  (let [dir   (str (System/getProperty "java.io.tmpdir") "/fly-learner-prereq-" (random-uuid))
+        conn  (db/connect dir)
+        s     (random-uuid)
+        calls (atom [])]
+    (try
+      (d/transact! conn [{:db/id "s" :source/id s}
+                         {:concept/id (random-uuid) :concept/label "strategy" :concept/aliases ["strategy"]}
+                         {:concept/id (random-uuid) :concept/label "mixed strategy" :concept/aliases ["mixed strategy"]}
+                         {:concept/id (random-uuid) :concept/label "support" :concept/aliases ["support"]}
+                         {:node/id (random-uuid) :node/source "s" :node/page 3 :node/keywords ["strategy"]}
+                         {:node/id (random-uuid) :node/source "s" :node/page 9 :node/keywords ["mixed strategy" "support"]}])
+      ;; a reply about more than one concept (a "### label" each) is cut at its length
+      (with-redefs [llm/complete-json
+                    (fn [_ {:keys [prompt]}]
+                      (swap! calls conj prompt)
+                      (let [asked (map second (re-seq #"(?m)^### (.+)$" prompt))]
+                        (cond (str/starts-with? prompt "Background names")
+                              {:groups [{:label "probability distribution" :gloss "Weights summing to one."
+                                         :names ["probability distribution"] :existing ""}]}
+                              (< 1 (count asked)) (throw (ex-info "Reply truncated at max-tokens" {}))
+                              :else {:concepts [{:concept    (first asked)
+                                                 :needs      []
+                                                 :background [{:label "probability distribution" :gloss "" :why "weights"}]}]})))]
+        (is (= {:judged 3 :claims 3 :hidden 1} (prereq/judge! conn :stub s {:batch 3 :threads 1}))))
+      (is (= 6 (count @calls)) "3 + 2 cut, then each alone, then one consolidation")
+      (is (empty? (prereq/pending (d/db conn) s)))
       (finally (d/close conn)))))

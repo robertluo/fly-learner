@@ -335,7 +335,9 @@ Give each cluster:
 - gloss: one sentence on what the cluster covers, for a learner deciding
   whether to study it.
 
-Labels must be distinct from each other and from the topics already named."}))
+Labels must be distinct from each other and from the topics already named.
+
+Write in the language and script of most of its concepts."}))
 
 (def ^:private namer-schema
   {"type"                 "object"
@@ -359,17 +361,40 @@ Labels must be distinct from each other and from the topics already named."}))
                                                       (str "- " label (when gloss (str ": " gloss)))))))
                               clusters))))
 
+(defn in-batches
+  "Names for the `k` (:clusters, ..) of `request` ({k [..] :named [label
+  ..]}) by `call` (a request -> {:names [..]}), `size` a call, each call
+  told the labels given before it: [name-or-nil ..], one per item, in
+  order (a short reply leaves its last items unnamed, never another's)."
+  [call k request size]
+  (loop [[batch & more] (partition-all size (get request k)), named (vec (:named request)), out []]
+    (if-not batch
+      out
+      (let [names (vec (take (count batch) (concat (:names (call {k (vec batch) :named named})) (repeat nil))))]
+        (recur more (into named (keep :label names)) (into out names))))))
+
+^:rct/test
+(comment
+  (in-batches (fn [{:keys [clusters named]}] {:names (mapv #(hash-map :label (str % "/" (count named))) (take 1 clusters))})
+              :clusters {:clusters [:a :b :c] :named ["x"]} 2)
+  ;=> [{:label ":a/1"} nil {:label ":c/2"}]
+  )
+
+(def ^:private namer-batch "Clusters named a call." 20)
+
 (defn llm-namer
-  "Namer backed by Claude (the :strong tier). opts: :models tier overrides."
+  "Namer backed by Claude (the :strong tier), `namer-batch` clusters a call.
+  opts: :models tier overrides."
   [client {:keys [models]}]
-  (let [model (llm/model-for models :strong)]
-    (fn [batch]
-      (let [{:keys [names]} (llm/complete-json client {:system     (prompts/text namer-system)
-                                                       :prompt     (namer-prompt batch)
-                                                       :model      model
-                                                       :max-tokens 4000
-                                                       :schema     namer-schema})]
-        {:names (vec names) :by model}))))
+  (let [model (llm/model-for models :strong)
+        call  (fn [batch]
+                (llm/complete-json client {:system     (prompts/text namer-system)
+                                           :prompt     (namer-prompt batch)
+                                           :model      model
+                                           :max-tokens 6000
+                                           :schema     namer-schema}))]
+    (fn [request]
+      {:names (in-batches call :clusters request namer-batch) :by model})))
 
 ;;=============================================================================
 ;; Reading

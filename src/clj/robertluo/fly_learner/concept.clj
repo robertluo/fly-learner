@@ -141,9 +141,10 @@
 
   Returns {:tx [...] :new n :attached n :ignored n :missing #{keyword ...}}."
   [existing keywords {:keys [concepts ignored]} by]
-  (let [wanted   (set keywords)
-        by-name  (into {} (for [c existing, a (conj (:concept/aliases c) (:concept/label c))]
+  (let [by-name  (into {} (for [c existing, a (conj (:concept/aliases c) (:concept/label c))]
                             [(norm a) (:db/id c)]))
+        ;; a keyword naming a concept already (an earlier batch's label) is resolved
+        wanted   (set (remove by-name keywords))
         ;; reply concepts with one label are one concept
         merged   (->> concepts
                       (keep (fn [c] (let [l (norm (or (:label c) ""))] (when-not (str/blank? l) (assoc c :label l)))))
@@ -211,13 +212,18 @@
   :resolve edit with the reply. `:on-batch` is called with each batch's
   result.
 
-  Returns totals {:batches :new :attached :ignored :missing}."
+  Returns totals {:batches :new :attached :ignored :missing}. A keyword an
+  earlier batch's concept came to be named by is not asked about again."
   ([conn resolver] (resolve! conn resolver {}))
   ([conn resolver {:keys [batch-size on-batch] :or {batch-size 80 on-batch (fn [_])}}]
    (let [todo (unresolved (d/db conn))]
      (reduce (fn [acc batch]
                (let [existing (concepts (d/db conn))
-                     reply    (resolver {:concepts existing
+                     named    (set (mapcat #(conj (:concept/aliases %) (norm (:concept/label %))) existing))
+                     batch    (vec (remove named batch))]
+                 (if (empty? batch)
+                   acc
+                 (let [reply    (resolver {:concepts existing
                                          :keywords (mapv #(assoc (todo %) :keyword %) batch)})
                      by       (:by reply "unknown")
                      {:keys [tx] :as r} (resolution->tx existing batch reply by)]
@@ -226,7 +232,7 @@
                  (on-batch (dissoc r :tx))
                  (-> (merge-with + acc (select-keys r [:new :attached :ignored]))
                      (update :batches inc)
-                     (update :missing into (:missing r)))))
+                     (update :missing into (:missing r)))))))
              {:batches 0 :new 0 :attached 0 :ignored 0 :missing (sorted-set)}
              (batches (keys todo) batch-size)))))
 
@@ -267,7 +273,11 @@ Assign every new keyword to exactly one concept, or ignore it.
   may create a concept without keywords only to serve as a broader parent of
   others.
 - ignored: keywords too generic to name a specific idea, e.g. \"proof\",
-  \"definition\", \"example\", \"motivation\"."}))
+  \"definition\", \"example\", \"motivation\".
+
+Write labels and glosses in the language and script of the keywords
+(classical Chinese: modern written Chinese in the same script), whatever the
+language of these instructions."}))
 
 (def ^:private reply-schema
   {:type "object"
@@ -326,7 +336,11 @@ Assign every new keyword to exactly one concept, or ignore it.
     "You write the gloss of a concept in a personal knowledge base: one sentence
 fixing its sense as the given passages use it, as a textbook glossary would
 (\"A strategy profile from which no player gains by deviating alone.\").
-Do not start with the concept's name; no citations."}))
+Do not start with the concept's name; no citations.
+
+Write in the language and script of the material you are given (classical
+Chinese: modern written Chinese in the same script), whatever the language
+of these instructions."}))
 
 (defn llm-gloss
   "(fn [label passages] gloss) backed by Claude (the :common tier): the sense
@@ -543,11 +557,16 @@ of `label` in `passages` (texts), in one sentence. opts: :models"
            ids))
 
 (defn- phrase-re
-  "Matches `term` as whole words, any case, a plural ending allowed."
+  "Matches `term` as whole words, any case, a plural ending allowed. Chinese
+  and Japanese have no spaces between words: a term starting (ending) with
+  a CJK character may start (end) anywhere."
   [term]
-  (re-pattern (str "(?iu)(?<![\\p{L}\\p{N}])"
-                   (str/join "\\s+" (map #(java.util.regex.Pattern/quote %) (str/split (str/trim term) #"\s+")))
-                   "(?:s|es)?(?![\\p{L}\\p{N}])")))
+  (let [term (str/trim term)
+        edge #(re-matches #"[\p{IsHan}\p{IsHiragana}\p{IsKatakana}]" (str %))]
+    (re-pattern (str "(?iu)"
+                     (when-not (edge (first term)) "(?<![\\p{L}\\p{N}])")
+                     (str/join "\\s+" (map #(java.util.regex.Pattern/quote %) (str/split term #"\s+")))
+                     (when-not (edge (last term)) "(?:s|es)?(?![\\p{L}\\p{N}])")))))
 
 (defn naming-nodes
   "Ids of the nodes whose text or title names one of `terms` (whole words,
@@ -564,6 +583,7 @@ of `label` in `passages` (texts), in one sentence. opts: :models"
   (re-find (phrase-re "lambda  calculus") "The Lambda calculi and Lambda calculus.") ;=> "Lambda calculus"
   (re-find (phrase-re "type") "typed terms") ;=> nil
   (re-find (phrase-re "stream") "infinite streams.") ;=> "streams"
+  (re-find (phrase-re "軒轅") "名曰軒轅。生而神靈") ;=> "軒轅"
   )
 
 (defn keyword-nodes

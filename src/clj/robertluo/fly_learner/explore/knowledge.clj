@@ -128,7 +128,9 @@ plot, diagram, steps, predict, slider), `pitch` one line saying what the learner
 will do, concrete and specific to the passage, starting with a verb: \"Step through
 the normal-order reduction of K z Ω and watch Ω vanish\", \"Move the temptation
 payoff and watch which cells stay Nash equilibria\". Return an empty list when
-none qualifies."}))
+none qualifies.
+
+Write the pitch in the language and script of the passage."}))
 
 (def ^:private propose-schema
   {"type" "object"
@@ -347,7 +349,9 @@ The spec as one JSON object, and nothing else: no prose, no code fence.
 Your spec is run before it is kept: every expression read, the page shown from its
 start and from each state one action away (each frame, each slider at both ends,
 each option, each click). If something fails you get the problems back; return the
-whole spec corrected."}))
+whole spec corrected.
+
+Write what the learner reads in the language and script of the passage."}))
 
 (defn- entries-text [entries]
   (str/join "\n\n" (map-indexed (fn [i {:keys [text]}] (str "[" (inc i) "] " text)) entries)))

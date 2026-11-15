@@ -35,7 +35,7 @@
 
 (defn- print-preview!
   "Print `ingest/preview` of the source at `path`."
-  [path {:keys [title type pages chars sections about estimate]}]
+  [path {:keys [title type pages chars sections parts about estimate]}]
   (let [{:keys [manifest chapters left-out unlisted missing repo]} about]
     (println (format "%s: \"%s\", %d pages, %,d characters" path title pages chars))
     (when (= :markdown type)
@@ -48,6 +48,8 @@
       (when (seq missing) (println "  listed but missing:" (str/join ", " missing))))
     (doseq [{:keys [title depth page chars]} sections]
       (println (format "  %-56s p.%-4s %,8d" (str (apply str (repeat (dec depth) "  ")) title) page chars)))
+    (doseq [{:keys [title not-work]} parts :when not-work]
+      (println (format "  left out, not the work (%s): %s" not-work title)))
     (println (format "  Folding: %s calls, about $%.2f (a rough estimate; the steps after it, concepts to explorations, cost more)"
                      (str/join " + " (for [[tier n] (sort-by key (:calls estimate))] (str n " " (name tier))))
                      (:usd estimate)))))
@@ -61,10 +63,13 @@
   there is one, else opens it and closes it after. Prints progress and the
   cost. Returns {:sources [..] :concepts totals}.
   Options among the paths:
-    --skip <part>,..  parts (manifest titles) or files of a Markdown folder
-                      left out; kept: ingesting the folder again leaves them out
+    --skip <part>,..  parts left out, by title (a Markdown folder's files
+                      too); kept: ingesting it again leaves them out. Without
+                      it, the parts the model judged not the work (a licence,
+                      an index) are left out
     --outline         only print what each source would make (chapters,
-                      pages, a rough cost of folding it); no model, no db"
+                      pages, a rough cost of folding it); no model (what one
+                      judged of it before, if any), no db"
   [& args]
   (let [{:keys [paths skip outline?]} (options args)
         paths   (map pipeline/source-path paths)
